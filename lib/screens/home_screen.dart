@@ -7,6 +7,7 @@ import '../providers/settings_provider.dart';
 import '../providers/torrent_provider.dart';
 import '../providers/connection_provider.dart';
 import '../utils/constants.dart';
+import '../utils/feedback_utils.dart';
 import '../widgets/add_torrent_dialog.dart';
 import '../widgets/connection_status_widget.dart';
 import '../widgets/torrent_list_item.dart';
@@ -286,8 +287,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           .deleteTorrent(torrent.hash, deleteFiles: result.deleteFiles);
 
       if (!success && context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to delete torrent')),
+        AppSnackBar.showError(
+          context,
+          message: 'Failed to delete torrent',
         );
       }
     }
@@ -296,8 +298,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Future<void> _showAddTorrentDialog(BuildContext context) async {
     final result = await showAddTorrentDialog(context);
     if (result == true && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Torrent added successfully')),
+      AppSnackBar.showSuccess(
+        context,
+        message: 'Torrent added successfully',
       );
     }
   }

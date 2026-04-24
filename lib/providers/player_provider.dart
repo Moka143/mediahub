@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../models/local_media_file.dart';
+import '../utils/constants.dart';
 import 'watch_progress_provider.dart';
 
 /// Notifier for current playing file
@@ -133,6 +135,10 @@ class PlayerService {
   }) async {
     _currentFile = file;
     ref.read(currentPlayingFileProvider.notifier).set(file);
+
+    // Reflect what's playing in the OS window title so the taskbar / Alt-Tab
+    // switcher shows something more useful than "MediaHub".
+    unawaited(windowManager.setTitle(_windowTitleFor(file)));
 
     // For streaming (partially downloaded files), enable mpv cache so it
     // can pause/resume when it reaches the edge of available data.
@@ -332,9 +338,31 @@ class PlayerService {
       await _player.stop();
       _currentFile = null;
       ref.read(currentPlayingFileProvider.notifier).set(null);
+      unawaited(windowManager.setTitle(AppConstants.appName));
     } catch (e) {
       // Ignore errors during stop - provider may be disposed
     }
+  }
+
+  /// Build a friendly window-title string for a media file.
+  ///
+  /// Uses `Show Name — S01E02` for episodes, the bare show name for shows
+  /// without episode info, and the file name as the fallback. Always suffixed
+  /// with the app name so users know which window is MediaHub in the taskbar.
+  String _windowTitleFor(LocalMediaFile file) {
+    String primary;
+    if (file.showName != null &&
+        file.seasonNumber != null &&
+        file.episodeNumber != null) {
+      final s = file.seasonNumber!.toString().padLeft(2, '0');
+      final e = file.episodeNumber!.toString().padLeft(2, '0');
+      primary = '${file.showName} — S${s}E$e';
+    } else if (file.showName != null) {
+      primary = file.showName!;
+    } else {
+      primary = file.fileName;
+    }
+    return '$primary · ${AppConstants.appName}';
   }
 
   /// Dispose resources

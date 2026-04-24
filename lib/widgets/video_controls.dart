@@ -7,6 +7,7 @@ import '../models/local_media_file.dart';
 import '../providers/player_provider.dart';
 import '../providers/subtitle_provider.dart';
 import '../services/opensubtitles_service.dart';
+import '../utils/feedback_utils.dart';
 
 /// Custom video controls overlay
 class VideoControlsOverlay extends ConsumerWidget {
@@ -18,6 +19,7 @@ class VideoControlsOverlay extends ConsumerWidget {
   final VoidCallback onSeekBackward;
   final VoidCallback onToggleFullscreen;
   final VoidCallback onClose;
+  final VoidCallback onShowShortcuts;
 
   const VideoControlsOverlay({
     super.key,
@@ -29,6 +31,7 @@ class VideoControlsOverlay extends ConsumerWidget {
     required this.onSeekBackward,
     required this.onToggleFullscreen,
     required this.onClose,
+    required this.onShowShortcuts,
   });
 
   @override
@@ -133,6 +136,16 @@ class VideoControlsOverlay extends ConsumerWidget {
 
           // Playback speed button
           _PlaybackSpeedButton(),
+
+          // Keyboard shortcuts help
+          IconButton(
+            icon: const Icon(
+              Icons.keyboard_rounded,
+              color: Colors.white,
+            ),
+            tooltip: 'Keyboard shortcuts (?)',
+            onPressed: onShowShortcuts,
+          ),
         ],
       ),
     );
@@ -775,8 +788,9 @@ class _SubtitleButton extends ConsumerWidget {
     } catch (e) {
       debugPrint('Failed to load subtitle: $e');
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load subtitle: ${e.toString()}')),
+        AppSnackBar.showError(
+          context,
+          message: 'Failed to load subtitle: ${e.toString()}',
         );
       }
     }

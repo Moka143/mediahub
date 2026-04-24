@@ -8,6 +8,7 @@ import '../models/watch_progress.dart';
 import '../providers/local_media_provider.dart';
 import '../providers/navigation_provider.dart';
 import '../providers/watch_progress_provider.dart';
+import '../utils/feedback_utils.dart';
 import '../widgets/common/empty_state.dart';
 import '../widgets/common/loading_state.dart';
 import '../widgets/media/media.dart';
@@ -269,8 +270,9 @@ class _WatchScreenState extends ConsumerState<WatchScreen> {
                   .read(watchProgressProvider.notifier)
                   .clearProgress(progress.filePath);
               Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Removed from Continue Watching')),
+              AppSnackBar.showInfo(
+                context,
+                message: 'Removed from Continue Watching',
               );
             },
             child: const Text('Remove'),

@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../design/app_tokens.dart';
 import '../providers/settings_provider.dart';
 import '../utils/constants.dart';
+import '../utils/feedback_utils.dart';
 import 'main_navigation_screen.dart';
 
 /// First-run screen: asks the user to paste their TMDB API key.
@@ -41,8 +42,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   Future<void> _openUrl(Uri url) async {
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not open ${url.toString()}')),
+      AppSnackBar.showError(
+        context,
+        message: 'Could not open ${url.toString()}',
       );
     }
   }

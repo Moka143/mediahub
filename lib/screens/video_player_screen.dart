@@ -21,6 +21,7 @@ import '../providers/subtitle_provider.dart';
 import '../providers/watch_progress_provider.dart';
 import '../services/auto_download_service.dart';
 import '../widgets/next_episode_overlay.dart';
+import '../widgets/shortcuts_help_dialog.dart';
 import '../widgets/streaming_status_indicator.dart';
 import '../widgets/video_controls.dart';
 
@@ -628,7 +629,23 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
 
     final newFullscreen = !_isFullscreen;
     setState(() => _isFullscreen = newFullscreen);
+
+    // On Windows, setFullScreen leaves WS_CAPTION on the window so the title
+    // bar (with min/max/close) still shows. Hide it explicitly before going
+    // fullscreen and restore it on exit.
+    if (newFullscreen) {
+      await windowManager.setTitleBarStyle(
+        TitleBarStyle.hidden,
+        windowButtonVisibility: false,
+      );
+    }
     await windowManager.setFullScreen(newFullscreen);
+    if (!newFullscreen) {
+      await windowManager.setTitleBarStyle(
+        TitleBarStyle.normal,
+        windowButtonVisibility: true,
+      );
+    }
 
     // Let the surface settle, then restore whichever subtitle was selected.
     await Future.delayed(const Duration(milliseconds: 200));
@@ -658,6 +675,10 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     await playerService.stop();
     if (_isFullscreen) {
       await windowManager.setFullScreen(false);
+      await windowManager.setTitleBarStyle(
+        TitleBarStyle.normal,
+        windowButtonVisibility: true,
+      );
     }
     if (mounted) {
       Navigator.of(context).pop();
@@ -754,8 +775,13 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     _bufferingDebounceTimer?.cancel();
     _bufferingSubscription?.cancel();
     // Note: Don't use ref.read() in dispose - providers will clean up themselves
-    // Exit fullscreen on dispose
+    // Exit fullscreen and restore the native title bar on dispose (in case
+    // we're still in fullscreen when the route is popped some other way).
     windowManager.setFullScreen(false);
+    windowManager.setTitleBarStyle(
+      TitleBarStyle.normal,
+      windowButtonVisibility: true,
+    );
     super.dispose();
   }
 
@@ -852,6 +878,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
                                 ref.read(playerServiceProvider).seekBackward(),
                             onToggleFullscreen: _toggleFullscreen,
                             onClose: _exitPlayer,
+                            onShowShortcuts: _showShortcutsDialog,
                           ),
                         ),
                       ),
@@ -1453,6 +1480,11 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     }
   }
 
+  void _showShortcutsDialog() {
+    _onUserInteraction();
+    ShortcutsHelpDialog.show(context);
+  }
+
   void _handleKeyEvent(KeyEvent event, WidgetRef ref) {
     if (event is! KeyDownEvent) return;
 
@@ -1494,6 +1526,11 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         } else {
           _exitPlayer();
         }
+        break;
+      case LogicalKeyboardKey.question:
+      case LogicalKeyboardKey.slash:
+        // ? on US layouts is Shift+/. Accept either.
+        _showShortcutsDialog();
         break;
     }
   }

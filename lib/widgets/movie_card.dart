@@ -36,6 +36,7 @@ class _MovieCardState extends State<MovieCard>
     final isDark = theme.brightness == Brightness.dark;
 
     return MouseRegion(
+      cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
       child: GestureDetector(

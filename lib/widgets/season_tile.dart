@@ -92,7 +92,9 @@ class SeasonTile extends StatelessWidget {
           if (isLoading)
             Padding(
               padding: EdgeInsets.all(AppSpacing.xl),
-              child: const Center(child: LoadingIndicator()),
+              child: const Center(
+                child: LoadingIndicator(message: 'Loading episodes...'),
+              ),
             )
           else if (episodes.isEmpty)
             Padding(

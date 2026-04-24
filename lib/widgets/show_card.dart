@@ -42,6 +42,7 @@ class _ShowCardState extends State<ShowCard>
     final isDark = theme.brightness == Brightness.dark;
 
     return MouseRegion(
+      cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
       child: GestureDetector(

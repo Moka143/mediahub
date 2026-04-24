@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_torrent_client/screens/main_navigation_screen.dart';
@@ -41,9 +40,11 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       ),
     );
 
-    _controller.forward();
-
-    Timer(const Duration(milliseconds: 2500), () {
+    // Navigate as soon as the entrance animation finishes + a short hold so
+    // users actually see the logo in its final state. Previously we waited a
+    // fixed 2.5 s regardless of animation progress, which felt sluggish.
+    _controller.forward().whenComplete(() async {
+      await Future.delayed(const Duration(milliseconds: 400));
       if (!mounted) return;
       final hasKey = ref.read(hasTmdbApiKeyProvider);
       Navigator.of(context).pushReplacement(
