@@ -1,255 +1,185 @@
 # MediaHub
 
-A cross-platform Flutter desktop media client.
+A cross-platform Flutter desktop app for browsing, streaming, and managing torrent-backed movies and TV shows.
+
+Browse the TMDB catalog, pick a torrent, and stream it directly in the built-in player — no separate downloads, no waiting for the file to finish. Manages a local qBittorrent instance under the hood.
 
 ![Flutter](https://img.shields.io/badge/Flutter-3.x-blue)
-![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-green)
+![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-green)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
 ## Features
 
-### Core Features
-- ✅ **Torrent Management** - Add, pause, resume, delete torrents
-- ✅ **Magnet Links** - Add torrents via magnet links
-- ✅ **Torrent Files** - Add torrents via .torrent files
-- ✅ **Real-time Updates** - Live progress, speeds, and ETA
-- ✅ **File Management** - View and set priority for individual files
-- ✅ **Peer Information** - View connected peers with country flags
-- ✅ **Tracker Status** - Monitor tracker connections
-- ✅ **Filter & Sort** - Filter by status, sort by various criteria
+### Media browser
+- Browse popular, trending, and top-rated movies and TV shows via TMDB
+- Show details with seasons, episodes, cast, ratings, trailers
+- Search across movies and shows
+- Calendar view for upcoming episodes of favorited shows
+- Local media library — auto-scans a configured folder for already-downloaded videos
 
-### UI Features
-- ✅ **Material Design 3** - Modern, clean interface
-- ✅ **Dark/Light Theme** - System, light, or dark mode
-- ✅ **Responsive Layout** - Adapts to different window sizes
-- ✅ **Connection Status** - Real-time connection indicator
+### Streaming
+- Stream torrents directly while they download (sequential mode, sparse allocation)
+- In-app player powered by media_kit / libmpv — handles every common codec
+- Torrent sources from EZTV (TV) and Torrentio (movies + TV)
+- Source picker when multiple torrents are available
+- Sparse-file-aware playback health monitor — auto-pauses near the download edge and recovers from decoder stalls without freezing
+- Honest seek-bar buffer indicator showing actual on-disk progress, not the demuxer cache
+- Subtitles via OpenSubtitles plus sidecar `.srt` files
+- Continue Watching row with resume-where-you-left-off
+- Binge mode with "Up Next" countdown overlay between episodes
+- Skip-intro / skip-credit gestures with animated ripple
+
+### Torrent management
+- Add torrents via magnet link or `.torrent` file
+- Real-time progress, speeds, ETA, peers, trackers
+- File-level priority and selection
+- Pause / resume / delete with file-removal toggle
+- Filter and sort (status, name, size, progress, speeds)
+
+### Auto-download
+- Favorite a show to auto-download new episodes as they air
+- Per-show quality preference (1080p / 720p / etc.)
+- Status indicators on the Favorites screen
 
 ### Settings
-- ✅ **Connection Settings** - Host, port, credentials
-- ✅ **qBittorrent Path** - Custom executable path
-- ✅ **Auto-start** - Automatically start qBittorrent
-- ✅ **Speed Limits** - Download/upload limits
-- ✅ **Stop Seeding** - Auto-pause when downloads complete
-- ✅ **Update Interval** - Configurable polling rate
+- First-launch TMDB API key onboarding
+- qBittorrent host / port / credentials
+- Auto-start qBittorrent
+- Speed limits
+- Local library scan path
+- Theme (system / light / dark)
 
 ## Requirements
 
-### qBittorrent
-This application requires qBittorrent to be installed with Web UI enabled.
+- **qBittorrent** with Web UI enabled — the app drives qBittorrent as its torrent backend and can launch it for you
+- **TMDB API key** — free, grab one at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api). The first-launch onboarding prompts for it.
+- **Flutter SDK 3.10+** — only needed for building from source
 
-#### Installing qBittorrent
+### Installing qBittorrent
 
 **macOS:**
 ```bash
 brew install --cask qbittorrent
 ```
 
-**Windows:**
-Download from [qBittorrent.org](https://www.qbittorrent.org/download.php)
-
-**Linux:**
-```bash
-# For headless (recommended)
-sudo apt install qbittorrent-nox
-
-# For GUI version
-sudo apt install qbittorrent
-```
+**Windows:** Download from [qbittorrent.org](https://www.qbittorrent.org/download.php).
 
 ### Enabling Web UI in qBittorrent
+1. Open qBittorrent → **Preferences** → **Web UI**
+2. Tick **Enable the Web User Interface (Remote control)**
+3. Port **8080** (default)
+4. Set username and password
+5. Apply
 
-1. Open qBittorrent
-2. Go to **Preferences** → **Web UI**
-3. Check **"Enable the Web User Interface (Remote control)"**
-4. Set port to **8080** (default)
-5. Set username and password (default: admin / [empty])
-6. Click **Apply**
+The onboarding screen guides you through entering these credentials.
 
 ## Installation
 
-### From Source
+### From release (Windows)
 
-1. **Clone the repository:**
-```bash
-git clone https://github.com/yourusername/flutter_torrent_client.git
-cd flutter_torrent_client
-```
+Download the latest `mediahub-vX.Y.Z-windows-portable.zip` or the MSIX installer from [Releases](https://github.com/Moka143/mediahub/releases). Both are produced by CI on every tagged release.
 
-2. **Install dependencies:**
+### From source
+
 ```bash
+git clone https://github.com/Moka143/mediahub.git
+cd mediahub
 flutter pub get
+
+# Run
+flutter run -d macos     # or -d windows
+
+# Build release
+flutter build macos --release
+flutter build windows --release
+
+# Windows MSIX installer (after the release build)
+dart run msix:create --sign-msix false --install-certificate false
 ```
 
-3. **Run the application:**
-```bash
-# macOS
-flutter run -d macos
+## How streaming works
 
-# Windows
-flutter run -d windows
+When you pick an episode or movie:
 
-# Linux
-flutter run -d linux
-```
-
-4. **Build for release:**
-```bash
-# macOS
-flutter build macos
-
-# Windows
-flutter build windows
-
-# Linux
-flutter build linux
-```
-
-## Configuration
-
-### Default Settings
-
-| Setting | Default Value |
-|---------|---------------|
-| Host | localhost |
-| Port | 8080 |
-| Username | admin |
-| Password | (empty) |
-| Auto-start qBittorrent | Yes |
-| Update Interval | 2 seconds |
-
-### qBittorrent Paths
-
-The application looks for qBittorrent at these default locations:
-
-| Platform | Path |
-|----------|------|
-| macOS | /Applications/qBittorrent.app/Contents/MacOS/qBittorrent |
-| Windows | C:\Program Files\qBittorrent\qbittorrent.exe |
-| Linux | /usr/bin/qbittorrent-nox |
-
-You can customize the path in Settings → qBittorrent → qBittorrent Path.
-
-## Usage
-
-### Adding a Torrent
-
-1. Click the **"+ Add Torrent"** button
-2. Either:
-   - Paste a magnet link in the text field, or
-   - Click "Select .torrent file" to choose a file
-3. Optionally select a save location
-4. Toggle "Start immediately" if desired
-5. Click **Add**
-
-### Managing Torrents
-
-- **Pause/Resume**: Click the pause/play button on a torrent
-- **Delete**: Click the delete button, choose whether to delete files
-- **View Details**: Click on a torrent to open the details screen
-
-### Torrent Details
-
-The details screen shows:
-- **Files Tab**: List of files with priority selection
-- **Peers Tab**: Connected peers with country, client, and speeds
-- **Trackers Tab**: Tracker URLs with status
-- **Info Tab**: Torrent hash, dates, and statistics
-
-### Filtering and Sorting
-
-Use the filter chips at the top to show:
-- All / Downloading / Seeding / Completed / Paused / Active / Inactive / Errored
-
-Click the sort dropdown to sort by:
-- Name / Size / Progress / Download Speed / Upload Speed / Added Date / ETA
+1. The app queries EZTV / Torrentio for available torrents.
+2. The selected torrent is added to qBittorrent in **sequential download** mode with sparse-file allocation, so pieces arrive in playback order.
+3. The streaming service waits until enough of the file's head is on disk for playback to start.
+4. The player (`media_kit` / libmpv) opens the partially-downloaded file directly.
+5. A playback health monitor watches the gap between your current position and the download edge:
+   - Within ~8 s of the edge → auto-pause
+   - ~25 s buffered ahead → auto-resume
+   - Hard decoder stall → back-seek 3 s and retry (sparse-file zero-read recovery)
+6. The seek bar's buffered track reflects the actual on-disk fraction of the file — you can see exactly how far ahead it's safe to scrub.
 
 ## Architecture
 
 ```
 lib/
-├── main.dart           # App entry point
-├── app.dart            # App widget with theme configuration
-├── models/             # Data models
-│   ├── torrent.dart
-│   ├── torrent_file.dart
-│   ├── peer.dart
-│   ├── tracker.dart
-│   └── settings.dart
-├── services/           # API and process services
+├── main.dart, app.dart
+├── design/                       # design tokens, colors, theme
+├── models/                       # Torrent, Movie, Show, Episode, Settings, etc.
+├── services/
+│   ├── tmdb_api_service.dart
+│   ├── eztv_api_service.dart
+│   ├── torrentio_api_service.dart
+│   ├── opensubtitles_service.dart
 │   ├── qbittorrent_api_service.dart
-│   └── qbittorrent_process_service.dart
-├── providers/          # Riverpod state management
-│   ├── connection_provider.dart
-│   ├── settings_provider.dart
-│   └── torrent_provider.dart
-├── screens/            # UI screens
-│   ├── home_screen.dart
-│   ├── torrent_details_screen.dart
-│   └── settings_screen.dart
-├── widgets/            # Reusable widgets
-│   ├── add_torrent_dialog.dart
-│   ├── connection_status_widget.dart
-│   ├── torrent_list_item.dart
-│   ├── torrent_files_tab.dart
-│   ├── torrent_peers_tab.dart
-│   ├── torrent_trackers_tab.dart
-│   └── torrent_info_tab.dart
-└── utils/              # Utilities and constants
-    ├── constants.dart
-    ├── formatters.dart
-    └── platform_utils.dart
+│   ├── qbittorrent_process_service.dart
+│   ├── streaming_service.dart       # file selection, buffer monitoring, player wiring
+│   ├── auto_download_service.dart   # new-episode polling + queueing
+│   └── local_media_scanner.dart
+├── providers/                    # Riverpod 3.x notifiers (one per feature area)
+├── screens/
+│   ├── splash_screen.dart, onboarding_screen.dart
+│   ├── main_navigation_screen.dart  # NavigationRail / NavigationBar
+│   ├── home_screen.dart, movies_screen.dart, shows_screen.dart
+│   ├── movie_details_screen.dart, show_details_screen.dart
+│   ├── favorites_screen.dart, calendar_screen.dart
+│   ├── video_player_screen.dart     # full-screen player + health monitor
+│   ├── torrent_details_screen.dart, settings_screen.dart
+└── widgets/                      # cards, overlays, dialogs, video controls
 ```
+
+## Tech stack
+
+| Concern | Library |
+|---|---|
+| State management | flutter_riverpod 3.x (Notifier pattern) |
+| Video playback | media_kit + media_kit_video + libmpv |
+| HTTP | dio |
+| Torrent control | qBittorrent Web API v2 |
+| Metadata | TMDB v3 |
+| Persistence | shared_preferences |
+| Window chrome | window_manager |
+| Posters | cached_network_image |
 
 ## Troubleshooting
 
 ### "Failed to connect to qBittorrent"
-
-1. Make sure qBittorrent is running
-2. Verify Web UI is enabled in qBittorrent preferences
-3. Check that the port matches (default: 8080)
-4. Verify username and password are correct
+Make sure qBittorrent is running with Web UI enabled, the host/port match Settings, and the credentials are correct.
 
 ### "qBittorrent executable not found"
+Settings → qBittorrent → set the path manually.
 
-1. Go to Settings → qBittorrent
-2. Click the folder icon next to "qBittorrent Path"
-3. Navigate to and select the qBittorrent executable
-
-### "Connection lost"
-
-The app automatically reconnects when qBittorrent becomes available. You can also click the connection status indicator to retry manually.
+### Video freezes mid-stream
+The player includes a stall-recovery monitor that pauses when you outrun the download and back-seeks 3 s on a hard stall. If freezes persist, look at the seek bar — the dim track shows how much of the file is actually on disk. If it isn't advancing, the torrent isn't getting peers.
 
 ### macOS: "App can't be opened because it is from an unidentified developer"
-
-Run this command in Terminal:
 ```bash
-xattr -cr /path/to/Flutter\ Torrent\ Client.app
+xattr -cr /Applications/MediaHub.app
 ```
-
-## Dependencies
-
-| Package | Version | Purpose |
-|---------|---------|---------|
-| dio | ^5.9.0 | HTTP client for API calls |
-| flutter_riverpod | ^3.2.0 | State management |
-| shared_preferences | ^2.5.4 | Settings persistence |
-| file_picker | ^10.3.8 | File/folder selection |
-| path_provider | ^2.1.5 | Platform paths |
-| process_run | ^1.2.4 | Process management |
-| url_launcher | ^6.3.2 | URL handling |
-| window_manager | ^0.5.1 | Desktop window management |
-| intl | ^0.20.2 | Date/time formatting |
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Pull requests welcome. CI runs `dart format --set-exit-if-changed`, `flutter analyze`, `flutter test`, and a Windows build on every PR.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT — see [LICENSE](LICENSE).
 
 ## Acknowledgments
 
-- [qBittorrent](https://www.qbittorrent.org/) - The torrent client this app controls
-- [Flutter](https://flutter.dev/) - The UI framework
-- [Riverpod](https://riverpod.dev/) - State management solution
+- [qBittorrent](https://www.qbittorrent.org/) — torrent backend
+- [TMDB](https://www.themoviedb.org/) — catalog metadata
+- [media_kit](https://pub.dev/packages/media_kit) — libmpv-backed Flutter player
+- [Flutter](https://flutter.dev/) and [Riverpod](https://riverpod.dev/)
