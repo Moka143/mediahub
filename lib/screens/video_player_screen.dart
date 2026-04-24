@@ -5,6 +5,7 @@ import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -619,9 +620,26 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   }
 
   Future<void> _toggleFullscreen() async {
+    // Snapshot selected subtitles before the window resizes — on some
+    // platforms the video surface is recreated during fullscreen transitions
+    // and mpv drops the active external/embedded track. We re-apply below.
+    final externalSub = ref.read(currentExternalSubtitleProvider);
+    final embeddedSub = ref.read(playerProvider).state.track.subtitle;
+
     final newFullscreen = !_isFullscreen;
     setState(() => _isFullscreen = newFullscreen);
     await windowManager.setFullScreen(newFullscreen);
+
+    // Let the surface settle, then restore whichever subtitle was selected.
+    await Future.delayed(const Duration(milliseconds: 200));
+    if (!mounted) return;
+    final playerService = ref.read(playerServiceProvider);
+    if (externalSub != null) {
+      await playerService.loadExternalSubtitle(externalSub.url);
+    } else if (embeddedSub != SubtitleTrack.no() &&
+        embeddedSub != SubtitleTrack.auto()) {
+      await playerService.setSubtitleTrack(embeddedSub);
+    }
   }
 
   Future<void> _handleResume(bool resume) async {
@@ -759,6 +777,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         focusNode: FocusNode()..requestFocus(),
         onKeyEvent: (event) => _handleKeyEvent(event, ref),
         child: MouseRegion(
+          cursor: _showControls ? MouseCursor.defer : SystemMouseCursors.none,
           onHover: (_) => _onUserInteraction(),
           child: Stack(
             fit: StackFit.expand,

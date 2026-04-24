@@ -1,6 +1,6 @@
+import 'dart:async';
 import 'dart:io';
 
-import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -14,8 +14,11 @@ import '../providers/connection_provider.dart' as connection_provider;
 import '../providers/local_media_provider.dart';
 import '../providers/movies_provider.dart';
 import '../providers/navigation_provider.dart';
+import '../providers/streaming_provider.dart';
 import '../providers/torrentio_provider.dart';
+import '../services/streaming_service.dart';
 import '../widgets/movie_card.dart';
+import '../widgets/streaming_progress_overlay.dart';
 import '../widgets/torrentio_stream_picker_dialog.dart';
 import 'video_player_screen.dart';
 
@@ -32,6 +35,17 @@ class MovieDetailsScreen extends ConsumerStatefulWidget {
 class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
   bool _isLoadingStreams = false;
   bool _isStreaming = false;
+  OverlayEntry? _streamingOverlay;
+  ValueNotifier<StreamingOverlayData>? _streamingOverlayData;
+  StreamSubscription<StreamingSession>? _monitorSubscription;
+
+  @override
+  void dispose() {
+    _monitorSubscription?.cancel();
+    _streamingOverlay?.remove();
+    _streamingOverlayData?.dispose();
+    super.dispose();
+  }
 
   Future<void> _onDownloadTap(Movie movieDetails) async {
     if (movieDetails.imdbId == null) {
@@ -104,26 +118,6 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
         return;
       }
 
-      // Get the qBittorrent API service
-      final apiService = ref.read(connection_provider.qbApiServiceProvider);
-
-      // Add the torrent using the magnet link
-      // If streaming, enable sequential download and first/last piece priority
-      final success = await apiService.addTorrent(
-        magnetLink: stream.magnetUri,
-        sequentialDownload: isStreaming,
-        firstLastPiecePrio: isStreaming,
-      );
-      if (!success) {
-        messenger.showSnackBar(
-          const SnackBar(
-            content: Text('Failed to start download'),
-            duration: Duration(seconds: 3),
-          ),
-        );
-        return;
-      }
-
       // Store ref for the SnackBar action callback
       final containerRef = ProviderScope.containerOf(context);
 
@@ -131,32 +125,24 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
       messenger.hideCurrentSnackBar();
 
       if (isStreaming) {
-        // For streaming, show a different message and start monitoring
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text(
-              'Starting stream for "${movie.title}" - playback will begin when ready...',
-            ),
-            backgroundColor: AppColors.info,
-            duration: const Duration(seconds: 5),
-            action: SnackBarAction(
-              label: 'View Downloads',
-              textColor: Colors.white,
-              onPressed: () {
-                messenger.hideCurrentSnackBar();
-                containerRef.read(currentTabIndexProvider.notifier).set(0);
-                rootNavigatorKey.currentState?.popUntil(
-                  (route) => route.isFirst,
-                );
-              },
-            ),
-          ),
-        );
-
-        // Start monitoring for streaming readiness
-        setState(() => _isStreaming = true);
-        _monitorStreamingProgress(stream, movie);
+        await _startStreamingSession(stream, movie);
       } else {
+        // Regular download
+        final apiService = ref.read(connection_provider.qbApiServiceProvider);
+        final success = await apiService.addTorrent(
+          magnetLink: stream.magnetUri,
+          sequentialDownload: false,
+          firstLastPiecePrio: false,
+        );
+        if (!success) {
+          messenger.showSnackBar(
+            const SnackBar(
+              content: Text('Failed to start download'),
+              duration: Duration(seconds: 3),
+            ),
+          );
+          return;
+        }
         messenger.showSnackBar(
           SnackBar(
             content: Text('Started downloading "${movie.title}"'),
@@ -187,89 +173,135 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
     }
   }
 
-  Future<void> _monitorStreamingProgress(
+  /// Start a streaming session with the floating progress overlay —
+  /// mirrors the TV-show flow so movies get the same card-style feedback.
+  Future<void> _startStreamingSession(
     TorrentioStream stream,
     Movie movie,
   ) async {
-    final apiService = ref.read(connection_provider.qbApiServiceProvider);
-    // Use root messenger/navigator so we keep working after the screen is popped
-    final messenger = rootScaffoldMessengerKey.currentState;
+    final containerRef = ProviderScope.containerOf(context);
 
-    try {
-      // Poll for torrent progress — max 10 minutes (120 × 5 s)
-      for (int i = 0; i < 120; i++) {
-        await Future.delayed(const Duration(seconds: 5));
+    _streamingOverlay?.remove();
+    _streamingOverlayData?.dispose();
 
-        // Find the torrent by hash
-        final torrents = await apiService.getTorrents();
-        final torrent = torrents.firstWhereOrNull(
-          (t) => stream.magnetUri.toLowerCase().contains(t.hash.toLowerCase()),
-        );
+    final result = showUpdatableStreamingOverlay(
+      context,
+      title: 'Starting "${movie.title}"',
+      subtitle: stream.isSingleFile
+          ? 'Connecting...'
+          : 'Selecting from pack...',
+      isIndeterminate: true,
+      showClose: true,
+      onClose: () {
+        _streamingOverlay = null;
+        _streamingOverlayData = null;
+      },
+      onViewDownloads: () {
+        _streamingOverlay?.remove();
+        _streamingOverlay = null;
+        _streamingOverlayData?.dispose();
+        _streamingOverlayData = null;
+        containerRef.read(currentTabIndexProvider.notifier).set(0);
+        rootNavigatorKey.currentState?.popUntil((route) => route.isFirst);
+      },
+    );
+    _streamingOverlay = result.entry;
+    _streamingOverlayData = result.data;
 
-        if (torrent == null) continue;
+    setState(() => _isStreaming = true);
+    final session = await ref
+        .read(streamingSessionsProvider.notifier)
+        .startStreaming(stream: stream, movieImdbId: movie.imdbId);
 
-        // Check if ready for streaming (≥5 % of beginning downloaded)
-        final isReady = await apiService.isReadyForStreaming(
-          torrent.hash,
-          minProgress: 0.05,
-        );
+    if (session == null) {
+      _streamingOverlay?.remove();
+      _streamingOverlay = null;
+      _streamingOverlayData?.dispose();
+      _streamingOverlayData = null;
+      if (mounted) setState(() => _isStreaming = false);
+      rootScaffoldMessengerKey.currentState?.showSnackBar(
+        const SnackBar(
+          content: Text('Failed to start streaming session'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
 
-        if (isReady) {
-          messenger?.hideCurrentSnackBar();
-          messenger?.showSnackBar(
-            SnackBar(
-              content: Text('Stream ready! Opening "${movie.title}"...'),
-              backgroundColor: AppColors.success,
-              duration: const Duration(seconds: 3),
-            ),
+    _monitorStreamingSession(session.id, movie);
+  }
+
+  /// Listen to session updates and drive the overlay/player navigation.
+  void _monitorStreamingSession(String sessionId, Movie movie) {
+    final streamingService = ref.read(streamingServiceProvider);
+    final sessionStream = streamingService.getSessionStream(sessionId);
+    if (sessionStream == null) return;
+
+    _monitorSubscription?.cancel();
+    _monitorSubscription = sessionStream.listen((session) {
+      switch (session.state) {
+        case StreamingState.buffering:
+          _streamingOverlayData?.value = StreamingOverlayData(
+            title: 'Buffering "${movie.title}"',
+            subtitle:
+                '${(session.bufferProgress * 100).toStringAsFixed(1)}% ready',
+            progress: session.bufferProgress,
+            isIndeterminate: false,
           );
 
-          // Navigate via root key — works whether screen is mounted or not
-          final videoFile = await _findVideoFile(torrent.contentPath);
-          if (videoFile != null) {
+        case StreamingState.ready:
+          _monitorSubscription?.cancel();
+          _streamingOverlay?.remove();
+          _streamingOverlay = null;
+          _streamingOverlayData?.dispose();
+          _streamingOverlayData = null;
+          if (mounted) setState(() => _isStreaming = false);
+
+          ref.read(streamingSessionsProvider.notifier).clearActiveSession();
+
+          if (session.videoFile != null) {
             rootNavigatorKey.currentState?.push(
               MaterialPageRoute(
                 builder: (_) => VideoPlayerScreen(
-                  file: videoFile,
+                  file: session.videoFile!,
                   movieImdbId: movie.imdbId,
                   isStreaming: true,
                 ),
               ),
             );
+          } else if (session.contentPath != null) {
+            _openStreamingPlayer(session.contentPath!, movie);
           }
-          return;
-        }
 
-        // Progress update every ~30 s
-        if (i % 6 == 0 && i > 0) {
-          messenger?.hideCurrentSnackBar();
-          messenger?.showSnackBar(
+        case StreamingState.error:
+          _monitorSubscription?.cancel();
+          _streamingOverlay?.remove();
+          _streamingOverlay = null;
+          _streamingOverlayData?.dispose();
+          _streamingOverlayData = null;
+          if (mounted) setState(() => _isStreaming = false);
+          rootScaffoldMessengerKey.currentState?.showSnackBar(
             SnackBar(
               content: Text(
-                'Buffering "${movie.title}"... ${(torrent.progress * 100).toStringAsFixed(1)}%',
+                'Streaming error: ${session.errorMessage ?? "Failed to stream"}',
               ),
-              backgroundColor: AppColors.info,
-              duration: const Duration(seconds: 5),
+              backgroundColor: AppColors.error,
+              behavior: SnackBarBehavior.floating,
             ),
           );
-        }
-      }
 
-      // Timeout after 10 min
-      messenger?.showSnackBar(
-        SnackBar(
-          content: Text(
-            'Streaming timeout for "${movie.title}". Download continues in background.',
-          ),
-          backgroundColor: AppColors.warning,
-          duration: const Duration(seconds: 5),
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() => _isStreaming = false);
+        case StreamingState.cancelled:
+          _monitorSubscription?.cancel();
+          _streamingOverlay?.remove();
+          _streamingOverlay = null;
+          _streamingOverlayData?.dispose();
+          _streamingOverlayData = null;
+          if (mounted) setState(() => _isStreaming = false);
+
+        default:
+          break;
       }
-    }
+    });
   }
 
   void _openStreamingPlayer(String contentPath, Movie movie) async {

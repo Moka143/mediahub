@@ -62,6 +62,13 @@ final isBufferingProvider = StreamProvider<bool>((ref) {
   return player.stream.buffering;
 });
 
+/// Provider for buffered position — how far ahead the player has cached.
+/// Used to render the "buffered" region on the seek bar.
+final playbackBufferProvider = StreamProvider<Duration>((ref) {
+  final player = ref.watch(playerProvider);
+  return player.stream.buffer;
+});
+
 /// Provider for volume
 final volumeProvider = StreamProvider<double>((ref) {
   final player = ref.watch(playerProvider);

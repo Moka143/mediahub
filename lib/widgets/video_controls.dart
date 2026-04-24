@@ -35,6 +35,7 @@ class VideoControlsOverlay extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final position = ref.watch(playbackPositionProvider).value ?? Duration.zero;
     final duration = ref.watch(playbackDurationProvider).value ?? Duration.zero;
+    final buffered = ref.watch(playbackBufferProvider).value ?? Duration.zero;
     final volume = ref.watch(volumeProvider).value ?? 100.0;
 
     return Container(
@@ -61,7 +62,14 @@ class VideoControlsOverlay extends ConsumerWidget {
             Expanded(child: Center(child: _buildCenterControls(context))),
 
             // Bottom controls
-            _buildBottomControls(context, ref, position, duration, volume),
+            _buildBottomControls(
+              context,
+              ref,
+              position,
+              duration,
+              buffered,
+              volume,
+            ),
           ],
         ),
       ),
@@ -213,9 +221,15 @@ class VideoControlsOverlay extends ConsumerWidget {
     WidgetRef ref,
     Duration position,
     Duration duration,
+    Duration buffered,
     double volume,
   ) {
     final playerService = ref.read(playerServiceProvider);
+    final theme = Theme.of(context);
+    final hasDuration = duration.inMilliseconds > 0;
+    final bufferedRatio = hasDuration
+        ? (buffered.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0)
+        : 0.0;
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -235,33 +249,65 @@ class VideoControlsOverlay extends ConsumerWidget {
               ),
               SizedBox(width: AppSpacing.sm),
               Expanded(
-                child: SliderTheme(
-                  data: SliderTheme.of(context).copyWith(
-                    trackHeight: 4,
-                    thumbShape: const RoundSliderThumbShape(
-                      enabledThumbRadius: 6,
-                    ),
-                    overlayShape: const RoundSliderOverlayShape(
-                      overlayRadius: 12,
-                    ),
-                    activeTrackColor: Theme.of(context).colorScheme.primary,
-                    inactiveTrackColor: Colors.white.withValues(alpha: 0.3),
-                    thumbColor: Colors.white,
-                  ),
-                  child: Slider(
-                    value: duration.inMilliseconds > 0
-                        ? (position.inMilliseconds / duration.inMilliseconds)
-                              .clamp(0.0, 1.0)
-                        : 0.0,
-                    onChanged: (value) {
-                      if (duration.inMilliseconds > 0) {
-                        final newPosition = Duration(
-                          milliseconds: (value * duration.inMilliseconds)
-                              .round(),
-                        );
-                        playerService.seek(newPosition);
-                      }
-                    },
+                child: SizedBox(
+                  height: 24,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      // Inactive track (full width, darkened)
+                      Container(
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.22),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                      // Buffered track — lighter, behind the slider
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: FractionallySizedBox(
+                          widthFactor: bufferedRatio,
+                          child: Container(
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.45),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                        ),
+                      ),
+                      // Slider — transparent tracks so buffered layer shows through
+                      SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          trackHeight: 4,
+                          thumbShape: const RoundSliderThumbShape(
+                            enabledThumbRadius: 6,
+                          ),
+                          overlayShape: const RoundSliderOverlayShape(
+                            overlayRadius: 12,
+                          ),
+                          activeTrackColor: theme.colorScheme.primary,
+                          inactiveTrackColor: Colors.transparent,
+                          thumbColor: Colors.white,
+                        ),
+                        child: Slider(
+                          value: hasDuration
+                              ? (position.inMilliseconds /
+                                        duration.inMilliseconds)
+                                    .clamp(0.0, 1.0)
+                              : 0.0,
+                          onChanged: (value) {
+                            if (hasDuration) {
+                              final newPosition = Duration(
+                                milliseconds: (value * duration.inMilliseconds)
+                                    .round(),
+                              );
+                              playerService.seek(newPosition);
+                            }
+                          },
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
