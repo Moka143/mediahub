@@ -7,7 +7,7 @@ abstract final class AppColors {
   // Primary brand color - Modern deep indigo/violet
   // ==========================================================================
   static const Color seedColor = Color(0xFF6366F1); // Indigo 500
-  
+
   // Accent colors for gradients and highlights
   static const Color accentPrimary = Color(0xFF8B5CF6); // Violet
   static const Color accentSecondary = Color(0xFF06B6D4); // Cyan
@@ -35,40 +35,40 @@ abstract final class AppColors {
   // ==========================================================================
   // Torrent state colors - Modern gradient-friendly
   // ==========================================================================
-  static const Color downloading = Color(0xFF3B82F6);     // Blue 500
+  static const Color downloading = Color(0xFF3B82F6); // Blue 500
   static const Color downloadingLight = Color(0xFFDBEAFE);
   static const Color downloadingDark = Color(0xFF1D4ED8);
 
-  static const Color seeding = Color(0xFF10B981);         // Emerald 500
+  static const Color seeding = Color(0xFF10B981); // Emerald 500
   static const Color seedingLight = Color(0xFFD1FAE5);
   static const Color seedingDark = Color(0xFF059669);
 
-  static const Color paused = Color(0xFF6B7280);          // Gray 500
+  static const Color paused = Color(0xFF6B7280); // Gray 500
   static const Color pausedLight = Color(0xFFF3F4F6);
   static const Color pausedDark = Color(0xFF4B5563);
 
-  static const Color queued = Color(0xFFF59E0B);          // Amber 500
+  static const Color queued = Color(0xFFF59E0B); // Amber 500
   static const Color queuedLight = Color(0xFFFEF3C7);
   static const Color queuedDark = Color(0xFFD97706);
 
-  static const Color checking = Color(0xFF8B5CF6);        // Violet 500
+  static const Color checking = Color(0xFF8B5CF6); // Violet 500
   static const Color checkingLight = Color(0xFFEDE9FE);
   static const Color checkingDark = Color(0xFF7C3AED);
 
-  static const Color errorState = Color(0xFFEF4444);      // Red 500
+  static const Color errorState = Color(0xFFEF4444); // Red 500
   static const Color errorStateLight = Color(0xFFFEE2E2);
   static const Color errorStateDark = Color(0xFFDC2626);
 
   // ==========================================================================
   // Quality badge colors - Modern with gradients
   // ==========================================================================
-  static const Color quality4K = Color(0xFF8B5CF6);       // Violet
+  static const Color quality4K = Color(0xFF8B5CF6); // Violet
   static const Color quality4KLight = Color(0xFFEDE9FE);
-  static const Color quality1080p = Color(0xFF3B82F6);    // Blue
+  static const Color quality1080p = Color(0xFF3B82F6); // Blue
   static const Color quality1080pLight = Color(0xFFDBEAFE);
-  static const Color quality720p = Color(0xFF10B981);     // Emerald
+  static const Color quality720p = Color(0xFF10B981); // Emerald
   static const Color quality720pLight = Color(0xFFD1FAE5);
-  static const Color qualitySD = Color(0xFF6B7280);       // Gray
+  static const Color qualitySD = Color(0xFF6B7280); // Gray
   static const Color qualitySDLight = Color(0xFFF3F4F6);
 
   // ==========================================================================
@@ -82,9 +82,9 @@ abstract final class AppColors {
   // Rating colors - Gold/star themed
   // ==========================================================================
   static const Color ratingExcellent = Color(0xFF10B981); // 8+
-  static const Color ratingGood = Color(0xFFFBBF24);      // 6-8 (Amber 400)
-  static const Color ratingFair = Color(0xFFF59E0B);      // 4-6
-  static const Color ratingPoor = Color(0xFFEF4444);      // <4
+  static const Color ratingGood = Color(0xFFFBBF24); // 6-8 (Amber 400)
+  static const Color ratingFair = Color(0xFFF59E0B); // 4-6
+  static const Color ratingPoor = Color(0xFFEF4444); // <4
 
   // ==========================================================================
   // Connection status colors
@@ -92,7 +92,7 @@ abstract final class AppColors {
   static const Color connected = Color(0xFF10B981);
   static const Color connecting = Color(0xFFF59E0B);
   static const Color disconnected = Color(0xFFEF4444);
-  
+
   // ==========================================================================
   // Surface colors for cards and containers
   // ==========================================================================
@@ -100,7 +100,7 @@ abstract final class AppColors {
   static const Color surfaceMedium = Color(0xFFF4F4F5);
   static const Color surfaceDark = Color(0xFF18181B);
   static const Color surfaceDarkElevated = Color(0xFF27272A);
-  
+
   // ==========================================================================
   // Gradient presets
   // ==========================================================================
@@ -108,17 +108,17 @@ abstract final class AppColors {
     Color(0xFF6366F1),
     Color(0xFF8B5CF6),
   ];
-  
+
   static const List<Color> gradientSuccess = [
     Color(0xFF10B981),
     Color(0xFF06B6D4),
   ];
-  
+
   static const List<Color> gradientWarning = [
     Color(0xFFF59E0B),
     Color(0xFFF97316),
   ];
-  
+
   static const List<Color> gradientError = [
     Color(0xFFEF4444),
     Color(0xFFF472B6),
@@ -198,7 +198,9 @@ extension TorrentStateColor on String {
 extension QualityColor on String {
   Color get qualityColor {
     final lower = toLowerCase();
-    if (lower.contains('2160') || lower.contains('4k') || lower.contains('uhd')) {
+    if (lower.contains('2160') ||
+        lower.contains('4k') ||
+        lower.contains('uhd')) {
       return AppColors.quality4K;
     } else if (lower.contains('1080')) {
       return AppColors.quality1080p;
@@ -211,7 +213,9 @@ extension QualityColor on String {
 
   Color get qualityLightColor {
     final lower = toLowerCase();
-    if (lower.contains('2160') || lower.contains('4k') || lower.contains('uhd')) {
+    if (lower.contains('2160') ||
+        lower.contains('4k') ||
+        lower.contains('uhd')) {
       return AppColors.quality4KLight;
     } else if (lower.contains('1080')) {
       return AppColors.quality1080pLight;

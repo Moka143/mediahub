@@ -95,15 +95,21 @@ class _TorrentPickerDialogState extends State<TorrentPickerDialog> {
             Container(
               padding: EdgeInsets.all(AppSpacing.lg),
               decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
-                borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+                color: theme.colorScheme.primaryContainer.withValues(
+                  alpha: 0.3,
+                ),
+                borderRadius: BorderRadius.vertical(
+                  top: Radius.circular(AppRadius.lg),
+                ),
               ),
               child: Row(
                 children: [
                   Container(
                     padding: const EdgeInsets.all(AppSpacing.sm),
                     decoration: BoxDecoration(
-                      color: theme.colorScheme.primary.withAlpha(AppOpacity.light),
+                      color: theme.colorScheme.primary.withAlpha(
+                        AppOpacity.light,
+                      ),
                       borderRadius: BorderRadius.circular(AppRadius.sm),
                     ),
                     child: Icon(
@@ -135,7 +141,8 @@ class _TorrentPickerDialogState extends State<TorrentPickerDialog> {
                     onPressed: () => Navigator.of(context).pop(),
                     icon: const Icon(Icons.close_rounded),
                     style: IconButton.styleFrom(
-                      backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                      backgroundColor:
+                          theme.colorScheme.surfaceContainerHighest,
                     ),
                   ),
                 ],
@@ -156,19 +163,20 @@ class _TorrentPickerDialogState extends State<TorrentPickerDialog> {
                       value: _qualityFilter,
                       decoration: InputDecoration(
                         labelText: 'Quality',
-                        contentPadding: EdgeInsets.symmetric(horizontal: AppSpacing.md),
-                        prefixIcon: Icon(Icons.hd_rounded, color: appColors.mutedText),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: AppSpacing.md,
+                        ),
+                        prefixIcon: Icon(
+                          Icons.hd_rounded,
+                          color: appColors.mutedText,
+                        ),
                       ),
                       borderRadius: BorderRadius.circular(AppRadius.md),
                       items: [
-                        const DropdownMenuItem(
-                          value: null,
-                          child: Text('All'),
+                        const DropdownMenuItem(value: null, child: Text('All')),
+                        ..._availableQualities.map(
+                          (q) => DropdownMenuItem(value: q, child: Text(q)),
                         ),
-                        ..._availableQualities.map((q) => DropdownMenuItem(
-                              value: q,
-                              child: Text(q),
-                            )),
                       ],
                       onChanged: (value) {
                         setState(() => _qualityFilter = value);
@@ -182,13 +190,21 @@ class _TorrentPickerDialogState extends State<TorrentPickerDialog> {
                       value: _sortBy,
                       decoration: InputDecoration(
                         labelText: 'Sort by',
-                        contentPadding: EdgeInsets.symmetric(horizontal: AppSpacing.md),
-                        prefixIcon: Icon(Icons.sort_rounded, color: appColors.mutedText),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: AppSpacing.md,
+                        ),
+                        prefixIcon: Icon(
+                          Icons.sort_rounded,
+                          color: appColors.mutedText,
+                        ),
                       ),
                       borderRadius: BorderRadius.circular(AppRadius.md),
                       items: const [
                         DropdownMenuItem(value: 'seeds', child: Text('Seeds')),
-                        DropdownMenuItem(value: 'quality', child: Text('Quality')),
+                        DropdownMenuItem(
+                          value: 'quality',
+                          child: Text('Quality'),
+                        ),
                         DropdownMenuItem(value: 'size', child: Text('Size')),
                       ],
                       onChanged: (value) {
@@ -216,7 +232,8 @@ class _TorrentPickerDialogState extends State<TorrentPickerDialog> {
                             Container(
                               padding: const EdgeInsets.all(AppSpacing.lg),
                               decoration: BoxDecoration(
-                                color: theme.colorScheme.surfaceContainerHighest,
+                                color:
+                                    theme.colorScheme.surfaceContainerHighest,
                                 shape: BoxShape.circle,
                               ),
                               child: Icon(
@@ -228,9 +245,7 @@ class _TorrentPickerDialogState extends State<TorrentPickerDialog> {
                             SizedBox(height: AppSpacing.lg),
                             Text(
                               'No torrents found',
-                              style: TextStyle(
-                                color: appColors.mutedText,
-                              ),
+                              style: TextStyle(color: appColors.mutedText),
                             ),
                           ],
                         ),
@@ -277,10 +292,7 @@ class _TorrentListItem extends StatelessWidget {
   final EztvTorrent torrent;
   final VoidCallback onDownload;
 
-  const _TorrentListItem({
-    required this.torrent,
-    required this.onDownload,
-  });
+  const _TorrentListItem({required this.torrent, required this.onDownload});
 
   @override
   Widget build(BuildContext context) {
@@ -307,10 +319,14 @@ class _TorrentListItem extends StatelessWidget {
                   vertical: AppSpacing.xs,
                 ),
                 decoration: BoxDecoration(
-                  color: _getQualityColor(torrent.quality).withValues(alpha: 0.15),
+                  color: _getQualityColor(
+                    torrent.quality,
+                  ).withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(AppRadius.full),
                   border: Border.all(
-                    color: _getQualityColor(torrent.quality).withValues(alpha: 0.4),
+                    color: _getQualityColor(
+                      torrent.quality,
+                    ).withValues(alpha: 0.4),
                   ),
                 ),
                 child: Text(
@@ -411,8 +427,8 @@ class _TorrentListItem extends StatelessWidget {
     final color = score >= 60
         ? Colors.green
         : score >= 30
-            ? Colors.orange
-            : Colors.red;
+        ? Colors.orange
+        : Colors.red;
 
     return Container(
       width: 32,
@@ -426,8 +442,8 @@ class _TorrentListItem extends StatelessWidget {
           score >= 60
               ? Icons.signal_cellular_4_bar_rounded
               : score >= 30
-                  ? Icons.signal_cellular_alt_2_bar_rounded
-                  : Icons.signal_cellular_alt_1_bar_rounded,
+              ? Icons.signal_cellular_alt_2_bar_rounded
+              : Icons.signal_cellular_alt_1_bar_rounded,
           size: 16,
           color: color,
         ),

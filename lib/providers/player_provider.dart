@@ -16,9 +16,10 @@ class CurrentPlayingFileNotifier extends Notifier<LocalMediaFile?> {
 }
 
 /// Current playing file provider
-final currentPlayingFileProvider = NotifierProvider<CurrentPlayingFileNotifier, LocalMediaFile?>(
-  CurrentPlayingFileNotifier.new,
-);
+final currentPlayingFileProvider =
+    NotifierProvider<CurrentPlayingFileNotifier, LocalMediaFile?>(
+      CurrentPlayingFileNotifier.new,
+    );
 
 /// Global player instance - not autoDispose to prevent issues
 Player? _globalPlayer;
@@ -118,7 +119,11 @@ class PlayerService {
   /// Open and play a video file.
   /// Set [isStreaming] to true when opening a partially downloaded file
   /// to configure mpv's cache for tolerating incomplete data.
-  Future<void> openFile(LocalMediaFile file, {Duration? startPosition, bool isStreaming = false}) async {
+  Future<void> openFile(
+    LocalMediaFile file, {
+    Duration? startPosition,
+    bool isStreaming = false,
+  }) async {
     _currentFile = file;
     ref.read(currentPlayingFileProvider.notifier).set(file);
 
@@ -134,7 +139,10 @@ class PlayerService {
       await nativePlayer.setProperty('cache-pause-wait', '1');
       // Start playback immediately — don't wait for initial cache fill
       await nativePlayer.setProperty('cache-pause-initial', 'no');
-      await nativePlayer.setProperty('demuxer-max-bytes', '150000000'); // 150 MB
+      await nativePlayer.setProperty(
+        'demuxer-max-bytes',
+        '150000000',
+      ); // 150 MB
       // Moderate read-ahead so the demuxer stays within downloaded data
       await nativePlayer.setProperty('demuxer-readahead-secs', '30');
     }
@@ -179,12 +187,15 @@ class PlayerService {
       }
     });
 
-    return _firstPlayCompleter!.future.timeout(timeout, onTimeout: () {
-      _firstPlaySubscription?.cancel();
-      _firstPlaySubscription = null;
-      // Recovery: force play if mpv got stuck in cache-pause
-      _player.play();
-    });
+    return _firstPlayCompleter!.future.timeout(
+      timeout,
+      onTimeout: () {
+        _firstPlaySubscription?.cancel();
+        _firstPlaySubscription = null;
+        // Recovery: force play if mpv got stuck in cache-pause
+        _player.play();
+      },
+    );
   }
 
   /// Start saving progress periodically
@@ -276,12 +287,12 @@ class PlayerService {
       await _player.setVolume(100);
     }
   }
-  
+
   /// Set playback speed/rate
   Future<void> setPlaybackRate(double rate) async {
     await _player.setRate(rate.clamp(0.25, 4.0));
   }
-  
+
   /// Get current playback rate
   double get currentPlaybackRate => _player.state.rate;
 

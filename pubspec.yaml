@@ -75,7 +75,7 @@ msix_config:
   publisher: CN=MediaHub
   msix_version: 1.0.0.0
   logo_path: assets\icon.png
-  capabilities: internetClient, privateNetworkClientServer, runFullTrust
+  capabilities: internetClient, privateNetworkClientServer
   architecture: x64
   output_path: build\windows\msix
   output_name: mediahub

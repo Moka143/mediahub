@@ -10,7 +10,7 @@ class AppConstants {
   static const String defaultHost = 'localhost';
   static const int defaultPort = 8080;
   static const String defaultUsername = 'admin';
-  static const String defaultPassword = '';  // Empty is qBittorrent's default
+  static const String defaultPassword = ''; // Empty is qBittorrent's default
 
   // Polling intervals
   static const Duration defaultPollingInterval = Duration(seconds: 2);
@@ -32,7 +32,8 @@ class QBittorrentPaths {
 
   static const String windows = r'C:\Program Files\qBittorrent\qbittorrent.exe';
   static const String linux = '/usr/bin/qbittorrent-nox';
-  static const String macos = '/Applications/qBittorrent.app/Contents/MacOS/qBittorrent';
+  static const String macos =
+      '/Applications/qBittorrent.app/Contents/MacOS/qBittorrent';
 }
 
 /// Torrent state constants from qBittorrent API
@@ -43,7 +44,7 @@ class TorrentState {
   static const String missingFiles = 'missingFiles';
   static const String uploading = 'uploading';
   static const String pausedUP = 'pausedUP';
-  static const String stoppedUP = 'stoppedUP';  // v5.x state
+  static const String stoppedUP = 'stoppedUP'; // v5.x state
   static const String queuedUP = 'queuedUP';
   static const String stalledUP = 'stalledUP';
   static const String checkingUP = 'checkingUP';
@@ -52,7 +53,7 @@ class TorrentState {
   static const String downloading = 'downloading';
   static const String metaDL = 'metaDL';
   static const String pausedDL = 'pausedDL';
-  static const String stoppedDL = 'stoppedDL';  // v5.x state
+  static const String stoppedDL = 'stoppedDL'; // v5.x state
   static const String queuedDL = 'queuedDL';
   static const String stalledDL = 'stalledDL';
   static const String checkingDL = 'checkingDL';
@@ -63,13 +64,26 @@ class TorrentState {
 
   /// Returns true if the torrent is in a downloading state
   static bool isDownloading(String state) {
-    return [downloading, metaDL, queuedDL, stalledDL, checkingDL, forcedDL, allocating]
-        .contains(state);
+    return [
+      downloading,
+      metaDL,
+      queuedDL,
+      stalledDL,
+      checkingDL,
+      forcedDL,
+      allocating,
+    ].contains(state);
   }
 
   /// Returns true if the torrent is in an uploading/seeding state
   static bool isSeeding(String state) {
-    return [uploading, queuedUP, stalledUP, checkingUP, forcedUP].contains(state);
+    return [
+      uploading,
+      queuedUP,
+      stalledUP,
+      checkingUP,
+      forcedUP,
+    ].contains(state);
   }
 
   /// Returns true if the torrent is paused/stopped
@@ -79,7 +93,15 @@ class TorrentState {
 
   /// Returns true if the torrent has completed downloading
   static bool isCompleted(String state) {
-    return [uploading, pausedUP, stoppedUP, queuedUP, stalledUP, checkingUP, forcedUP].contains(state);
+    return [
+      uploading,
+      pausedUP,
+      stoppedUP,
+      queuedUP,
+      stalledUP,
+      checkingUP,
+      forcedUP,
+    ].contains(state);
   }
 
   /// Returns true if the torrent has an error

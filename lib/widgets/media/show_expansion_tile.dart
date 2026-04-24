@@ -101,28 +101,28 @@ class _ShowExpansionTileState extends ConsumerState<ShowExpansionTile> {
         tilePadding: const EdgeInsets.only(left: 72, right: AppSpacing.md),
         childrenPadding: const EdgeInsets.only(left: 12, right: AppSpacing.md),
         dense: true,
-        leading: Icon(
-          Icons.folder_outlined,
-          color: theme.colorScheme.primary,
-        ),
+        leading: Icon(Icons.folder_outlined, color: theme.colorScheme.primary),
         title: Text(
           seasonNum == 0 ? 'Specials' : 'Season $seasonNum',
           style: const TextStyle(fontWeight: FontWeight.w500),
         ),
-        subtitle:
-            Text('${episodes.length} episode${episodes.length > 1 ? 's' : ''}'),
+        subtitle: Text(
+          '${episodes.length} episode${episodes.length > 1 ? 's' : ''}',
+        ),
         iconColor: theme.colorScheme.primary,
         collapsedIconColor: theme.colorScheme.onSurfaceVariant,
-        children:
-            episodes.map((file) => _buildEpisodeTile(file, theme)).toList(),
+        children: episodes
+            .map((file) => _buildEpisodeTile(file, theme))
+            .toList(),
       );
     }).toList();
   }
 
   List<Widget> _buildFlatEpisodeList(BuildContext context, ThemeData theme) {
     // Single season - show episodes directly
-    final allEpisodes =
-        widget.showData.seasons.values.expand((e) => e).toList();
+    final allEpisodes = widget.showData.seasons.values
+        .expand((e) => e)
+        .toList();
     return allEpisodes.map((file) => _buildEpisodeTile(file, theme)).toList();
   }
 

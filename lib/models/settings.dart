@@ -23,8 +23,10 @@ class AppSettings {
   // App settings
   final ThemeMode themeMode;
   final int updateIntervalSeconds; // Polling interval when downloads are active
-  final int idlePollingIntervalSeconds; // Polling interval when no active downloads
-  final bool useAdaptivePolling; // Whether to use adaptive polling based on activity
+  final int
+  idlePollingIntervalSeconds; // Polling interval when no active downloads
+  final bool
+  useAdaptivePolling; // Whether to use adaptive polling based on activity
   final bool stopSeedingOnComplete;
   final TorrentFilter defaultFilter;
   final TorrentSort defaultSort;
@@ -59,8 +61,10 @@ class AppSettings {
     this.bingeWatchingEnabled = true,
     this.nextEpisodeCountdownSeconds = 30,
     this.tmdbApiKey = '',
-  })  : qbittorrentPath = qbittorrentPath ?? PlatformUtils.getDefaultQBittorrentPath(),
-        defaultSavePath = defaultSavePath ?? PlatformUtils.getDefaultDownloadPath();
+  }) : qbittorrentPath =
+           qbittorrentPath ?? PlatformUtils.getDefaultQBittorrentPath(),
+       defaultSavePath =
+           defaultSavePath ?? PlatformUtils.getDefaultDownloadPath();
 
   /// Get the full API base URL
   String get apiBaseUrl => 'http://$host:$port';
@@ -79,14 +83,16 @@ class AppSettings {
       maxConnections: json['max_connections'] as int? ?? 500,
       themeMode: ThemeMode.values[json['theme_mode'] as int? ?? 0],
       updateIntervalSeconds: json['update_interval_seconds'] as int? ?? 2,
-      idlePollingIntervalSeconds: json['idle_polling_interval_seconds'] as int? ?? 10,
+      idlePollingIntervalSeconds:
+          json['idle_polling_interval_seconds'] as int? ?? 10,
       useAdaptivePolling: json['use_adaptive_polling'] as bool? ?? true,
       stopSeedingOnComplete: json['stop_seeding_on_complete'] as bool? ?? true,
       defaultFilter: TorrentFilter.values[json['default_filter'] as int? ?? 0],
       defaultSort: TorrentSort.values[json['default_sort'] as int? ?? 5],
       sortAscending: json['sort_ascending'] as bool? ?? false,
       bingeWatchingEnabled: json['binge_watching_enabled'] as bool? ?? true,
-      nextEpisodeCountdownSeconds: json['next_episode_countdown_seconds'] as int? ?? 30,
+      nextEpisodeCountdownSeconds:
+          json['next_episode_countdown_seconds'] as int? ?? 30,
       tmdbApiKey: json['tmdb_api_key'] as String? ?? '',
     );
   }
@@ -152,15 +158,19 @@ class AppSettings {
       uploadSpeedLimit: uploadSpeedLimit ?? this.uploadSpeedLimit,
       maxConnections: maxConnections ?? this.maxConnections,
       themeMode: themeMode ?? this.themeMode,
-      updateIntervalSeconds: updateIntervalSeconds ?? this.updateIntervalSeconds,
-      idlePollingIntervalSeconds: idlePollingIntervalSeconds ?? this.idlePollingIntervalSeconds,
+      updateIntervalSeconds:
+          updateIntervalSeconds ?? this.updateIntervalSeconds,
+      idlePollingIntervalSeconds:
+          idlePollingIntervalSeconds ?? this.idlePollingIntervalSeconds,
       useAdaptivePolling: useAdaptivePolling ?? this.useAdaptivePolling,
-      stopSeedingOnComplete: stopSeedingOnComplete ?? this.stopSeedingOnComplete,
+      stopSeedingOnComplete:
+          stopSeedingOnComplete ?? this.stopSeedingOnComplete,
       defaultFilter: defaultFilter ?? this.defaultFilter,
       defaultSort: defaultSort ?? this.defaultSort,
       sortAscending: sortAscending ?? this.sortAscending,
       bingeWatchingEnabled: bingeWatchingEnabled ?? this.bingeWatchingEnabled,
-      nextEpisodeCountdownSeconds: nextEpisodeCountdownSeconds ?? this.nextEpisodeCountdownSeconds,
+      nextEpisodeCountdownSeconds:
+          nextEpisodeCountdownSeconds ?? this.nextEpisodeCountdownSeconds,
       tmdbApiKey: tmdbApiKey ?? this.tmdbApiKey,
     );
   }
@@ -194,26 +204,26 @@ class AppSettings {
 
   @override
   int get hashCode => Object.hashAll([
-        host,
-        port,
-        username,
-        password,
-        qbittorrentPath,
-        autoStartQBittorrent,
-        defaultSavePath,
-        downloadSpeedLimit,
-        uploadSpeedLimit,
-        maxConnections,
-        themeMode,
-        updateIntervalSeconds,
-        idlePollingIntervalSeconds,
-        useAdaptivePolling,
-        stopSeedingOnComplete,
-        defaultFilter,
-        defaultSort,
-        sortAscending,
-        bingeWatchingEnabled,
-        nextEpisodeCountdownSeconds,
-        tmdbApiKey,
-      ]);
+    host,
+    port,
+    username,
+    password,
+    qbittorrentPath,
+    autoStartQBittorrent,
+    defaultSavePath,
+    downloadSpeedLimit,
+    uploadSpeedLimit,
+    maxConnections,
+    themeMode,
+    updateIntervalSeconds,
+    idlePollingIntervalSeconds,
+    useAdaptivePolling,
+    stopSeedingOnComplete,
+    defaultFilter,
+    defaultSort,
+    sortAscending,
+    bingeWatchingEnabled,
+    nextEpisodeCountdownSeconds,
+    tmdbApiKey,
+  ]);
 }

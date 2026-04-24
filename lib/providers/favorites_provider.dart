@@ -79,16 +79,13 @@ class FavoritesNotifier extends Notifier<FavoritesState> {
   /// Add a show to favorites
   Future<void> addFavorite(int showId, {Show? show}) async {
     final newIds = Set<int>.from(state.favoriteIds)..add(showId);
-    
+
     Map<int, Show>? newCache;
     if (show != null) {
       newCache = Map<int, Show>.from(state.cachedShows)..[showId] = show;
     }
 
-    state = state.copyWith(
-      favoriteIds: newIds,
-      cachedShows: newCache,
-    );
+    state = state.copyWith(favoriteIds: newIds, cachedShows: newCache);
     await _saveFavorites();
   }
 
@@ -97,10 +94,7 @@ class FavoritesNotifier extends Notifier<FavoritesState> {
     final newIds = Set<int>.from(state.favoriteIds)..remove(showId);
     final newCache = Map<int, Show>.from(state.cachedShows)..remove(showId);
 
-    state = state.copyWith(
-      favoriteIds: newIds,
-      cachedShows: newCache,
-    );
+    state = state.copyWith(favoriteIds: newIds, cachedShows: newCache);
     await _saveFavorites();
   }
 
@@ -146,10 +140,7 @@ class FavoritesNotifier extends Notifier<FavoritesState> {
 
   /// Clear all favorites
   Future<void> clearFavorites() async {
-    state = state.copyWith(
-      favoriteIds: {},
-      cachedShows: {},
-    );
+    state = state.copyWith(favoriteIds: {}, cachedShows: {});
     await _saveFavorites();
   }
 }
@@ -187,7 +178,9 @@ final favoriteShowsProvider = FutureProvider<List<Show>>((ref) async {
 });
 
 /// Provider for upcoming episodes from favorite shows
-final upcomingEpisodesProvider = FutureProvider<List<UpcomingEpisode>>((ref) async {
+final upcomingEpisodesProvider = FutureProvider<List<UpcomingEpisode>>((
+  ref,
+) async {
   final favorites = ref.watch(favoritesProvider);
   final tmdbService = ref.read(tmdbApiServiceProvider);
 
@@ -199,10 +192,9 @@ final upcomingEpisodesProvider = FutureProvider<List<UpcomingEpisode>>((ref) asy
     try {
       final show = await tmdbService.getShowDetails(showId);
       if (show.nextEpisodeToAir != null && show.inProduction) {
-        upcoming.add(UpcomingEpisode(
-          show: show,
-          airDate: show.nextEpisodeToAir!,
-        ));
+        upcoming.add(
+          UpcomingEpisode(show: show, airDate: show.nextEpisodeToAir!),
+        );
       }
     } catch (_) {
       // Skip shows that fail to load
@@ -219,10 +211,7 @@ class UpcomingEpisode {
   final Show show;
   final String airDate;
 
-  UpcomingEpisode({
-    required this.show,
-    required this.airDate,
-  });
+  UpcomingEpisode({required this.show, required this.airDate});
 
   DateTime? get airDateTime {
     try {
@@ -255,7 +244,7 @@ class UpcomingEpisode {
 class NewEpisodeNotificationsState {
   /// Map of showId -> count of new episodes since last check
   final Map<int, int> newEpisodeCounts;
-  
+
   /// Last time we checked for new episodes
   final DateTime? lastChecked;
 
@@ -275,14 +264,15 @@ class NewEpisodeNotificationsState {
   }
 
   int getNewCount(int showId) => newEpisodeCounts[showId] ?? 0;
-  
+
   int get totalNewEpisodes => newEpisodeCounts.values.fold(0, (a, b) => a + b);
-  
+
   bool hasNewEpisodes(int showId) => (newEpisodeCounts[showId] ?? 0) > 0;
 }
 
 /// Notifier for new episode notifications
-class NewEpisodeNotificationsNotifier extends Notifier<NewEpisodeNotificationsState> {
+class NewEpisodeNotificationsNotifier
+    extends Notifier<NewEpisodeNotificationsState> {
   @override
   NewEpisodeNotificationsState build() {
     final prefs = ref.watch(sharedPreferencesProvider);
@@ -293,18 +283,18 @@ class NewEpisodeNotificationsNotifier extends Notifier<NewEpisodeNotificationsSt
     try {
       final lastCheckedStr = prefs.getString(_lastCheckedKey);
       final countsJson = prefs.getString(_newEpisodesKey);
-      
+
       DateTime? lastChecked;
       if (lastCheckedStr != null) {
         lastChecked = DateTime.tryParse(lastCheckedStr);
       }
-      
+
       Map<int, int> counts = {};
       if (countsJson != null) {
         final decoded = jsonDecode(countsJson) as Map<String, dynamic>;
         counts = decoded.map((k, v) => MapEntry(int.parse(k), v as int));
       }
-      
+
       return NewEpisodeNotificationsState(
         newEpisodeCounts: counts,
         lastChecked: lastChecked,
@@ -316,11 +306,14 @@ class NewEpisodeNotificationsNotifier extends Notifier<NewEpisodeNotificationsSt
 
   Future<void> _saveState() async {
     final prefs = ref.read(sharedPreferencesProvider);
-    
+
     if (state.lastChecked != null) {
-      await prefs.setString(_lastCheckedKey, state.lastChecked!.toIso8601String());
+      await prefs.setString(
+        _lastCheckedKey,
+        state.lastChecked!.toIso8601String(),
+      );
     }
-    
+
     final countsJson = jsonEncode(
       state.newEpisodeCounts.map((k, v) => MapEntry(k.toString(), v)),
     );
@@ -331,33 +324,37 @@ class NewEpisodeNotificationsNotifier extends Notifier<NewEpisodeNotificationsSt
   Future<void> checkForNewEpisodes() async {
     final favorites = ref.read(favoritesProvider);
     final tmdbService = ref.read(tmdbApiServiceProvider);
-    
+
     if (favorites.favoriteIds.isEmpty) return;
-    
+
     final now = DateTime.now();
-    final lastChecked = state.lastChecked ?? now.subtract(const Duration(days: 7));
-    
+    final lastChecked =
+        state.lastChecked ?? now.subtract(const Duration(days: 7));
+
     final newCounts = <int, int>{};
-    
+
     for (final showId in favorites.favoriteIds) {
       try {
         final show = await tmdbService.getShowDetails(showId);
         final numSeasons = show.numberOfSeasons ?? 0;
-        
+
         // Count episodes that aired since last check
         int newCount = 0;
-        
+
         // Check only the last season for efficiency
         if (numSeasons > 0) {
           try {
-            final episodes = await tmdbService.getSeasonEpisodes(showId, numSeasons);
-            
+            final episodes = await tmdbService.getSeasonEpisodes(
+              showId,
+              numSeasons,
+            );
+
             for (final episode in episodes) {
               if (episode.airDate == null) continue;
-              
+
               final airDate = DateTime.tryParse(episode.airDate!);
               if (airDate == null) continue;
-              
+
               // Episode aired after last check and before now
               if (airDate.isAfter(lastChecked) && airDate.isBefore(now)) {
                 newCount++;
@@ -365,17 +362,14 @@ class NewEpisodeNotificationsNotifier extends Notifier<NewEpisodeNotificationsSt
             }
           } catch (_) {}
         }
-        
+
         if (newCount > 0) {
           newCounts[showId] = newCount;
         }
       } catch (_) {}
     }
-    
-    state = state.copyWith(
-      newEpisodeCounts: newCounts,
-      lastChecked: now,
-    );
+
+    state = state.copyWith(newEpisodeCounts: newCounts, lastChecked: now);
     await _saveState();
   }
 
@@ -383,7 +377,7 @@ class NewEpisodeNotificationsNotifier extends Notifier<NewEpisodeNotificationsSt
   Future<void> clearNewEpisodes(int showId) async {
     final newCounts = Map<int, int>.from(state.newEpisodeCounts);
     newCounts.remove(showId);
-    
+
     state = state.copyWith(newEpisodeCounts: newCounts);
     await _saveState();
   }
@@ -397,9 +391,10 @@ class NewEpisodeNotificationsNotifier extends Notifier<NewEpisodeNotificationsSt
 
 /// Provider for new episode notifications
 final newEpisodeNotificationsProvider =
-    NotifierProvider<NewEpisodeNotificationsNotifier, NewEpisodeNotificationsState>(
-  NewEpisodeNotificationsNotifier.new,
-);
+    NotifierProvider<
+      NewEpisodeNotificationsNotifier,
+      NewEpisodeNotificationsState
+    >(NewEpisodeNotificationsNotifier.new);
 
 /// Provider for new episode count for a specific show
 final newEpisodeCountProvider = Provider.family<int, int>((ref, showId) {

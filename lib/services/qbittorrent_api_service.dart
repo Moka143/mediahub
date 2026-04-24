@@ -19,7 +19,8 @@ class QBittorrentApiException implements Exception {
   QBittorrentApiException(this.message, {this.statusCode});
 
   @override
-  String toString() => 'QBittorrentApiException: $message (status: $statusCode)';
+  String toString() =>
+      'QBittorrentApiException: $message (status: $statusCode)';
 }
 
 /// Service for interacting with qBittorrent Web API v2
@@ -42,44 +43,50 @@ class QBittorrentApiService {
     String username = AppConstants.defaultUsername,
     String password = AppConstants.defaultPassword,
     this.onLog,
-  })  : _host = host,
-        _port = port,
-        _username = username,
-        _password = password {
+  }) : _host = host,
+       _port = port,
+       _username = username,
+       _password = password {
     _initDio();
   }
 
   /// Initialize Dio client
   void _initDio() {
-    _dio = Dio(BaseOptions(
-      baseUrl: 'http://$_host:$_port',
-      connectTimeout: const Duration(seconds: 10),
-      receiveTimeout: const Duration(seconds: 10),
-      headers: {
-        'Referer': 'http://$_host:$_port',
-        'Origin': 'http://$_host:$_port',
-      },
-      validateStatus: (status) => status != null && status < 500,
-    ));
+    _dio = Dio(
+      BaseOptions(
+        baseUrl: 'http://$_host:$_port',
+        connectTimeout: const Duration(seconds: 10),
+        receiveTimeout: const Duration(seconds: 10),
+        headers: {
+          'Referer': 'http://$_host:$_port',
+          'Origin': 'http://$_host:$_port',
+        },
+        validateStatus: (status) => status != null && status < 500,
+      ),
+    );
 
     // Add interceptor for logging and auth
-    _dio.interceptors.add(InterceptorsWrapper(
-      onRequest: (options, handler) {
-        if (_sid != null) {
-          options.headers['Cookie'] = 'SID=$_sid';
-        }
-        _log('API Request: ${options.method} ${options.path}');
-        return handler.next(options);
-      },
-      onResponse: (response, handler) {
-        _log('API Response: ${response.statusCode} ${response.requestOptions.path}');
-        return handler.next(response);
-      },
-      onError: (error, handler) {
-        _log('API Error: ${error.message}');
-        return handler.next(error);
-      },
-    ));
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          if (_sid != null) {
+            options.headers['Cookie'] = 'SID=$_sid';
+          }
+          _log('API Request: ${options.method} ${options.path}');
+          return handler.next(options);
+        },
+        onResponse: (response, handler) {
+          _log(
+            'API Response: ${response.statusCode} ${response.requestOptions.path}',
+          );
+          return handler.next(response);
+        },
+        onError: (error, handler) {
+          _log('API Error: ${error.message}');
+          return handler.next(error);
+        },
+      ),
+    );
   }
 
   /// Update connection settings
@@ -139,9 +146,7 @@ class QBittorrentApiService {
       final response = await _dio.post(
         '/api/v2/auth/login',
         data: 'username=$_username&password=$_password',
-        options: Options(
-          contentType: 'application/x-www-form-urlencoded',
-        ),
+        options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
 
       if (response.statusCode == 200) {
@@ -252,9 +257,7 @@ class QBittorrentApiService {
       final response = await _dio.post(
         '/api/v2/app/setPreferences',
         data: 'json=${Uri.encodeComponent(prefsJson)}',
-        options: Options(
-          contentType: 'application/x-www-form-urlencoded',
-        ),
+        options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
       return response.statusCode == 200;
     } catch (e) {
@@ -413,26 +416,33 @@ class QBittorrentApiService {
       }
 
       if (torrentFile != null) {
-        formData.files.add(MapEntry(
-          'torrents',
-          await MultipartFile.fromFile(
-            torrentFile.path,
-            filename: torrentFile.path.split('/').last,
+        formData.files.add(
+          MapEntry(
+            'torrents',
+            await MultipartFile.fromFile(
+              torrentFile.path,
+              filename: torrentFile.path.split('/').last,
+            ),
           ),
-        ));
+        );
       }
 
       if (savePath != null) formData.fields.add(MapEntry('savepath', savePath));
       if (category != null) formData.fields.add(MapEntry('category', category));
-      if (paused != null) formData.fields.add(MapEntry('paused', paused.toString()));
-      if (skipChecking != null) formData.fields.add(MapEntry('skip_checking', skipChecking.toString()));
-      if (sequentialDownload != null) formData.fields.add(MapEntry('sequentialDownload', sequentialDownload.toString()));
-      if (firstLastPiecePrio != null) formData.fields.add(MapEntry('firstLastPiecePrio', firstLastPiecePrio.toString()));
+      if (paused != null)
+        formData.fields.add(MapEntry('paused', paused.toString()));
+      if (skipChecking != null)
+        formData.fields.add(MapEntry('skip_checking', skipChecking.toString()));
+      if (sequentialDownload != null)
+        formData.fields.add(
+          MapEntry('sequentialDownload', sequentialDownload.toString()),
+        );
+      if (firstLastPiecePrio != null)
+        formData.fields.add(
+          MapEntry('firstLastPiecePrio', firstLastPiecePrio.toString()),
+        );
 
-      final response = await _dio.post(
-        '/api/v2/torrents/add',
-        data: formData,
-      );
+      final response = await _dio.post('/api/v2/torrents/add', data: formData);
 
       return response.statusCode == 200 && response.data == 'Ok.';
     } catch (e) {
@@ -450,22 +460,18 @@ class QBittorrentApiService {
       var response = await _dio.post(
         '/api/v2/torrents/stop',
         data: 'hashes=${hashes.join('|')}',
-        options: Options(
-          contentType: 'application/x-www-form-urlencoded',
-        ),
+        options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
-      
+
       // If stop endpoint doesn't exist (404), try legacy pause
       if (response.statusCode == 404) {
         response = await _dio.post(
           '/api/v2/torrents/pause',
           data: 'hashes=${hashes.join('|')}',
-          options: Options(
-            contentType: 'application/x-www-form-urlencoded',
-          ),
+          options: Options(contentType: 'application/x-www-form-urlencoded'),
         );
       }
-      
+
       return response.statusCode == 200;
     } catch (e) {
       _log('Pause torrents error: $e');
@@ -482,22 +488,18 @@ class QBittorrentApiService {
       var response = await _dio.post(
         '/api/v2/torrents/start',
         data: 'hashes=${hashes.join('|')}',
-        options: Options(
-          contentType: 'application/x-www-form-urlencoded',
-        ),
+        options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
-      
+
       // If start endpoint doesn't exist (404), try legacy resume
       if (response.statusCode == 404) {
         response = await _dio.post(
           '/api/v2/torrents/resume',
           data: 'hashes=${hashes.join('|')}',
-          options: Options(
-            contentType: 'application/x-www-form-urlencoded',
-          ),
+          options: Options(contentType: 'application/x-www-form-urlencoded'),
         );
       }
-      
+
       return response.statusCode == 200;
     } catch (e) {
       _log('Resume torrents error: $e');
@@ -506,16 +508,17 @@ class QBittorrentApiService {
   }
 
   /// Delete torrents
-  Future<bool> deleteTorrents(List<String> hashes, {bool deleteFiles = false}) async {
+  Future<bool> deleteTorrents(
+    List<String> hashes, {
+    bool deleteFiles = false,
+  }) async {
     if (!await _ensureAuthenticated()) return false;
 
     try {
       final response = await _dio.post(
         '/api/v2/torrents/delete',
         data: 'hashes=${hashes.join('|')}&deleteFiles=$deleteFiles',
-        options: Options(
-          contentType: 'application/x-www-form-urlencoded',
-        ),
+        options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
       return response.statusCode == 200;
     } catch (e) {
@@ -532,9 +535,7 @@ class QBittorrentApiService {
       final response = await _dio.post(
         '/api/v2/torrents/recheck',
         data: 'hashes=${hashes.join('|')}',
-        options: Options(
-          contentType: 'application/x-www-form-urlencoded',
-        ),
+        options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
       return response.statusCode == 200;
     } catch (e) {
@@ -551,9 +552,7 @@ class QBittorrentApiService {
       final response = await _dio.post(
         '/api/v2/torrents/reannounce',
         data: 'hashes=${hashes.join('|')}',
-        options: Options(
-          contentType: 'application/x-www-form-urlencoded',
-        ),
+        options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
       return response.statusCode == 200;
     } catch (e) {
@@ -588,9 +587,7 @@ class QBittorrentApiService {
       final response = await _dio.post(
         endpoint,
         data: 'hashes=${hashes.join('|')}',
-        options: Options(
-          contentType: 'application/x-www-form-urlencoded',
-        ),
+        options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
       return response.statusCode == 200;
     } catch (e) {
@@ -600,16 +597,18 @@ class QBittorrentApiService {
   }
 
   /// Set file priority
-  Future<bool> setFilePriority(String hash, List<int> fileIds, int priority) async {
+  Future<bool> setFilePriority(
+    String hash,
+    List<int> fileIds,
+    int priority,
+  ) async {
     if (!await _ensureAuthenticated()) return false;
 
     try {
       final response = await _dio.post(
         '/api/v2/torrents/filePrio',
         data: 'hash=$hash&id=${fileIds.join('|')}&priority=$priority',
-        options: Options(
-          contentType: 'application/x-www-form-urlencoded',
-        ),
+        options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
       return response.statusCode == 200;
     } catch (e) {
@@ -641,9 +640,7 @@ class QBittorrentApiService {
       final response = await _dio.post(
         '/api/v2/transfer/setDownloadLimit',
         data: 'limit=$limit',
-        options: Options(
-          contentType: 'application/x-www-form-urlencoded',
-        ),
+        options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
       return response.statusCode == 200;
     } catch (e) {
@@ -660,9 +657,7 @@ class QBittorrentApiService {
       final response = await _dio.post(
         '/api/v2/transfer/setUploadLimit',
         data: 'limit=$limit',
-        options: Options(
-          contentType: 'application/x-www-form-urlencoded',
-        ),
+        options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
       return response.statusCode == 200;
     } catch (e) {
@@ -746,19 +741,19 @@ class QBittorrentApiService {
       // Get current torrent state
       final torrents = await getTorrents(hashes: [hash]);
       if (torrents.isEmpty) return false;
-      
+
       final torrent = torrents.first;
-      
+
       // Enable sequential download if not already enabled
       if (!torrent.sequentialDownload) {
         await toggleSequentialDownload(hash);
       }
-      
+
       // Enable first/last piece priority if not already enabled
       if (!torrent.firstLastPiecePriority) {
         await toggleFirstLastPiecePrio(hash);
       }
-      
+
       return true;
     } catch (e) {
       _log('Enable streaming mode error: $e');
@@ -787,19 +782,25 @@ class QBittorrentApiService {
   }
 
   /// Check if beginning of torrent is ready for streaming (first 5% pieces downloaded)
-  Future<bool> isReadyForStreaming(String hash, {double minProgress = 0.05}) async {
+  Future<bool> isReadyForStreaming(
+    String hash, {
+    double minProgress = 0.05,
+  }) async {
     try {
       final pieceStates = await getPieceStates(hash);
       if (pieceStates == null || pieceStates.isEmpty) return false;
-      
+
       // Calculate how many pieces we need at the start
-      final minPieces = (pieceStates.length * minProgress).ceil().clamp(1, pieceStates.length);
-      
+      final minPieces = (pieceStates.length * minProgress).ceil().clamp(
+        1,
+        pieceStates.length,
+      );
+
       // Check if the first N pieces are downloaded (state == 2)
       for (int i = 0; i < minPieces; i++) {
         if (pieceStates[i] != 2) return false;
       }
-      
+
       return true;
     } catch (e) {
       _log('Check streaming ready error: $e');

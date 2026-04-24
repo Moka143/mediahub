@@ -65,14 +65,17 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
     // Calendar badge: today's episodes or active auto-download
     final todayEpCount = ref.watch(todayEpisodesCountProvider);
     final autoDownloadState = ref.watch(autoDownloadProvider);
-    final showCalendarDot = todayEpCount > 0 || autoDownloadState.downloadQueue.isNotEmpty;
+    final showCalendarDot =
+        todayEpCount > 0 || autoDownloadState.downloadQueue.isNotEmpty;
     final calendarDotPulse = autoDownloadState.isProcessing;
 
     // ── Global streaming safety net ────────────────────────────────────────
     // If any session becomes ready while its originating screen is gone,
     // this listener catches it and opens the player via the root navigator.
-    ref.listen<StreamingSession?>(activeStreamingSessionProvider,
-        (previous, next) {
+    ref.listen<StreamingSession?>(activeStreamingSessionProvider, (
+      previous,
+      next,
+    ) {
       if (next == null) return;
       // Only fire on the transition into ready/playing, not on every rebuild
       final wasReady = previous?.isReady ?? false;
@@ -163,14 +166,18 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
                       count: activeDownloadsCount,
                       isError: erroredCount > 0,
                       child: Icon(
-                        erroredCount > 0 ? Icons.warning_amber_rounded : Icons.download_outlined,
+                        erroredCount > 0
+                            ? Icons.warning_amber_rounded
+                            : Icons.download_outlined,
                       ),
                     ),
                     selectedIcon: NavBadge(
                       count: activeDownloadsCount,
                       isError: erroredCount > 0,
                       child: Icon(
-                        erroredCount > 0 ? Icons.warning_amber_rounded : Icons.download_rounded,
+                        erroredCount > 0
+                            ? Icons.warning_amber_rounded
+                            : Icons.download_rounded,
                         color: Theme.of(context).colorScheme.primary,
                       ),
                     ),
@@ -247,10 +254,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
             ),
           // Main content — fade between tabs while keeping all screens alive
           Expanded(
-            child: _FadeIndexedStack(
-              index: currentIndex,
-              children: _screens,
-            ),
+            child: _FadeIndexedStack(index: currentIndex, children: _screens),
           ),
         ],
       ),
@@ -268,14 +272,18 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
                     count: activeDownloadsCount,
                     isError: erroredCount > 0,
                     child: Icon(
-                      erroredCount > 0 ? Icons.warning_amber_rounded : Icons.download_outlined,
+                      erroredCount > 0
+                          ? Icons.warning_amber_rounded
+                          : Icons.download_outlined,
                     ),
                   ),
                   selectedIcon: NavBadge(
                     count: activeDownloadsCount,
                     isError: erroredCount > 0,
                     child: Icon(
-                      erroredCount > 0 ? Icons.warning_amber_rounded : Icons.download_rounded,
+                      erroredCount > 0
+                          ? Icons.warning_amber_rounded
+                          : Icons.download_rounded,
                     ),
                   ),
                   label: 'Transfers',
@@ -1114,15 +1122,9 @@ class _TorrentListBuilder extends ConsumerWidget {
         .pauseTorrent(torrent.hash);
     if (context.mounted) {
       if (success) {
-        AppSnackBar.showInfo(
-          context,
-          message: 'Paused: ${torrent.name}',
-        );
+        AppSnackBar.showInfo(context, message: 'Paused: ${torrent.name}');
       } else {
-        AppSnackBar.showError(
-          context,
-          message: 'Failed to pause torrent',
-        );
+        AppSnackBar.showError(context, message: 'Failed to pause torrent');
       }
     }
   }
@@ -1138,15 +1140,9 @@ class _TorrentListBuilder extends ConsumerWidget {
         .resumeTorrent(torrent.hash);
     if (context.mounted) {
       if (success) {
-        AppSnackBar.showSuccess(
-          context,
-          message: 'Resumed: ${torrent.name}',
-        );
+        AppSnackBar.showSuccess(context, message: 'Resumed: ${torrent.name}');
       } else {
-        AppSnackBar.showError(
-          context,
-          message: 'Failed to resume torrent',
-        );
+        AppSnackBar.showError(context, message: 'Failed to resume torrent');
       }
     }
   }
@@ -1169,15 +1165,9 @@ class _TorrentListBuilder extends ConsumerWidget {
 
       if (context.mounted) {
         if (success) {
-          AppSnackBar.showSuccess(
-            context,
-            message: 'Deleted: ${torrent.name}',
-          );
+          AppSnackBar.showSuccess(context, message: 'Deleted: ${torrent.name}');
         } else {
-          AppSnackBar.showError(
-            context,
-            message: 'Failed to delete torrent',
-          );
+          AppSnackBar.showError(context, message: 'Failed to delete torrent');
         }
       }
     }

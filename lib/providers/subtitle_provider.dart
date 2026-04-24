@@ -60,10 +60,7 @@ class SubtitleContextNotifier extends Notifier<SubtitleContext?> {
 
   /// Set context for a movie
   void setMovieContext(String imdbId) {
-    state = SubtitleContext(
-      imdbId: imdbId,
-      isMovie: true,
-    );
+    state = SubtitleContext(imdbId: imdbId, isMovie: true);
   }
 
   /// Set context for a TV episode
@@ -89,8 +86,8 @@ class SubtitleContextNotifier extends Notifier<SubtitleContext?> {
 /// Provider for current subtitle context
 final subtitleContextProvider =
     NotifierProvider<SubtitleContextNotifier, SubtitleContext?>(
-  SubtitleContextNotifier.new,
-);
+      SubtitleContextNotifier.new,
+    );
 
 /// Fetches available subtitles for the current context
 final availableSubtitlesProvider = FutureProvider<List<Subtitle>>((ref) async {
@@ -119,8 +116,9 @@ final availableSubtitlesProvider = FutureProvider<List<Subtitle>>((ref) async {
 });
 
 /// Groups subtitles by language for easier display
-final subtitlesByLanguageProvider =
-    Provider<Map<String, List<Subtitle>>>((ref) {
+final subtitlesByLanguageProvider = Provider<Map<String, List<Subtitle>>>((
+  ref,
+) {
   final subtitlesAsync = ref.watch(availableSubtitlesProvider);
   return subtitlesAsync.when(
     data: (subtitles) {
@@ -154,8 +152,8 @@ class CurrentExternalSubtitleNotifier extends Notifier<Subtitle?> {
 
 final currentExternalSubtitleProvider =
     NotifierProvider<CurrentExternalSubtitleNotifier, Subtitle?>(
-  CurrentExternalSubtitleNotifier.new,
-);
+      CurrentExternalSubtitleNotifier.new,
+    );
 
 /// Preferred subtitle language notifier
 class PreferredSubtitleLanguageNotifier extends Notifier<String?> {
@@ -170,5 +168,5 @@ class PreferredSubtitleLanguageNotifier extends Notifier<String?> {
 /// Preferred subtitle language setting
 final preferredSubtitleLanguageProvider =
     NotifierProvider<PreferredSubtitleLanguageNotifier, String?>(
-  PreferredSubtitleLanguageNotifier.new,
-);
+      PreferredSubtitleLanguageNotifier.new,
+    );

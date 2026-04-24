@@ -16,19 +16,19 @@ abstract final class AppSpacing {
   static const double xxxl = 32.0;
   static const double huge = 48.0;
   static const double massive = 64.0;
-  
+
   /// Screen-level padding (horizontal margins for screen content)
   static const double screenPadding = 20.0;
-  
+
   /// List item vertical spacing
   static const double listItemSpacing = 12.0;
-  
+
   /// Section spacing (between major UI sections)
   static const double sectionSpacing = 32.0;
-  
+
   /// Card internal padding
   static const double cardPadding = 16.0;
-  
+
   /// Compact card padding
   static const double cardPaddingCompact = 12.0;
 }
@@ -36,13 +36,13 @@ abstract final class AppSpacing {
 /// Border radius scale - more rounded, modern feel
 abstract final class AppRadius {
   static const double none = 0.0;
-  static const double xxs = 4.0;   // Progress bars, thin elements
-  static const double xs = 6.0;    // Small badges
-  static const double sm = 8.0;    // Chips, small buttons
-  static const double md = 12.0;   // Buttons, inputs
-  static const double lg = 16.0;   // Cards, dialogs
-  static const double xl = 20.0;   // Large cards
-  static const double xxl = 24.0;  // Bottom sheets, modals
+  static const double xxs = 4.0; // Progress bars, thin elements
+  static const double xs = 6.0; // Small badges
+  static const double sm = 8.0; // Chips, small buttons
+  static const double md = 12.0; // Buttons, inputs
+  static const double lg = 16.0; // Cards, dialogs
+  static const double xl = 20.0; // Large cards
+  static const double xxl = 24.0; // Bottom sheets, modals
   static const double xxxl = 32.0; // Hero cards
   static const double full = 999.0; // Circular elements
 }
@@ -51,7 +51,7 @@ abstract final class AppRadius {
 abstract final class AppOpacity {
   /// Very subtle - 5% (alpha 13)
   static const int ultraSubtle = 13;
-  
+
   /// Subtle - 8% (alpha 20)
   static const int subtle = 20;
 
@@ -75,7 +75,7 @@ abstract final class AppOpacity {
 
   /// Disabled state - 38% (alpha 97)
   static const int disabled = 97;
-  
+
   /// Overlay - 50% (alpha 128)
   static const int overlay = 128;
 }

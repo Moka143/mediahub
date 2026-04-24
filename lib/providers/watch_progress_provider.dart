@@ -15,23 +15,23 @@ const _manualWatchedKey = 'manual_watched_episodes';
 /// Provider for all watch progress entries
 final watchProgressProvider =
     NotifierProvider<WatchProgressNotifier, Map<String, WatchProgress>>(
-  WatchProgressNotifier.new,
-);
+      WatchProgressNotifier.new,
+    );
 
 /// Provider for manual watched state (season/show level)
 final manualWatchedProvider =
     NotifierProvider<ManualWatchedNotifier, ManualWatchedState>(
-  ManualWatchedNotifier.new,
-);
+      ManualWatchedNotifier.new,
+    );
 
 /// State class for manual watched tracking
 class ManualWatchedState {
   /// Map of showId -> Set of "S01E05" episode codes marked as watched
   final Map<int, Set<String>> watchedEpisodes;
-  
+
   /// Map of showId -> Set of season numbers marked as watched
   final Map<int, Set<int>> watchedSeasons;
-  
+
   /// Set of showIds marked as fully watched
   final Set<int> watchedShows;
 
@@ -54,7 +54,8 @@ class ManualWatchedState {
   }
 
   bool isEpisodeWatched(int showId, int season, int episode) {
-    final episodeCode = 'S${season.toString().padLeft(2, '0')}E${episode.toString().padLeft(2, '0')}';
+    final episodeCode =
+        'S${season.toString().padLeft(2, '0')}E${episode.toString().padLeft(2, '0')}';
     return watchedEpisodes[showId]?.contains(episodeCode) ?? false;
   }
 
@@ -80,24 +81,24 @@ class ManualWatchedState {
 
   factory ManualWatchedState.fromJson(Map<String, dynamic> json) {
     return ManualWatchedState(
-      watchedEpisodes: (json['watched_episodes'] as Map<String, dynamic>?)?.map(
+      watchedEpisodes:
+          (json['watched_episodes'] as Map<String, dynamic>?)?.map(
             (k, v) => MapEntry(
               int.parse(k),
               (v as List).map((e) => e as String).toSet(),
             ),
           ) ??
           {},
-      watchedSeasons: (json['watched_seasons'] as Map<String, dynamic>?)?.map(
+      watchedSeasons:
+          (json['watched_seasons'] as Map<String, dynamic>?)?.map(
             (k, v) => MapEntry(
               int.parse(k),
               (v as List).map((e) => e as int).toSet(),
             ),
           ) ??
           {},
-      watchedShows: (json['watched_shows'] as List?)
-              ?.map((e) => e as int)
-              .toSet() ??
-          {},
+      watchedShows:
+          (json['watched_shows'] as List?)?.map((e) => e as int).toSet() ?? {},
     );
   }
 }
@@ -133,33 +134,37 @@ class ManualWatchedNotifier extends Notifier<ManualWatchedState> {
 
   /// Mark a specific episode as watched
   Future<void> markEpisodeWatched(int showId, int season, int episode) async {
-    final episodeCode = 'S${season.toString().padLeft(2, '0')}E${episode.toString().padLeft(2, '0')}';
+    final episodeCode =
+        'S${season.toString().padLeft(2, '0')}E${episode.toString().padLeft(2, '0')}';
     final newEpisodes = Map<int, Set<String>>.from(state.watchedEpisodes);
     newEpisodes.putIfAbsent(showId, () => {});
-    newEpisodes[showId] = Set<String>.from(newEpisodes[showId]!)..add(episodeCode);
-    
+    newEpisodes[showId] = Set<String>.from(newEpisodes[showId]!)
+      ..add(episodeCode);
+
     state = state.copyWith(watchedEpisodes: newEpisodes);
     await _saveState();
   }
 
   /// Mark a specific episode as unwatched
   Future<void> markEpisodeUnwatched(int showId, int season, int episode) async {
-    final episodeCode = 'S${season.toString().padLeft(2, '0')}E${episode.toString().padLeft(2, '0')}';
+    final episodeCode =
+        'S${season.toString().padLeft(2, '0')}E${episode.toString().padLeft(2, '0')}';
     final newEpisodes = Map<int, Set<String>>.from(state.watchedEpisodes);
     if (newEpisodes.containsKey(showId)) {
-      newEpisodes[showId] = Set<String>.from(newEpisodes[showId]!)..remove(episodeCode);
+      newEpisodes[showId] = Set<String>.from(newEpisodes[showId]!)
+        ..remove(episodeCode);
       if (newEpisodes[showId]!.isEmpty) {
         newEpisodes.remove(showId);
       }
     }
-    
+
     // Also remove from season/show watched
     final newSeasons = Map<int, Set<int>>.from(state.watchedSeasons);
     if (newSeasons.containsKey(showId)) {
       newSeasons[showId] = Set<int>.from(newSeasons[showId]!)..remove(season);
     }
     final newShows = Set<int>.from(state.watchedShows)..remove(showId);
-    
+
     state = state.copyWith(
       watchedEpisodes: newEpisodes,
       watchedSeasons: newSeasons,
@@ -173,7 +178,7 @@ class ManualWatchedNotifier extends Notifier<ManualWatchedState> {
     final newSeasons = Map<int, Set<int>>.from(state.watchedSeasons);
     newSeasons.putIfAbsent(showId, () => {});
     newSeasons[showId] = Set<int>.from(newSeasons[showId]!)..add(season);
-    
+
     state = state.copyWith(watchedSeasons: newSeasons);
     await _saveState();
   }
@@ -187,14 +192,11 @@ class ManualWatchedNotifier extends Notifier<ManualWatchedState> {
         newSeasons.remove(showId);
       }
     }
-    
+
     // Also remove from show watched
     final newShows = Set<int>.from(state.watchedShows)..remove(showId);
-    
-    state = state.copyWith(
-      watchedSeasons: newSeasons,
-      watchedShows: newShows,
-    );
+
+    state = state.copyWith(watchedSeasons: newSeasons, watchedShows: newShows);
     await _saveState();
   }
 
@@ -208,9 +210,11 @@ class ManualWatchedNotifier extends Notifier<ManualWatchedState> {
   /// Mark an entire show as unwatched
   Future<void> markShowUnwatched(int showId) async {
     final newShows = Set<int>.from(state.watchedShows)..remove(showId);
-    final newSeasons = Map<int, Set<int>>.from(state.watchedSeasons)..remove(showId);
-    final newEpisodes = Map<int, Set<String>>.from(state.watchedEpisodes)..remove(showId);
-    
+    final newSeasons = Map<int, Set<int>>.from(state.watchedSeasons)
+      ..remove(showId);
+    final newEpisodes = Map<int, Set<String>>.from(state.watchedEpisodes)
+      ..remove(showId);
+
     state = state.copyWith(
       watchedShows: newShows,
       watchedSeasons: newSeasons,
@@ -240,12 +244,20 @@ class ManualWatchedNotifier extends Notifier<ManualWatchedState> {
 }
 
 /// Provider to check if a specific episode is watched
-final isEpisodeWatchedProvider = Provider.family<bool, ({int showId, int season, int episode})>((ref, params) {
-  final manualWatched = ref.watch(manualWatchedProvider);
-  return manualWatched.isEpisodeWatched(params.showId, params.season, params.episode) ||
-         manualWatched.isSeasonWatched(params.showId, params.season) ||
-         manualWatched.isShowWatched(params.showId);
-});
+final isEpisodeWatchedProvider =
+    Provider.family<bool, ({int showId, int season, int episode})>((
+      ref,
+      params,
+    ) {
+      final manualWatched = ref.watch(manualWatchedProvider);
+      return manualWatched.isEpisodeWatched(
+            params.showId,
+            params.season,
+            params.episode,
+          ) ||
+          manualWatched.isSeasonWatched(params.showId, params.season) ||
+          manualWatched.isShowWatched(params.showId);
+    });
 
 /// Provider for "Continue Watching" items (in progress, not completed)
 /// Filters out items where the file no longer exists
@@ -277,8 +289,10 @@ final watchedItemsProvider = Provider<List<WatchProgress>>((ref) {
 });
 
 /// Provider for watch progress of specific file
-final fileWatchProgressProvider =
-    Provider.family<WatchProgress?, String>((ref, filePath) {
+final fileWatchProgressProvider = Provider.family<WatchProgress?, String>((
+  ref,
+  filePath,
+) {
   final progress = ref.watch(watchProgressProvider);
   final hash = WatchProgress.generateHash(filePath);
   return progress[hash];
@@ -300,12 +314,12 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
 
       final jsonList = jsonDecode(jsonString) as List<dynamic>;
       final map = <String, WatchProgress>{};
-      
+
       for (final item in jsonList) {
         final progress = WatchProgress.fromJson(item as Map<String, dynamic>);
         map[progress.fileHash] = progress;
       }
-      
+
       return map;
     } catch (e) {
       print('Error loading watch progress: $e');
@@ -327,7 +341,8 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
   /// Update or create progress for a file
   Future<void> updateProgress(WatchProgress progress) async {
     // Check if should mark as completed
-    final updatedProgress = progress.shouldMarkCompleted && !progress.isCompleted
+    final updatedProgress =
+        progress.shouldMarkCompleted && !progress.isCompleted
         ? progress.copyWith(isCompleted: true)
         : progress;
 
@@ -367,7 +382,7 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
     Duration duration = Duration.zero,
   }) async {
     final hash = WatchProgress.generateHash(filePath);
-    
+
     final progress = WatchProgress(
       fileHash: hash,
       filePath: filePath,

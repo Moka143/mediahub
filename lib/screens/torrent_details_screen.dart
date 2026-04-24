@@ -36,12 +36,8 @@ class TorrentDetailsScreen extends ConsumerWidget {
         return const Center(child: Text('Torrent not found'));
       }
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('Torrent Details'),
-        ),
-        body: const Center(
-          child: Text('Torrent not found'),
-        ),
+        appBar: AppBar(title: const Text('Torrent Details')),
+        body: const Center(child: Text('Torrent not found')),
       );
     }
 
@@ -58,10 +54,34 @@ class TorrentDetailsScreen extends ConsumerWidget {
               children: [
                 TabBar(
                   tabs: [
-                    Tab(text: 'Files', icon: Icon(Icons.folder_outlined, size: embedded ? 18 : null)),
-                    Tab(text: 'Peers', icon: Icon(Icons.people_outline, size: embedded ? 18 : null)),
-                    Tab(text: 'Trackers', icon: Icon(Icons.dns_outlined, size: embedded ? 18 : null)),
-                    Tab(text: 'Info', icon: Icon(Icons.info_outline, size: embedded ? 18 : null)),
+                    Tab(
+                      text: 'Files',
+                      icon: Icon(
+                        Icons.folder_outlined,
+                        size: embedded ? 18 : null,
+                      ),
+                    ),
+                    Tab(
+                      text: 'Peers',
+                      icon: Icon(
+                        Icons.people_outline,
+                        size: embedded ? 18 : null,
+                      ),
+                    ),
+                    Tab(
+                      text: 'Trackers',
+                      icon: Icon(
+                        Icons.dns_outlined,
+                        size: embedded ? 18 : null,
+                      ),
+                    ),
+                    Tab(
+                      text: 'Info',
+                      icon: Icon(
+                        Icons.info_outline,
+                        size: embedded ? 18 : null,
+                      ),
+                    ),
                   ],
                 ),
                 Expanded(
@@ -84,10 +104,18 @@ class TorrentDetailsScreen extends ConsumerWidget {
           _TorrentActionBar(
             torrent: torrent,
             compact: true,
-            onPause: () => ref.read(torrentListProvider.notifier).pauseTorrent(torrentHash),
-            onResume: () => ref.read(torrentListProvider.notifier).resumeTorrent(torrentHash),
-            onRecheck: () => ref.read(torrentListProvider.notifier).recheckTorrent(torrentHash),
-            onReannounce: () => ref.read(torrentListProvider.notifier).reannounceTorrent(torrentHash),
+            onPause: () => ref
+                .read(torrentListProvider.notifier)
+                .pauseTorrent(torrentHash),
+            onResume: () => ref
+                .read(torrentListProvider.notifier)
+                .resumeTorrent(torrentHash),
+            onRecheck: () => ref
+                .read(torrentListProvider.notifier)
+                .recheckTorrent(torrentHash),
+            onReannounce: () => ref
+                .read(torrentListProvider.notifier)
+                .reannounceTorrent(torrentHash),
             onDelete: () => _showDeleteDialog(context, ref, torrent),
           ),
       ],
@@ -99,10 +127,7 @@ class TorrentDetailsScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          torrent.name,
-          overflow: TextOverflow.ellipsis,
-        ),
+        title: Text(torrent.name, overflow: TextOverflow.ellipsis),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -118,16 +143,25 @@ class TorrentDetailsScreen extends ConsumerWidget {
       body: content,
       bottomNavigationBar: _TorrentActionBar(
         torrent: torrent,
-        onPause: () => ref.read(torrentListProvider.notifier).pauseTorrent(torrentHash),
-        onResume: () => ref.read(torrentListProvider.notifier).resumeTorrent(torrentHash),
-        onRecheck: () => ref.read(torrentListProvider.notifier).recheckTorrent(torrentHash),
-        onReannounce: () => ref.read(torrentListProvider.notifier).reannounceTorrent(torrentHash),
+        onPause: () =>
+            ref.read(torrentListProvider.notifier).pauseTorrent(torrentHash),
+        onResume: () =>
+            ref.read(torrentListProvider.notifier).resumeTorrent(torrentHash),
+        onRecheck: () =>
+            ref.read(torrentListProvider.notifier).recheckTorrent(torrentHash),
+        onReannounce: () => ref
+            .read(torrentListProvider.notifier)
+            .reannounceTorrent(torrentHash),
         onDelete: () => _showDeleteDialog(context, ref, torrent),
       ),
     );
   }
 
-  Future<void> _showDeleteDialog(BuildContext context, WidgetRef ref, Torrent torrent) async {
+  Future<void> _showDeleteDialog(
+    BuildContext context,
+    WidgetRef ref,
+    Torrent torrent,
+  ) async {
     final result = await DeleteConfirmationDialog.showForTorrent(
       context: context,
       torrentName: torrent.name,
@@ -174,7 +208,12 @@ class _TorrentHeaderCard extends StatelessWidget {
     if (compact) {
       // Compact embedded layout - modern stat pills with minimal height
       return Container(
-        padding: const EdgeInsets.fromLTRB(AppSpacing.md, AppSpacing.md, AppSpacing.md, AppSpacing.sm),
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.md,
+          AppSpacing.md,
+          AppSpacing.md,
+          AppSpacing.sm,
+        ),
         decoration: BoxDecoration(
           color: theme.colorScheme.surfaceContainerLow,
           border: Border(
@@ -348,14 +387,16 @@ class _TorrentHeaderCard extends StatelessWidget {
                   child: _StatItem(
                     icon: Icons.storage_outlined,
                     label: 'Size',
-                    value: '${Formatters.formatBytes(torrent.downloaded)} / ${Formatters.formatBytes(torrent.size)}',
+                    value:
+                        '${Formatters.formatBytes(torrent.downloaded)} / ${Formatters.formatBytes(torrent.size)}',
                   ),
                 ),
                 Expanded(
                   child: _StatItem(
                     icon: Icons.people_outline,
                     label: 'Peers',
-                    value: '${torrent.numSeeds} seeds, ${torrent.numLeeches} peers',
+                    value:
+                        '${torrent.numSeeds} seeds, ${torrent.numLeeches} peers',
                   ),
                 ),
                 Expanded(
@@ -393,7 +434,10 @@ class _StatPill extends StatelessWidget {
     final appColors = context.appColors;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.xs,
+      ),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
         borderRadius: BorderRadius.circular(AppRadius.full),
@@ -451,7 +495,11 @@ class _StatItem extends StatelessWidget {
 
     return Column(
       children: [
-        Icon(icon, size: AppIconSize.md, color: color ?? theme.colorScheme.primary),
+        Icon(
+          icon,
+          size: AppIconSize.md,
+          color: color ?? theme.colorScheme.primary,
+        ),
         const SizedBox(height: AppSpacing.xs),
         Text(
           label,
@@ -542,10 +590,7 @@ class _TorrentActionBar extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
         decoration: BoxDecoration(
           border: Border(
-            top: BorderSide(
-              color: Theme.of(context).dividerColor,
-              width: 1,
-            ),
+            top: BorderSide(color: Theme.of(context).dividerColor, width: 1),
           ),
         ),
         child: actions,
@@ -589,10 +634,7 @@ class _ActionButton extends StatelessWidget {
           SizedBox(height: compact ? 2 : 4),
           Text(
             label,
-            style: TextStyle(
-              fontSize: compact ? 10 : 12,
-              color: color,
-            ),
+            style: TextStyle(fontSize: compact ? 10 : 12, color: color),
           ),
         ],
       ),

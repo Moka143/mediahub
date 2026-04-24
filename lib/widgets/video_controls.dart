@@ -58,11 +58,7 @@ class VideoControlsOverlay extends ConsumerWidget {
             _buildTopBar(context, ref),
 
             // Middle spacer with center play button
-            Expanded(
-              child: Center(
-                child: _buildCenterControls(context),
-              ),
-            ),
+            Expanded(child: Center(child: _buildCenterControls(context))),
 
             // Bottom controls
             _buildBottomControls(context, ref, position, duration, volume),
@@ -126,7 +122,7 @@ class VideoControlsOverlay extends ConsumerWidget {
 
           // Audio track button
           _AudioTrackButton(),
-          
+
           // Playback speed button
           _PlaybackSpeedButton(),
         ],
@@ -148,7 +144,11 @@ class VideoControlsOverlay extends ConsumerWidget {
               shape: BoxShape.circle,
             ),
             child: IconButton(
-              icon: Icon(Icons.replay_10_rounded, size: AppIconSize.xl, color: Colors.white),
+              icon: Icon(
+                Icons.replay_10_rounded,
+                size: AppIconSize.xl,
+                color: Colors.white,
+              ),
               onPressed: onSeekBackward,
               tooltip: 'Rewind 10s',
             ),
@@ -194,7 +194,11 @@ class VideoControlsOverlay extends ConsumerWidget {
               shape: BoxShape.circle,
             ),
             child: IconButton(
-              icon: Icon(Icons.forward_10_rounded, size: AppIconSize.xl, color: Colors.white),
+              icon: Icon(
+                Icons.forward_10_rounded,
+                size: AppIconSize.xl,
+                color: Colors.white,
+              ),
               onPressed: onSeekForward,
               tooltip: 'Forward 10s',
             ),
@@ -234,20 +238,26 @@ class VideoControlsOverlay extends ConsumerWidget {
                 child: SliderTheme(
                   data: SliderTheme.of(context).copyWith(
                     trackHeight: 4,
-                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                    overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                    thumbShape: const RoundSliderThumbShape(
+                      enabledThumbRadius: 6,
+                    ),
+                    overlayShape: const RoundSliderOverlayShape(
+                      overlayRadius: 12,
+                    ),
                     activeTrackColor: Theme.of(context).colorScheme.primary,
                     inactiveTrackColor: Colors.white.withValues(alpha: 0.3),
                     thumbColor: Colors.white,
                   ),
                   child: Slider(
                     value: duration.inMilliseconds > 0
-                        ? (position.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0)
+                        ? (position.inMilliseconds / duration.inMilliseconds)
+                              .clamp(0.0, 1.0)
                         : 0.0,
                     onChanged: (value) {
                       if (duration.inMilliseconds > 0) {
                         final newPosition = Duration(
-                          milliseconds: (value * duration.inMilliseconds).round(),
+                          milliseconds: (value * duration.inMilliseconds)
+                              .round(),
                         );
                         playerService.seek(newPosition);
                       }
@@ -283,7 +293,9 @@ class VideoControlsOverlay extends ConsumerWidget {
                 ),
                 child: IconButton(
                   icon: Icon(
-                    isFullscreen ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded,
+                    isFullscreen
+                        ? Icons.fullscreen_exit_rounded
+                        : Icons.fullscreen_rounded,
                     color: Colors.white,
                   ),
                   onPressed: onToggleFullscreen,
@@ -313,10 +325,7 @@ class _VolumeControl extends StatefulWidget {
   final double volume;
   final ValueChanged<double> onVolumeChanged;
 
-  const _VolumeControl({
-    required this.volume,
-    required this.onVolumeChanged,
-  });
+  const _VolumeControl({required this.volume, required this.onVolumeChanged});
 
   @override
   State<_VolumeControl> createState() => _VolumeControlState();
@@ -344,8 +353,8 @@ class _VolumeControlState extends State<_VolumeControl> {
                 widget.volume == 0
                     ? Icons.volume_off_rounded
                     : widget.volume < 50
-                        ? Icons.volume_down_rounded
-                        : Icons.volume_up_rounded,
+                    ? Icons.volume_down_rounded
+                    : Icons.volume_up_rounded,
                 color: Colors.white,
               ),
               onPressed: () {
@@ -358,8 +367,12 @@ class _VolumeControlState extends State<_VolumeControl> {
                 child: SliderTheme(
                   data: SliderTheme.of(context).copyWith(
                     trackHeight: 3,
-                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
-                    overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
+                    thumbShape: const RoundSliderThumbShape(
+                      enabledThumbRadius: 5,
+                    ),
+                    overlayShape: const RoundSliderOverlayShape(
+                      overlayRadius: 10,
+                    ),
                     activeTrackColor: Colors.white,
                     inactiveTrackColor: Colors.white.withValues(alpha: 0.3),
                     thumbColor: Colors.white,
@@ -393,7 +406,8 @@ class _SubtitleButton extends ConsumerWidget {
     final hasEmbeddedTracks = subtitleTracksAsync.value?.isNotEmpty ?? false;
     final hasOpenSubtitles = openSubtitlesAsync.value?.isNotEmpty ?? false;
     final hasSubtitleContext = subtitleContext != null;
-    final isLoadingOpenSubs = openSubtitlesAsync.isLoading && hasSubtitleContext;
+    final isLoadingOpenSubs =
+        openSubtitlesAsync.isLoading && hasSubtitleContext;
 
     // Show button if we have embedded tracks, OpenSubtitles, or context to fetch
     if (!hasEmbeddedTracks && !hasOpenSubtitles && !hasSubtitleContext) {
@@ -404,7 +418,9 @@ class _SubtitleButton extends ConsumerWidget {
       children: [
         IconButton(
           icon: Icon(
-            currentExternalSub != null || (currentTrackAsync.value != null && currentTrackAsync.value != SubtitleTrack.no())
+            currentExternalSub != null ||
+                    (currentTrackAsync.value != null &&
+                        currentTrackAsync.value != SubtitleTrack.no())
                 ? Icons.closed_caption_rounded
                 : Icons.closed_caption_off_rounded,
             color: Colors.white,
@@ -428,7 +444,9 @@ class _SubtitleButton extends ConsumerWidget {
               height: 12,
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                valueColor: AlwaysStoppedAnimation(Colors.white.withValues(alpha: 0.7)),
+                valueColor: AlwaysStoppedAnimation(
+                  Colors.white.withValues(alpha: 0.7),
+                ),
               ),
             ),
           ),
@@ -453,7 +471,7 @@ class _SubtitleButton extends ConsumerWidget {
           builder: (context, ref, _) {
             final theme = Theme.of(context);
             final groupedSubs = _groupSubtitlesByLanguage(openSubtitles);
-            
+
             return SafeArea(
               child: ConstrainedBox(
                 constraints: BoxConstraints(
@@ -488,15 +506,23 @@ class _SubtitleButton extends ConsumerWidget {
                       ListTile(
                         leading: Icon(
                           Icons.close_rounded,
-                          color: (currentEmbeddedTrack == SubtitleTrack.no() && currentExternalSub == null)
+                          color:
+                              (currentEmbeddedTrack == SubtitleTrack.no() &&
+                                  currentExternalSub == null)
                               ? theme.colorScheme.primary
                               : null,
                         ),
                         title: const Text('Off'),
-                        selected: currentEmbeddedTrack == SubtitleTrack.no() && currentExternalSub == null,
+                        selected:
+                            currentEmbeddedTrack == SubtitleTrack.no() &&
+                            currentExternalSub == null,
                         onTap: () {
-                          ref.read(playerServiceProvider).setSubtitleTrack(SubtitleTrack.no());
-                          ref.read(currentExternalSubtitleProvider.notifier).clear();
+                          ref
+                              .read(playerServiceProvider)
+                              .setSubtitleTrack(SubtitleTrack.no());
+                          ref
+                              .read(currentExternalSubtitleProvider.notifier)
+                              .clear();
                           Navigator.pop(context);
                         },
                       ),
@@ -504,7 +530,12 @@ class _SubtitleButton extends ConsumerWidget {
                       // Embedded tracks section
                       if (embeddedTracks.isNotEmpty) ...[
                         Padding(
-                          padding: EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.md, AppSpacing.lg, AppSpacing.xs),
+                          padding: EdgeInsets.fromLTRB(
+                            AppSpacing.lg,
+                            AppSpacing.md,
+                            AppSpacing.lg,
+                            AppSpacing.xs,
+                          ),
                           child: Text(
                             'Embedded Subtitles',
                             style: theme.textTheme.labelMedium?.copyWith(
@@ -513,28 +544,51 @@ class _SubtitleButton extends ConsumerWidget {
                             ),
                           ),
                         ),
-                        ...embeddedTracks.map((track) => ListTile(
-                          leading: Icon(
-                            Icons.subtitles_rounded,
-                            color: currentEmbeddedTrack?.id == track.id && currentExternalSub == null
-                                ? theme.colorScheme.primary
+                        ...embeddedTracks.map(
+                          (track) => ListTile(
+                            leading: Icon(
+                              Icons.subtitles_rounded,
+                              color:
+                                  currentEmbeddedTrack?.id == track.id &&
+                                      currentExternalSub == null
+                                  ? theme.colorScheme.primary
+                                  : null,
+                            ),
+                            title: Text(
+                              track.title ??
+                                  track.language ??
+                                  'Track ${track.id}',
+                            ),
+                            subtitle: track.language != null
+                                ? Text(track.language!)
                                 : null,
+                            selected:
+                                currentEmbeddedTrack?.id == track.id &&
+                                currentExternalSub == null,
+                            onTap: () {
+                              ref
+                                  .read(playerServiceProvider)
+                                  .setSubtitleTrack(track);
+                              ref
+                                  .read(
+                                    currentExternalSubtitleProvider.notifier,
+                                  )
+                                  .clear();
+                              Navigator.pop(context);
+                            },
                           ),
-                          title: Text(track.title ?? track.language ?? 'Track ${track.id}'),
-                          subtitle: track.language != null ? Text(track.language!) : null,
-                          selected: currentEmbeddedTrack?.id == track.id && currentExternalSub == null,
-                          onTap: () {
-                            ref.read(playerServiceProvider).setSubtitleTrack(track);
-                            ref.read(currentExternalSubtitleProvider.notifier).clear();
-                            Navigator.pop(context);
-                          },
-                        )),
+                        ),
                       ],
 
                       // OpenSubtitles section
                       if (openSubtitles.isNotEmpty || isLoadingOpenSubs) ...[
                         Padding(
-                          padding: EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.md, AppSpacing.lg, AppSpacing.xs),
+                          padding: EdgeInsets.fromLTRB(
+                            AppSpacing.lg,
+                            AppSpacing.md,
+                            AppSpacing.lg,
+                            AppSpacing.xs,
+                          ),
                           child: Row(
                             children: [
                               Text(
@@ -551,7 +605,9 @@ class _SubtitleButton extends ConsumerWidget {
                                   height: 12,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation(theme.colorScheme.primary),
+                                    valueColor: AlwaysStoppedAnimation(
+                                      theme.colorScheme.primary,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -563,7 +619,7 @@ class _SubtitleButton extends ConsumerWidget {
                             final langName = entry.key;
                             final subs = entry.value;
                             final firstSub = subs.first;
-                            
+
                             // If only one subtitle for this language, show directly
                             if (subs.length == 1) {
                               return ListTile(
@@ -573,10 +629,14 @@ class _SubtitleButton extends ConsumerWidget {
                                 ),
                                 title: Text(langName),
                                 selected: currentExternalSub?.id == firstSub.id,
-                                onTap: () => _loadExternalSubtitle(ref, firstSub, context),
+                                onTap: () => _loadExternalSubtitle(
+                                  ref,
+                                  firstSub,
+                                  context,
+                                ),
                               );
                             }
-                            
+
                             // If multiple subtitles for this language, use expansion tile
                             return ExpansionTile(
                               leading: Text(
@@ -591,7 +651,8 @@ class _SubtitleButton extends ConsumerWidget {
                                   leading: const SizedBox(width: 20),
                                   title: Text('$langName #${index + 1}'),
                                   selected: currentExternalSub?.id == sub.id,
-                                  onTap: () => _loadExternalSubtitle(ref, sub, context),
+                                  onTap: () =>
+                                      _loadExternalSubtitle(ref, sub, context),
                                 );
                               }).toList(),
                             );
@@ -611,9 +672,16 @@ class _SubtitleButton extends ConsumerWidget {
                       ],
 
                       // No OpenSubtitles available message
-                      if (openSubtitles.isEmpty && !isLoadingOpenSubs && ref.read(subtitleContextProvider) != null)
+                      if (openSubtitles.isEmpty &&
+                          !isLoadingOpenSubs &&
+                          ref.read(subtitleContextProvider) != null)
                         Padding(
-                          padding: EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.md, AppSpacing.lg, AppSpacing.lg),
+                          padding: EdgeInsets.fromLTRB(
+                            AppSpacing.lg,
+                            AppSpacing.md,
+                            AppSpacing.lg,
+                            AppSpacing.lg,
+                          ),
                           child: Text(
                             'No subtitles found on OpenSubtitles',
                             style: theme.textTheme.bodySmall?.copyWith(
@@ -634,7 +702,9 @@ class _SubtitleButton extends ConsumerWidget {
     );
   }
 
-  Map<String, List<Subtitle>> _groupSubtitlesByLanguage(List<Subtitle> subtitles) {
+  Map<String, List<Subtitle>> _groupSubtitlesByLanguage(
+    List<Subtitle> subtitles,
+  ) {
     final Map<String, List<Subtitle>> grouped = {};
     for (final sub in subtitles) {
       final lang = sub.langName ?? sub.lang;
@@ -645,9 +715,13 @@ class _SubtitleButton extends ConsumerWidget {
     return {for (final key in sortedKeys) key: grouped[key]!};
   }
 
-  Future<void> _loadExternalSubtitle(WidgetRef ref, Subtitle subtitle, BuildContext context) async {
+  Future<void> _loadExternalSubtitle(
+    WidgetRef ref,
+    Subtitle subtitle,
+    BuildContext context,
+  ) async {
     Navigator.pop(context);
-    
+
     try {
       // Load the subtitle URL directly in media_kit
       await ref.read(playerServiceProvider).loadExternalSubtitle(subtitle.url);
@@ -676,7 +750,8 @@ class _AudioTrackButton extends ConsumerWidget {
 
         return IconButton(
           icon: const Icon(Icons.audiotrack_rounded, color: Colors.white),
-          onPressed: () => _showAudioMenu(context, ref, tracks, currentTrackAsync.value),
+          onPressed: () =>
+              _showAudioMenu(context, ref, tracks, currentTrackAsync.value),
         );
       },
       loading: () => const SizedBox.shrink(),
@@ -717,21 +792,27 @@ class _AudioTrackButton extends ConsumerWidget {
                   ],
                 ),
               ),
-              ...tracks.map((track) => ListTile(
-                    leading: Icon(
-                      Icons.audiotrack_rounded,
-                      color: currentTrack?.id == track.id
-                          ? theme.colorScheme.primary
-                          : null,
-                    ),
-                    title: Text(track.title ?? track.language ?? 'Track ${track.id}'),
-                    subtitle: track.language != null ? Text(track.language!) : null,
-                    selected: currentTrack?.id == track.id,
-                    onTap: () {
-                      ref.read(playerServiceProvider).setAudioTrack(track);
-                      Navigator.pop(context);
-                    },
-                  )),
+              ...tracks.map(
+                (track) => ListTile(
+                  leading: Icon(
+                    Icons.audiotrack_rounded,
+                    color: currentTrack?.id == track.id
+                        ? theme.colorScheme.primary
+                        : null,
+                  ),
+                  title: Text(
+                    track.title ?? track.language ?? 'Track ${track.id}',
+                  ),
+                  subtitle: track.language != null
+                      ? Text(track.language!)
+                      : null,
+                  selected: currentTrack?.id == track.id,
+                  onTap: () {
+                    ref.read(playerServiceProvider).setAudioTrack(track);
+                    Navigator.pop(context);
+                  },
+                ),
+              ),
               const SizedBox(height: AppSpacing.md),
             ],
           ),
@@ -743,12 +824,21 @@ class _AudioTrackButton extends ConsumerWidget {
 
 /// Playback speed selector button
 class _PlaybackSpeedButton extends ConsumerWidget {
-  static const List<double> _speeds = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
-  
+  static const List<double> _speeds = [
+    0.25,
+    0.5,
+    0.75,
+    1.0,
+    1.25,
+    1.5,
+    1.75,
+    2.0,
+  ];
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final currentRate = ref.watch(playbackRateProvider).value ?? 1.0;
-    
+
     return Tooltip(
       message: 'Playback speed',
       child: InkWell(
@@ -757,7 +847,7 @@ class _PlaybackSpeedButton extends ConsumerWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
-            color: currentRate != 1.0 
+            color: currentRate != 1.0
                 ? Colors.white.withValues(alpha: 0.2)
                 : Colors.transparent,
             borderRadius: BorderRadius.circular(AppRadius.sm),
@@ -767,7 +857,9 @@ class _PlaybackSpeedButton extends ConsumerWidget {
             style: TextStyle(
               color: Colors.white,
               fontSize: 14,
-              fontWeight: currentRate != 1.0 ? FontWeight.bold : FontWeight.normal,
+              fontWeight: currentRate != 1.0
+                  ? FontWeight.bold
+                  : FontWeight.normal,
             ),
           ),
         ),
@@ -789,10 +881,7 @@ class _PlaybackSpeedButton extends ConsumerWidget {
                 padding: EdgeInsets.all(AppSpacing.lg),
                 child: Row(
                   children: [
-                    Icon(
-                      Icons.speed_rounded,
-                      color: theme.colorScheme.primary,
-                    ),
+                    Icon(Icons.speed_rounded, color: theme.colorScheme.primary),
                     const SizedBox(width: AppSpacing.sm),
                     Text(
                       'Playback Speed',
@@ -803,28 +892,37 @@ class _PlaybackSpeedButton extends ConsumerWidget {
                   ],
                 ),
               ),
-              ..._speeds.map((speed) => ListTile(
-                    leading: Icon(
-                      speed == 1.0 ? Icons.check_circle_rounded : Icons.speed_rounded,
-                      color: currentRate == speed
-                          ? theme.colorScheme.primary
-                          : null,
-                    ),
-                    title: Text(
-                      speed == 1.0 ? 'Normal' : '${speed}x',
-                      style: TextStyle(
-                        fontWeight: currentRate == speed ? FontWeight.bold : FontWeight.normal,
-                      ),
-                    ),
-                    trailing: currentRate == speed 
-                        ? Icon(Icons.check_rounded, color: theme.colorScheme.primary)
+              ..._speeds.map(
+                (speed) => ListTile(
+                  leading: Icon(
+                    speed == 1.0
+                        ? Icons.check_circle_rounded
+                        : Icons.speed_rounded,
+                    color: currentRate == speed
+                        ? theme.colorScheme.primary
                         : null,
-                    selected: currentRate == speed,
-                    onTap: () {
-                      ref.read(playerServiceProvider).setPlaybackRate(speed);
-                      Navigator.pop(context);
-                    },
-                  )),
+                  ),
+                  title: Text(
+                    speed == 1.0 ? 'Normal' : '${speed}x',
+                    style: TextStyle(
+                      fontWeight: currentRate == speed
+                          ? FontWeight.bold
+                          : FontWeight.normal,
+                    ),
+                  ),
+                  trailing: currentRate == speed
+                      ? Icon(
+                          Icons.check_rounded,
+                          color: theme.colorScheme.primary,
+                        )
+                      : null,
+                  selected: currentRate == speed,
+                  onTap: () {
+                    ref.read(playerServiceProvider).setPlaybackRate(speed);
+                    Navigator.pop(context);
+                  },
+                ),
+              ),
               const SizedBox(height: AppSpacing.md),
             ],
           ),

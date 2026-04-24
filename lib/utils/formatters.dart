@@ -61,7 +61,7 @@ class Formatters {
   /// Format Unix timestamp to relative time (e.g., "2 hours ago")
   static String formatRelativeTime(int timestamp) {
     if (timestamp <= 0) return 'Unknown';
-    
+
     final date = DateTime.fromMillisecondsSinceEpoch(timestamp * 1000);
     final now = DateTime.now();
     final difference = now.difference(date);

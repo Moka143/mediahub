@@ -20,11 +20,7 @@ enum StatusBadgeType {
 }
 
 /// Size variants for status badges
-enum StatusBadgeSize {
-  small,
-  medium,
-  large,
-}
+enum StatusBadgeSize { small, medium, large }
 
 /// A reusable status badge component with consistent styling
 class StatusBadge extends StatelessWidget {

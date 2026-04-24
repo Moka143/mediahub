@@ -8,56 +8,74 @@ final torrentioApiServiceProvider = Provider<TorrentioApiService>((ref) {
 });
 
 /// Get streams for a movie by IMDB ID
-final movieStreamsProvider = FutureProvider.family<TorrentioResponse, String>((ref, imdbId) async {
+final movieStreamsProvider = FutureProvider.family<TorrentioResponse, String>((
+  ref,
+  imdbId,
+) async {
   final torrentioService = ref.read(torrentioApiServiceProvider);
   return torrentioService.getMovieStreams(imdbId);
 });
 
 /// Get streams for a TV series episode
-final seriesStreamsProvider = FutureProvider.family<TorrentioResponse,
-    ({String imdbId, int season, int episode})>((ref, params) async {
-  final torrentioService = ref.read(torrentioApiServiceProvider);
-  return torrentioService.getSeriesStreams(
-    params.imdbId,
-    season: params.season,
-    episode: params.episode,
-  );
-});
+final seriesStreamsProvider =
+    FutureProvider.family<
+      TorrentioResponse,
+      ({String imdbId, int season, int episode})
+    >((ref, params) async {
+      final torrentioService = ref.read(torrentioApiServiceProvider);
+      return torrentioService.getSeriesStreams(
+        params.imdbId,
+        season: params.season,
+        episode: params.episode,
+      );
+    });
 
 /// Get best stream for a movie
-final bestMovieStreamProvider = FutureProvider.family<TorrentioStream?,
-    ({String imdbId, String? preferredQuality})>((ref, params) async {
-  final torrentioService = ref.read(torrentioApiServiceProvider);
-  return torrentioService.getBestMovieStream(
-    params.imdbId,
-    preferredQuality: params.preferredQuality,
-  );
-});
+final bestMovieStreamProvider =
+    FutureProvider.family<
+      TorrentioStream?,
+      ({String imdbId, String? preferredQuality})
+    >((ref, params) async {
+      final torrentioService = ref.read(torrentioApiServiceProvider);
+      return torrentioService.getBestMovieStream(
+        params.imdbId,
+        preferredQuality: params.preferredQuality,
+      );
+    });
 
 /// Get best stream for an episode
-final bestSeriesStreamProvider = FutureProvider.family<TorrentioStream?,
-    ({String imdbId, int season, int episode, String? preferredQuality})>((ref, params) async {
-  final torrentioService = ref.read(torrentioApiServiceProvider);
-  return torrentioService.getBestSeriesStream(
-    params.imdbId,
-    season: params.season,
-    episode: params.episode,
-    preferredQuality: params.preferredQuality,
-  );
-});
+final bestSeriesStreamProvider =
+    FutureProvider.family<
+      TorrentioStream?,
+      ({String imdbId, int season, int episode, String? preferredQuality})
+    >((ref, params) async {
+      final torrentioService = ref.read(torrentioApiServiceProvider);
+      return torrentioService.getBestSeriesStream(
+        params.imdbId,
+        season: params.season,
+        episode: params.episode,
+        preferredQuality: params.preferredQuality,
+      );
+    });
 
 /// Check if streams are available for a movie
-final hasMovieStreamsProvider = FutureProvider.family<bool, String>((ref, imdbId) async {
+final hasMovieStreamsProvider = FutureProvider.family<bool, String>((
+  ref,
+  imdbId,
+) async {
   final response = await ref.watch(movieStreamsProvider(imdbId).future);
   return response.streams.isNotEmpty;
 });
 
 /// Check if streams are available for an episode
-final hasSeriesStreamsProvider = FutureProvider.family<bool,
-    ({String imdbId, int season, int episode})>((ref, params) async {
-  final response = await ref.watch(seriesStreamsProvider(params).future);
-  return response.streams.isNotEmpty;
-});
+final hasSeriesStreamsProvider =
+    FutureProvider.family<bool, ({String imdbId, int season, int episode})>((
+      ref,
+      params,
+    ) async {
+      final response = await ref.watch(seriesStreamsProvider(params).future);
+      return response.streams.isNotEmpty;
+    });
 
 /// State for stream selection/filtering
 class StreamSearchState {
@@ -107,7 +125,11 @@ class StreamSearchNotifier extends Notifier<StreamSearchState> {
   void setStreams(List<TorrentioStream> streams) {
     state = state.copyWith(
       streams: streams,
-      filteredStreams: _applyFiltersAndSort(streams, state.qualityFilter, state.sortOption),
+      filteredStreams: _applyFiltersAndSort(
+        streams,
+        state.qualityFilter,
+        state.sortOption,
+      ),
       isLoading: false,
       error: null,
     );
@@ -116,14 +138,22 @@ class StreamSearchNotifier extends Notifier<StreamSearchState> {
   void setQualityFilter(String? quality) {
     state = state.copyWith(
       qualityFilter: quality,
-      filteredStreams: _applyFiltersAndSort(state.streams, quality, state.sortOption),
+      filteredStreams: _applyFiltersAndSort(
+        state.streams,
+        quality,
+        state.sortOption,
+      ),
     );
   }
 
   void setSortOption(TorrentioSortOption option) {
     state = state.copyWith(
       sortOption: option,
-      filteredStreams: _applyFiltersAndSort(state.streams, state.qualityFilter, option),
+      filteredStreams: _applyFiltersAndSort(
+        state.streams,
+        state.qualityFilter,
+        option,
+      ),
     );
   }
 
@@ -154,6 +184,7 @@ class StreamSearchNotifier extends Notifier<StreamSearchState> {
   }
 }
 
-final streamSearchProvider = NotifierProvider<StreamSearchNotifier, StreamSearchState>(
-  StreamSearchNotifier.new,
-);
+final streamSearchProvider =
+    NotifierProvider<StreamSearchNotifier, StreamSearchState>(
+      StreamSearchNotifier.new,
+    );

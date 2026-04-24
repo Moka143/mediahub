@@ -46,12 +46,14 @@ class ResponsiveLayout extends StatelessWidget {
 /// More flexible than [ResponsiveLayout] when you need to
 /// make minor adjustments based on screen size.
 class ResponsiveBuilder extends StatelessWidget {
-  final Widget Function(BuildContext context, ScreenSize screenSize, BoxConstraints constraints) builder;
+  final Widget Function(
+    BuildContext context,
+    ScreenSize screenSize,
+    BoxConstraints constraints,
+  )
+  builder;
 
-  const ResponsiveBuilder({
-    super.key,
-    required this.builder,
-  });
+  const ResponsiveBuilder({super.key, required this.builder});
 
   @override
   Widget build(BuildContext context) {
@@ -102,27 +104,27 @@ class ResponsiveVisibility extends StatelessWidget {
     super.key,
     required this.child,
     this.replacement,
-  })  : visibleOnMobile = true,
-        visibleOnTablet = false,
-        visibleOnDesktop = false;
+  }) : visibleOnMobile = true,
+       visibleOnTablet = false,
+       visibleOnDesktop = false;
 
   /// Only visible on tablet and larger.
   const ResponsiveVisibility.tabletUp({
     super.key,
     required this.child,
     this.replacement,
-  })  : visibleOnMobile = false,
-        visibleOnTablet = true,
-        visibleOnDesktop = true;
+  }) : visibleOnMobile = false,
+       visibleOnTablet = true,
+       visibleOnDesktop = true;
 
   /// Only visible on desktop.
   const ResponsiveVisibility.desktopOnly({
     super.key,
     required this.child,
     this.replacement,
-  })  : visibleOnMobile = false,
-        visibleOnTablet = false,
-        visibleOnDesktop = true;
+  }) : visibleOnMobile = false,
+       visibleOnTablet = false,
+       visibleOnDesktop = true;
 
   @override
   Widget build(BuildContext context) {

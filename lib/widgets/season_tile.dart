@@ -69,10 +69,7 @@ class SeasonTile extends StatelessWidget {
                 SizedBox(width: AppSpacing.xs),
                 Text(
                   '${season.episodeCount} episodes',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: appColors.mutedText,
-                  ),
+                  style: TextStyle(fontSize: 12, color: appColors.mutedText),
                 ),
                 if (season.year != null) ...[
                   SizedBox(width: AppSpacing.md),
@@ -84,10 +81,7 @@ class SeasonTile extends StatelessWidget {
                   SizedBox(width: AppSpacing.xs),
                   Text(
                     season.year!,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: appColors.mutedText,
-                    ),
+                    style: TextStyle(fontSize: 12, color: appColors.mutedText),
                   ),
                 ],
               ],
@@ -114,10 +108,8 @@ class SeasonTile extends StatelessWidget {
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: episodes.length,
-              separatorBuilder: (_, __) => Divider(
-                height: 1,
-                color: theme.dividerColor,
-              ),
+              separatorBuilder: (_, __) =>
+                  Divider(height: 1, color: theme.dividerColor),
               itemBuilder: (context, index) {
                 final episode = episodes[index];
                 final episodeKey =
@@ -203,12 +195,15 @@ class SeasonList extends StatelessWidget {
 
           return Padding(
             padding: EdgeInsets.only(
-                right: index < seasons.length - 1 ? AppSpacing.sm : 0),
+              right: index < seasons.length - 1 ? AppSpacing.sm : 0,
+            ),
             child: FilterChip(
               selected: isSelected,
               onSelected: (_) => onSeasonTap?.call(season),
               label: Text(
-                season.isSpecials ? 'Specials' : 'Season ${season.seasonNumber}',
+                season.isSpecials
+                    ? 'Specials'
+                    : 'Season ${season.seasonNumber}',
               ),
               selectedColor: theme.colorScheme.primary.withValues(alpha: 0.2),
               checkmarkColor: theme.colorScheme.primary,

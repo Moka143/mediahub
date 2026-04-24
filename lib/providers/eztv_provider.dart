@@ -8,40 +8,52 @@ final eztvApiServiceProvider = Provider<EztvApiService>((ref) {
 });
 
 /// Get torrents for a show by IMDB ID
-final showTorrentsProvider = FutureProvider.family<List<EztvTorrent>, String>((ref, imdbId) async {
+final showTorrentsProvider = FutureProvider.family<List<EztvTorrent>, String>((
+  ref,
+  imdbId,
+) async {
   final eztvService = ref.read(eztvApiServiceProvider);
   return eztvService.getTorrentsByImdbId(imdbId);
 });
 
 /// Get torrents for a specific episode
-final episodeTorrentsProvider = FutureProvider.family<List<EztvTorrent>,
-    ({String imdbId, int season, int episode})>((ref, params) async {
-  final eztvService = ref.read(eztvApiServiceProvider);
-  return eztvService.getTorrentsForEpisode(
-    params.imdbId,
-    season: params.season,
-    episode: params.episode,
-  );
-});
+final episodeTorrentsProvider =
+    FutureProvider.family<
+      List<EztvTorrent>,
+      ({String imdbId, int season, int episode})
+    >((ref, params) async {
+      final eztvService = ref.read(eztvApiServiceProvider);
+      return eztvService.getTorrentsForEpisode(
+        params.imdbId,
+        season: params.season,
+        episode: params.episode,
+      );
+    });
 
 /// Get best torrent for an episode
-final bestEpisodeTorrentProvider = FutureProvider.family<EztvTorrent?,
-    ({String imdbId, int season, int episode, String? preferredQuality})>((ref, params) async {
-  final eztvService = ref.read(eztvApiServiceProvider);
-  return eztvService.getBestTorrentForEpisode(
-    params.imdbId,
-    season: params.season,
-    episode: params.episode,
-    preferredQuality: params.preferredQuality,
-  );
-});
+final bestEpisodeTorrentProvider =
+    FutureProvider.family<
+      EztvTorrent?,
+      ({String imdbId, int season, int episode, String? preferredQuality})
+    >((ref, params) async {
+      final eztvService = ref.read(eztvApiServiceProvider);
+      return eztvService.getBestTorrentForEpisode(
+        params.imdbId,
+        season: params.season,
+        episode: params.episode,
+        preferredQuality: params.preferredQuality,
+      );
+    });
 
 /// Check if torrents are available for an episode
-final hasTorrentsProvider = FutureProvider.family<bool,
-    ({String imdbId, int season, int episode})>((ref, params) async {
-  final torrents = await ref.watch(episodeTorrentsProvider(params).future);
-  return torrents.isNotEmpty;
-});
+final hasTorrentsProvider =
+    FutureProvider.family<bool, ({String imdbId, int season, int episode})>((
+      ref,
+      params,
+    ) async {
+      final torrents = await ref.watch(episodeTorrentsProvider(params).future);
+      return torrents.isNotEmpty;
+    });
 
 /// State for torrent search/filter
 class TorrentSearchState {
@@ -95,11 +107,7 @@ class TorrentSearchState {
       EztvApiService.getAvailableQualities(torrents);
 }
 
-enum TorrentSortOption {
-  seeds,
-  quality,
-  size,
-}
+enum TorrentSortOption { seeds, quality, size }
 
 /// Notifier for torrent search with filtering and sorting
 class TorrentSearchNotifier extends Notifier<TorrentSearchState> {
@@ -218,53 +226,56 @@ class TorrentSearchNotifier extends Notifier<TorrentSearchState> {
 /// Provider for TorrentSearchNotifier
 final torrentSearchNotifierProvider =
     NotifierProvider<TorrentSearchNotifier, TorrentSearchState>(
-  TorrentSearchNotifier.new,
-);
+      TorrentSearchNotifier.new,
+    );
 
 /// Notifier for torrent availability cache
-class TorrentAvailabilityCacheNotifier extends Notifier<Map<String, Map<String, bool>>> {
+class TorrentAvailabilityCacheNotifier
+    extends Notifier<Map<String, Map<String, bool>>> {
   @override
   Map<String, Map<String, bool>> build() => {};
-  
+
   void set(Map<String, Map<String, bool>> value) => state = value;
-  
+
   void updateCache(String imdbId, Map<String, bool> availability) {
     state = {...state, imdbId: availability};
   }
-  
+
   bool hasCache(String imdbId) => state.containsKey(imdbId);
-  
+
   Map<String, bool>? getCache(String imdbId) => state[imdbId];
 }
 
 /// Cache for torrent availability per show
 /// Maps IMDB ID to map of "S01E01" -> bool (has torrents)
 final torrentAvailabilityCacheProvider =
-    NotifierProvider<TorrentAvailabilityCacheNotifier, Map<String, Map<String, bool>>>(
-  TorrentAvailabilityCacheNotifier.new,
-);
+    NotifierProvider<
+      TorrentAvailabilityCacheNotifier,
+      Map<String, Map<String, bool>>
+    >(TorrentAvailabilityCacheNotifier.new);
 
 /// Check and cache torrent availability for a show
 final checkTorrentAvailabilityProvider =
     FutureProvider.family<Map<String, bool>, String>((ref, imdbId) async {
-  final cacheNotifier = ref.read(torrentAvailabilityCacheProvider.notifier);
-  if (cacheNotifier.hasCache(imdbId)) {
-    return cacheNotifier.getCache(imdbId)!;
-  }
+      final cacheNotifier = ref.read(torrentAvailabilityCacheProvider.notifier);
+      if (cacheNotifier.hasCache(imdbId)) {
+        return cacheNotifier.getCache(imdbId)!;
+      }
 
-  final eztvService = ref.read(eztvApiServiceProvider);
-  final torrents = await eztvService.getTorrentsByImdbId(imdbId);
+      final eztvService = ref.read(eztvApiServiceProvider);
+      final torrents = await eztvService.getTorrentsByImdbId(imdbId);
 
-  final availability = <String, bool>{};
-  for (final torrent in torrents) {
-    if (torrent.season != null && torrent.episode != null) {
-      final key = 'S${torrent.season.toString().padLeft(2, '0')}E${torrent.episode.toString().padLeft(2, '0')}';
-      availability[key] = true;
-    }
-  }
+      final availability = <String, bool>{};
+      for (final torrent in torrents) {
+        if (torrent.season != null && torrent.episode != null) {
+          final key =
+              'S${torrent.season.toString().padLeft(2, '0')}E${torrent.episode.toString().padLeft(2, '0')}';
+          availability[key] = true;
+        }
+      }
 
-  // Update cache
-  cacheNotifier.updateCache(imdbId, availability);
+      // Update cache
+      cacheNotifier.updateCache(imdbId, availability);
 
-  return availability;
-});
+      return availability;
+    });

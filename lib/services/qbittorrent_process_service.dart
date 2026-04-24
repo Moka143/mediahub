@@ -26,8 +26,9 @@ class QBittorrentProcessService {
     int port = AppConstants.defaultPort,
     this.onConnectionStatusChanged,
     this.onLog,
-  })  : _qbittorrentPath = qbittorrentPath ?? PlatformUtils.getDefaultQBittorrentPath(),
-        _port = port;
+  }) : _qbittorrentPath =
+           qbittorrentPath ?? PlatformUtils.getDefaultQBittorrentPath(),
+       _port = port;
 
   /// Update the qBittorrent path
   void setQBittorrentPath(String path) {
@@ -117,7 +118,11 @@ class QBittorrentProcessService {
           '--args',
           '--webui-port=$_port',
         ];
-        _process = await Process.start('open', args, mode: ProcessStartMode.detached);
+        _process = await Process.start(
+          'open',
+          args,
+          mode: ProcessStartMode.detached,
+        );
       } else {
         // Build arguments
         final args = _buildArguments();
@@ -187,7 +192,9 @@ class QBittorrentProcessService {
 
       // Exponential backoff
       delay = Duration(
-        milliseconds: (delay.inMilliseconds * AppConstants.retryBackoffMultiplier).round(),
+        milliseconds:
+            (delay.inMilliseconds * AppConstants.retryBackoffMultiplier)
+                .round(),
       );
     }
 

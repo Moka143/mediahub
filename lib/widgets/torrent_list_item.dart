@@ -53,14 +53,17 @@ class _TorrentListItemState extends State<TorrentListItem> {
           vertical: AppSpacing.sm,
         ),
         decoration: BoxDecoration(
-          color: widget.selected 
+          color: widget.selected
               ? colorScheme.primaryContainer.withAlpha(AppOpacity.medium)
               : (_isHovered
-                  ? (isDark ? colorScheme.surfaceContainerHigh : Colors.white)
-                  : appColors.cardBackground),
+                    ? (isDark ? colorScheme.surfaceContainerHigh : Colors.white)
+                    : appColors.cardBackground),
           borderRadius: BorderRadius.circular(AppRadius.lg),
           border: widget.selected
-              ? Border.all(color: colorScheme.primary, width: AppBorderWidth.medium)
+              ? Border.all(
+                  color: colorScheme.primary,
+                  width: AppBorderWidth.medium,
+                )
               : Border.all(
                   color: _isHovered
                       ? colorScheme.outline.withAlpha(AppOpacity.medium)
@@ -79,7 +82,8 @@ class _TorrentListItemState extends State<TorrentListItem> {
           ],
         ),
         child: Semantics(
-          label: '${widget.torrent.name}. ${widget.torrent.statusText}. ${(widget.torrent.progress * 100).toStringAsFixed(0)} percent complete',
+          label:
+              '${widget.torrent.name}. ${widget.torrent.statusText}. ${(widget.torrent.progress * 100).toStringAsFixed(0)} percent complete',
           button: true,
           selected: widget.selected,
           child: Material(
@@ -99,7 +103,10 @@ class _TorrentListItemState extends State<TorrentListItem> {
                       children: [
                         // Status indicator dot
                         Container(
-                          margin: const EdgeInsets.only(top: 6, right: AppSpacing.md),
+                          margin: const EdgeInsets.only(
+                            top: 6,
+                            right: AppSpacing.md,
+                          ),
                           width: 10,
                           height: 10,
                           decoration: BoxDecoration(
@@ -107,7 +114,9 @@ class _TorrentListItemState extends State<TorrentListItem> {
                             color: _getStatusColor(appColors),
                             boxShadow: [
                               BoxShadow(
-                                color: _getStatusColor(appColors).withAlpha(AppOpacity.semi),
+                                color: _getStatusColor(
+                                  appColors,
+                                ).withAlpha(AppOpacity.semi),
                                 blurRadius: 6,
                                 spreadRadius: 1,
                               ),
@@ -145,8 +154,12 @@ class _TorrentListItemState extends State<TorrentListItem> {
                                         vertical: AppSpacing.xxs,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: colorScheme.tertiary.withAlpha(AppOpacity.light),
-                                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                                        color: colorScheme.tertiary.withAlpha(
+                                          AppOpacity.light,
+                                        ),
+                                        borderRadius: BorderRadius.circular(
+                                          AppRadius.sm,
+                                        ),
                                       ),
                                       child: Row(
                                         mainAxisSize: MainAxisSize.min,
@@ -159,10 +172,11 @@ class _TorrentListItemState extends State<TorrentListItem> {
                                           const SizedBox(width: 3),
                                           Text(
                                             'Streaming',
-                                            style: theme.textTheme.labelSmall?.copyWith(
-                                              color: colorScheme.tertiary,
-                                              fontWeight: FontWeight.w600,
-                                            ),
+                                            style: theme.textTheme.labelSmall
+                                                ?.copyWith(
+                                                  color: colorScheme.tertiary,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
                                           ),
                                         ],
                                       ),
@@ -247,7 +261,9 @@ class _TorrentListItemState extends State<TorrentListItem> {
           ),
 
         // ETA
-        if (widget.torrent.isDownloading && widget.torrent.eta > 0 && widget.torrent.eta < 8640000)
+        if (widget.torrent.isDownloading &&
+            widget.torrent.eta > 0 &&
+            widget.torrent.eta < 8640000)
           _buildStatItem(
             context,
             Icons.schedule_rounded,
@@ -274,7 +290,12 @@ class _TorrentListItemState extends State<TorrentListItem> {
     );
   }
 
-  Widget _buildStatItem(BuildContext context, IconData icon, String text, Color? accentColor) {
+  Widget _buildStatItem(
+    BuildContext context,
+    IconData icon,
+    String text,
+    Color? accentColor,
+  ) {
     final theme = Theme.of(context);
     final appColors = context.appColors;
     final color = accentColor ?? appColors.subtleText;
@@ -285,7 +306,9 @@ class _TorrentListItemState extends State<TorrentListItem> {
         vertical: AppSpacing.xxs,
       ),
       decoration: BoxDecoration(
-        color: (accentColor ?? theme.colorScheme.outline).withAlpha(AppOpacity.subtle),
+        color: (accentColor ?? theme.colorScheme.outline).withAlpha(
+          AppOpacity.subtle,
+        ),
         borderRadius: BorderRadius.circular(AppRadius.sm),
       ),
       child: Row(
@@ -317,7 +340,10 @@ class _TorrentListItemState extends State<TorrentListItem> {
             icon: const Icon(Icons.play_arrow_rounded, size: 18),
             label: const Text('Resume'),
             style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.md,
+                vertical: AppSpacing.sm,
+              ),
             ),
           )
         else
@@ -326,7 +352,10 @@ class _TorrentListItemState extends State<TorrentListItem> {
             icon: const Icon(Icons.pause_rounded, size: 18),
             label: const Text('Pause'),
             style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.md,
+                vertical: AppSpacing.sm,
+              ),
             ),
           ),
         const SizedBox(width: AppSpacing.sm),
@@ -336,7 +365,9 @@ class _TorrentListItemState extends State<TorrentListItem> {
           onPressed: widget.onDelete,
           color: appColors.errorState,
           style: IconButton.styleFrom(
-            side: BorderSide(color: appColors.errorState.withAlpha(AppOpacity.medium)),
+            side: BorderSide(
+              color: appColors.errorState.withAlpha(AppOpacity.medium),
+            ),
           ),
         ),
       ],
@@ -349,11 +380,7 @@ class TorrentListItemCompact extends StatelessWidget {
   final Torrent torrent;
   final VoidCallback? onTap;
 
-  const TorrentListItemCompact({
-    super.key,
-    required this.torrent,
-    this.onTap,
-  });
+  const TorrentListItemCompact({super.key, required this.torrent, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -448,7 +475,11 @@ class TorrentListItemCompact extends StatelessWidget {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.arrow_downward_rounded, size: 12, color: appColors.downloading),
+                  Icon(
+                    Icons.arrow_downward_rounded,
+                    size: 12,
+                    color: appColors.downloading,
+                  ),
                   const SizedBox(width: 2),
                   Text(
                     Formatters.formatSpeed(torrent.dlspeed),
@@ -464,7 +495,11 @@ class TorrentListItemCompact extends StatelessWidget {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.arrow_upward_rounded, size: 12, color: appColors.seeding),
+                  Icon(
+                    Icons.arrow_upward_rounded,
+                    size: 12,
+                    color: appColors.seeding,
+                  ),
                   const SizedBox(width: 2),
                   Text(
                     Formatters.formatSpeed(torrent.upspeed),
@@ -610,10 +645,7 @@ class SwipeableTorrentListItem extends StatelessWidget {
             ],
             Container(
               padding: const EdgeInsets.all(AppSpacing.sm),
-              decoration: BoxDecoration(
-                color: color,
-                shape: BoxShape.circle,
-              ),
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
               child: Icon(icon, color: Colors.white, size: 24),
             ),
             if (isLeft) ...[

@@ -39,7 +39,9 @@ Widget buildMediaPlaceholder(
           : Icon(
               Icons.movie_rounded,
               size: iconSize,
-              color: theme.colorScheme.onPrimaryContainer.withValues(alpha: 0.5),
+              color: theme.colorScheme.onPrimaryContainer.withValues(
+                alpha: 0.5,
+              ),
             ),
     ),
   );
@@ -74,10 +76,7 @@ BoxDecoration mediaCardDecoration(
 /// Quality badge widget used across episode/file listings
 Widget buildQualityBadge(ThemeData theme, String quality) {
   return Container(
-    padding: const EdgeInsets.symmetric(
-      horizontal: AppSpacing.xs,
-      vertical: 1,
-    ),
+    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs, vertical: 1),
     decoration: BoxDecoration(
       color: theme.colorScheme.primary.withValues(alpha: 0.18),
       borderRadius: BorderRadius.circular(AppRadius.xs),

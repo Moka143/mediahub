@@ -9,8 +9,9 @@ class TorrentioApiService {
   final String baseUrl;
 
   TorrentioApiService({String? baseUrl})
-      : baseUrl = baseUrl ?? _defaultBaseUrl,
-        _dio = Dio(BaseOptions(
+    : baseUrl = baseUrl ?? _defaultBaseUrl,
+      _dio = Dio(
+        BaseOptions(
           baseUrl: baseUrl ?? _defaultBaseUrl,
           connectTimeout: const Duration(seconds: 15),
           receiveTimeout: const Duration(seconds: 15),
@@ -18,7 +19,8 @@ class TorrentioApiService {
             'Accept': 'application/json',
             'User-Agent': 'Mozilla/5.0 (compatible; TorrentClient/1.0)',
           },
-        ));
+        ),
+      );
 
   /// Get the addon manifest
   Future<TorrentioManifest> getManifest() async {
@@ -33,7 +35,7 @@ class TorrentioApiService {
   }
 
   /// Get streams for a movie by IMDB ID
-  /// 
+  ///
   /// [imdbId] should be in format "tt1234567"
   Future<TorrentioResponse> getMovieStreams(String imdbId) async {
     try {
@@ -41,7 +43,7 @@ class TorrentioApiService {
       final cleanId = imdbId.startsWith('tt') ? imdbId : 'tt$imdbId';
 
       final response = await _dio.get('/stream/movie/$cleanId.json');
-      
+
       if (response.data == null) {
         return TorrentioResponse(streams: []);
       }
@@ -58,7 +60,7 @@ class TorrentioApiService {
   }
 
   /// Get streams for a TV series episode
-  /// 
+  ///
   /// [imdbId] should be the show's IMDB ID in format "tt1234567"
   /// [season] and [episode] are 1-indexed
   Future<TorrentioResponse> getSeriesStreams(
@@ -74,7 +76,7 @@ class TorrentioApiService {
       final videoId = '$cleanId:$season:$episode';
 
       final response = await _dio.get('/stream/series/$videoId.json');
-      
+
       if (response.data == null) {
         return TorrentioResponse(streams: []);
       }
@@ -140,9 +142,11 @@ class TorrentioApiService {
 
     // If preferred quality specified, try to find it
     if (preferredQuality != null) {
-      final qualityMatch = filtered.where(
-        (s) => s.quality.toLowerCase() == preferredQuality.toLowerCase(),
-      ).toList();
+      final qualityMatch = filtered
+          .where(
+            (s) => s.quality.toLowerCase() == preferredQuality.toLowerCase(),
+          )
+          .toList();
       if (qualityMatch.isNotEmpty) {
         // Sort by seeders and return best
         qualityMatch.sort((a, b) => b.seeders.compareTo(a.seeders));
@@ -172,7 +176,7 @@ class TorrentioApiService {
     bool prioritizeEztv = true,
   }) {
     final sorted = List<TorrentioStream>.from(streams);
-    
+
     // Primary sort by criteria
     switch (sortBy) {
       case TorrentioSortOption.seeders:
@@ -188,17 +192,17 @@ class TorrentioApiService {
         sorted.sort((a, b) => b.sizeBytes.compareTo(a.sizeBytes));
         break;
     }
-    
+
     // If prioritizing EZTV, stable sort to move EZTV to the top while preserving order within groups
     if (prioritizeEztv) {
       sorted.sort((a, b) {
         final aIsEztv = a.sourceSite.toLowerCase() == 'eztv';
         final bIsEztv = b.sourceSite.toLowerCase() == 'eztv';
-        
+
         // EZTV comes first
         if (aIsEztv && !bIsEztv) return -1;
         if (!aIsEztv && bIsEztv) return 1;
-        
+
         // Within same provider group, apply the original sort criteria
         switch (sortBy) {
           case TorrentioSortOption.seeders:
@@ -212,7 +216,7 @@ class TorrentioApiService {
         }
       });
     }
-    
+
     return sorted;
   }
 
@@ -226,12 +230,7 @@ class TorrentioApiService {
 }
 
 /// Sort options for Torrentio streams
-enum TorrentioSortOption {
-  seeders,
-  quality,
-  size,
-  sizeDesc,
-}
+enum TorrentioSortOption { seeders, quality, size, sizeDesc }
 
 /// Torrentio addon manifest
 class TorrentioManifest {
@@ -261,13 +260,18 @@ class TorrentioManifest {
       version: json['version'] as String? ?? '',
       name: json['name'] as String? ?? '',
       description: json['description'] as String? ?? '',
-      types: (json['types'] as List<dynamic>?)
+      types:
+          (json['types'] as List<dynamic>?)
               ?.map((t) => t.toString())
               .toList() ??
           [],
-      resources: (json['resources'] as List<dynamic>?)
-              ?.map((r) => TorrentioResource.fromJson(
-                  r is Map<String, dynamic> ? r : {'name': r.toString()}))
+      resources:
+          (json['resources'] as List<dynamic>?)
+              ?.map(
+                (r) => TorrentioResource.fromJson(
+                  r is Map<String, dynamic> ? r : {'name': r.toString()},
+                ),
+              )
               .toList() ??
           [],
       background: json['background'] as String?,
@@ -291,11 +295,13 @@ class TorrentioResource {
   factory TorrentioResource.fromJson(Map<String, dynamic> json) {
     return TorrentioResource(
       name: json['name'] as String? ?? '',
-      types: (json['types'] as List<dynamic>?)
+      types:
+          (json['types'] as List<dynamic>?)
               ?.map((t) => t.toString())
               .toList() ??
           [],
-      idPrefixes: (json['idPrefixes'] as List<dynamic>?)
+      idPrefixes:
+          (json['idPrefixes'] as List<dynamic>?)
               ?.map((p) => p.toString())
               .toList() ??
           [],

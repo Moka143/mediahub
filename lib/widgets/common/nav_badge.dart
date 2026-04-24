@@ -45,9 +45,11 @@ class NavBadge extends StatelessWidget {
       return child;
     }
 
-    final bgColor = backgroundColor ??
+    final bgColor =
+        backgroundColor ??
         (isError ? theme.colorScheme.error : theme.colorScheme.primary);
-    final fgColor = textColor ??
+    final fgColor =
+        textColor ??
         (isError ? theme.colorScheme.onError : theme.colorScheme.onPrimary);
 
     final displayText = count > maxCount ? '$maxCount+' : count.toString();
@@ -62,20 +64,12 @@ class NavBadge extends StatelessWidget {
           child: AnimatedSwitcher(
             duration: AppDuration.fast,
             transitionBuilder: (child, animation) {
-              return ScaleTransition(
-                scale: animation,
-                child: child,
-              );
+              return ScaleTransition(scale: animation, child: child);
             },
             child: Container(
               key: ValueKey(count),
-              padding: EdgeInsets.symmetric(
-                horizontal: count > 9 ? 4 : 0,
-              ),
-              constraints: const BoxConstraints(
-                minWidth: 16,
-                minHeight: 16,
-              ),
+              padding: EdgeInsets.symmetric(horizontal: count > 9 ? 4 : 0),
+              constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
               decoration: BoxDecoration(
                 color: bgColor,
                 borderRadius: BorderRadius.circular(AppRadius.full),

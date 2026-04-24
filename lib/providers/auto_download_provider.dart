@@ -40,28 +40,28 @@ final eztvApiServiceProvider = Provider<EztvApiService>((ref) {
 class AutoDownloadState {
   /// Whether auto-download is enabled
   final bool enabled;
-  
+
   /// Default quality preference for auto-downloads
   final String defaultQuality;
-  
+
   /// Whether to download next episode when current reaches threshold %
   final bool downloadOnProgress;
-  
+
   /// Progress threshold to trigger download (0.0 - 1.0)
   final double progressThreshold;
-  
+
   /// Map of show ID -> current quality preference (to match existing downloads)
   final Map<int, String> showQualityPreferences;
-  
+
   /// Set of episode codes currently queued for download: "showId_S01E01"
   final Set<String> downloadQueue;
-  
+
   /// Map of show ID -> last downloaded episode tracking
   final Map<int, EpisodeTrackingInfo> lastDownloadedEpisodes;
-  
+
   /// Whether auto-download is currently processing
   final bool isProcessing;
-  
+
   /// Last error message
   final String? error;
 
@@ -93,9 +93,11 @@ class AutoDownloadState {
       defaultQuality: defaultQuality ?? this.defaultQuality,
       downloadOnProgress: downloadOnProgress ?? this.downloadOnProgress,
       progressThreshold: progressThreshold ?? this.progressThreshold,
-      showQualityPreferences: showQualityPreferences ?? this.showQualityPreferences,
+      showQualityPreferences:
+          showQualityPreferences ?? this.showQualityPreferences,
       downloadQueue: downloadQueue ?? this.downloadQueue,
-      lastDownloadedEpisodes: lastDownloadedEpisodes ?? this.lastDownloadedEpisodes,
+      lastDownloadedEpisodes:
+          lastDownloadedEpisodes ?? this.lastDownloadedEpisodes,
       isProcessing: isProcessing ?? this.isProcessing,
       error: error,
     );
@@ -122,31 +124,33 @@ class AutoDownloadState {
       enabled: json['enabled'] as bool? ?? false,
       defaultQuality: json['default_quality'] as String? ?? '1080p',
       downloadOnProgress: json['download_on_progress'] as bool? ?? true,
-      progressThreshold: (json['progress_threshold'] as num?)?.toDouble() ?? 0.7,
-      showQualityPreferences: (json['show_quality_preferences'] as Map<String, dynamic>?)?.map(
+      progressThreshold:
+          (json['progress_threshold'] as num?)?.toDouble() ?? 0.7,
+      showQualityPreferences:
+          (json['show_quality_preferences'] as Map<String, dynamic>?)?.map(
             (k, v) => MapEntry(int.parse(k), v as String),
           ) ??
           {},
-      downloadQueue: (json['download_queue'] as List?)
-              ?.map((e) => e as String)
-              .toSet() ??
+      downloadQueue:
+          (json['download_queue'] as List?)?.map((e) => e as String).toSet() ??
           {},
       lastDownloadedEpisodes:
           (json['last_downloaded_episodes'] as Map<String, dynamic>?)?.map(
-                (k, v) => MapEntry(
-                  int.parse(k),
-                  EpisodeTrackingInfo.fromJson(v as Map<String, dynamic>),
-                ),
-              ) ??
-              {},
+            (k, v) => MapEntry(
+              int.parse(k),
+              EpisodeTrackingInfo.fromJson(v as Map<String, dynamic>),
+            ),
+          ) ??
+          {},
     );
   }
 }
 
 /// Provider for auto-download state
-final autoDownloadProvider = NotifierProvider<AutoDownloadNotifier, AutoDownloadState>(
-  AutoDownloadNotifier.new,
-);
+final autoDownloadProvider =
+    NotifierProvider<AutoDownloadNotifier, AutoDownloadState>(
+      AutoDownloadNotifier.new,
+    );
 
 /// Notifier for auto-download functionality
 class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
@@ -157,7 +161,7 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
   @override
   AutoDownloadState build() {
     final prefs = ref.watch(sharedPreferencesProvider);
-    
+
     ref.onDispose(() {
       _checkTimer?.cancel();
     });
@@ -264,14 +268,16 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
         currentTracking.season == season &&
         currentTracking.episode == episode &&
         currentTracking.status != EpisodeDownloadStatus.watched) {
-      await _updateTracking(showId, currentTracking.copyWith(
-        status: EpisodeDownloadStatus.watched,
-      ));
+      await _updateTracking(
+        showId,
+        currentTracking.copyWith(status: EpisodeDownloadStatus.watched),
+      );
     }
 
     // Generate queue key
     final nextEpNum = episode + 1;
-    final queueKey = '${showId}_S${season.toString().padLeft(2, '0')}E${nextEpNum.toString().padLeft(2, '0')}';
+    final queueKey =
+        '${showId}_S${season.toString().padLeft(2, '0')}E${nextEpNum.toString().padLeft(2, '0')}';
 
     // Check if already in queue
     if (state.downloadQueue.contains(queueKey)) return;
@@ -364,12 +370,15 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
           );
 
           // Update tracking
-          await _updateTracking(showId, tracking.copyWith(
-            season: nextEp.seasonNumber,
-            episode: nextEp.episodeNumber,
-            status: EpisodeDownloadStatus.downloading,
-            torrentHash: torrent.hash,
-          ));
+          await _updateTracking(
+            showId,
+            tracking.copyWith(
+              season: nextEp.seasonNumber,
+              episode: nextEp.episodeNumber,
+              status: EpisodeDownloadStatus.downloading,
+              torrentHash: torrent.hash,
+            ),
+          );
         }
       }
     } catch (e) {
@@ -402,17 +411,19 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
     );
 
     if (!nextResult.hasNextEpisode) {
-      ref.read(autoDownloadEventsProvider.notifier).addEvent(
-        AutoDownloadEvent(
-          timestamp: DateTime.now(),
-          type: AutoDownloadEventType.checked,
-          showId: showId,
-          showName: showName,
-          season: currentSeason,
-          episode: currentEpisode,
-          message: nextResult.message ?? 'No next episode available',
-        ),
-      );
+      ref
+          .read(autoDownloadEventsProvider.notifier)
+          .addEvent(
+            AutoDownloadEvent(
+              timestamp: DateTime.now(),
+              type: AutoDownloadEventType.checked,
+              showId: showId,
+              showName: showName,
+              season: currentSeason,
+              episode: currentEpisode,
+              message: nextResult.message ?? 'No next episode available',
+            ),
+          );
       return false;
     }
 
@@ -437,18 +448,20 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
     );
 
     if (torrent == null) {
-      ref.read(autoDownloadEventsProvider.notifier).addEvent(
-        AutoDownloadEvent(
-          timestamp: DateTime.now(),
-          type: AutoDownloadEventType.torrentNotFound,
-          showId: showId,
-          showName: showName,
-          season: nextEp.seasonNumber,
-          episode: nextEp.episodeNumber,
-          quality: quality,
-          message: 'No torrent found for $showName ${nextEp.episodeCode}',
-        ),
-      );
+      ref
+          .read(autoDownloadEventsProvider.notifier)
+          .addEvent(
+            AutoDownloadEvent(
+              timestamp: DateTime.now(),
+              type: AutoDownloadEventType.torrentNotFound,
+              showId: showId,
+              showName: showName,
+              season: nextEp.seasonNumber,
+              episode: nextEp.episodeNumber,
+              quality: quality,
+              message: 'No torrent found for $showName ${nextEp.episodeCode}',
+            ),
+          );
       return false;
     }
 
@@ -464,34 +477,38 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
     if (success) {
       // Add to queue and update tracking
       final queueKey = '${showId}_${nextEp.episodeCode}';
-      state = state.copyWith(
-        downloadQueue: {...state.downloadQueue, queueKey},
-      );
+      state = state.copyWith(downloadQueue: {...state.downloadQueue, queueKey});
 
-      await _updateTracking(showId, EpisodeTrackingInfo(
-        showId: showId,
-        imdbId: imdbId,
-        showName: showName,
-        season: nextEp.seasonNumber,
-        episode: nextEp.episodeNumber,
-        status: EpisodeDownloadStatus.downloading,
-        quality: torrent.quality,
-        torrentHash: torrent.hash,
-        magnetLink: torrent.magnetUrl,
-      ));
-
-      ref.read(autoDownloadEventsProvider.notifier).addEvent(
-        AutoDownloadEvent(
-          timestamp: DateTime.now(),
-          type: AutoDownloadEventType.downloadStarted,
+      await _updateTracking(
+        showId,
+        EpisodeTrackingInfo(
           showId: showId,
+          imdbId: imdbId,
           showName: showName,
           season: nextEp.seasonNumber,
           episode: nextEp.episodeNumber,
-          quality: quality,
-          message: 'Started downloading $showName ${nextEp.episodeCode} in $quality',
+          status: EpisodeDownloadStatus.downloading,
+          quality: torrent.quality,
+          torrentHash: torrent.hash,
+          magnetLink: torrent.magnetUrl,
         ),
       );
+
+      ref
+          .read(autoDownloadEventsProvider.notifier)
+          .addEvent(
+            AutoDownloadEvent(
+              timestamp: DateTime.now(),
+              type: AutoDownloadEventType.downloadStarted,
+              showId: showId,
+              showName: showName,
+              season: nextEp.seasonNumber,
+              episode: nextEp.episodeNumber,
+              quality: quality,
+              message:
+                  'Started downloading $showName ${nextEp.episodeCode} in $quality',
+            ),
+          );
     }
 
     return success;
@@ -499,7 +516,9 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
 
   /// Update episode tracking
   Future<void> _updateTracking(int showId, EpisodeTrackingInfo tracking) async {
-    final newTracking = Map<int, EpisodeTrackingInfo>.from(state.lastDownloadedEpisodes);
+    final newTracking = Map<int, EpisodeTrackingInfo>.from(
+      state.lastDownloadedEpisodes,
+    );
     newTracking[showId] = tracking;
     state = state.copyWith(lastDownloadedEpisodes: newTracking);
     await _saveState();
@@ -530,7 +549,9 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
 
   /// Remove a show from tracking
   Future<void> untrackShow(int showId) async {
-    final newTracking = Map<int, EpisodeTrackingInfo>.from(state.lastDownloadedEpisodes);
+    final newTracking = Map<int, EpisodeTrackingInfo>.from(
+      state.lastDownloadedEpisodes,
+    );
     newTracking.remove(showId);
     state = state.copyWith(lastDownloadedEpisodes: newTracking);
     await _saveState();
@@ -550,27 +571,31 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
       if (tracking.torrentHash == torrentHash &&
           tracking.status == EpisodeDownloadStatus.downloading) {
         // Update status to downloaded
-        await _updateTracking(entry.key, tracking.copyWith(
-          status: EpisodeDownloadStatus.downloaded,
-        ));
+        await _updateTracking(
+          entry.key,
+          tracking.copyWith(status: EpisodeDownloadStatus.downloaded),
+        );
 
         // Clear the queue entry
         final queueKey = '${entry.key}_${tracking.episodeCode}';
         await clearQueueEntry(queueKey);
 
         // Log the event
-        ref.read(autoDownloadEventsProvider.notifier).addEvent(
-          AutoDownloadEvent(
-            timestamp: DateTime.now(),
-            type: AutoDownloadEventType.downloadCompleted,
-            showId: tracking.showId,
-            showName: tracking.showName,
-            season: tracking.season,
-            episode: tracking.episode,
-            quality: tracking.quality,
-            message: '${tracking.showName} ${tracking.episodeCode} finished downloading',
-          ),
-        );
+        ref
+            .read(autoDownloadEventsProvider.notifier)
+            .addEvent(
+              AutoDownloadEvent(
+                timestamp: DateTime.now(),
+                type: AutoDownloadEventType.downloadCompleted,
+                showId: tracking.showId,
+                showName: tracking.showName,
+                season: tracking.season,
+                episode: tracking.episode,
+                quality: tracking.quality,
+                message:
+                    '${tracking.showName} ${tracking.episodeCode} finished downloading',
+              ),
+            );
         return;
       }
     }
@@ -578,40 +603,46 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
 }
 
 /// Provider for next episode info (for a specific show/episode)
-final nextEpisodeProvider = FutureProvider.family<NextEpisodeResult, ({int showId, int season, int episode})>(
-  (ref, params) async {
-    final service = ref.watch(autoDownloadServiceProvider);
-    return service.getNextEpisode(
-      showId: params.showId,
-      currentSeason: params.season,
-      currentEpisode: params.episode,
-    );
-  },
-);
+final nextEpisodeProvider =
+    FutureProvider.family<
+      NextEpisodeResult,
+      ({int showId, int season, int episode})
+    >((ref, params) async {
+      final service = ref.watch(autoDownloadServiceProvider);
+      return service.getNextEpisode(
+        showId: params.showId,
+        currentSeason: params.season,
+        currentEpisode: params.episode,
+      );
+    });
 
 /// Provider to check if next episode is downloaded
-final isNextEpisodeDownloadedProvider = Provider.family<bool, ({String showName, int season, int episode})>(
-  (ref, params) {
-    final service = ref.watch(autoDownloadServiceProvider);
-    final downloadedFiles = ref.watch(localMediaFilesProvider).value ?? [];
-    
-    return service.isEpisodeDownloaded(
-      downloadedFiles: downloadedFiles,
-      showName: params.showName,
-      season: params.season,
-      episode: params.episode,
-    );
-  },
-);
+final isNextEpisodeDownloadedProvider =
+    Provider.family<bool, ({String showName, int season, int episode})>((
+      ref,
+      params,
+    ) {
+      final service = ref.watch(autoDownloadServiceProvider);
+      final downloadedFiles = ref.watch(localMediaFilesProvider).value ?? [];
+
+      return service.isEpisodeDownloaded(
+        downloadedFiles: downloadedFiles,
+        showName: params.showName,
+        season: params.season,
+        episode: params.episode,
+      );
+    });
 
 /// Provider for available torrents for an episode
-final episodeTorrentsProvider = FutureProvider.family<List<EztvTorrent>, ({String imdbId, int season, int episode})>(
-  (ref, params) async {
-    final service = ref.watch(autoDownloadServiceProvider);
-    return service.getAvailableTorrentsForEpisode(
-      imdbId: params.imdbId,
-      season: params.season,
-      episode: params.episode,
-    );
-  },
-);
+final episodeTorrentsProvider =
+    FutureProvider.family<
+      List<EztvTorrent>,
+      ({String imdbId, int season, int episode})
+    >((ref, params) async {
+      final service = ref.watch(autoDownloadServiceProvider);
+      return service.getAvailableTorrentsForEpisode(
+        imdbId: params.imdbId,
+        season: params.season,
+        episode: params.episode,
+      );
+    });

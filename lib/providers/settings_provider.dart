@@ -27,9 +27,10 @@ final themeModeProvider = Provider<ThemeMode>((ref) {
 });
 
 /// Provider for current filter
-final currentFilterProvider = NotifierProvider<CurrentFilterNotifier, TorrentFilter>(
-  CurrentFilterNotifier.new,
-);
+final currentFilterProvider =
+    NotifierProvider<CurrentFilterNotifier, TorrentFilter>(
+      CurrentFilterNotifier.new,
+    );
 
 /// Provider for current sort
 final currentSortProvider = NotifierProvider<CurrentSortNotifier, TorrentSort>(
@@ -47,7 +48,7 @@ class CurrentFilterNotifier extends Notifier<TorrentFilter> {
   TorrentFilter build() {
     return ref.watch(settingsProvider).defaultFilter;
   }
-  
+
   void set(TorrentFilter value) => state = value;
 }
 
@@ -57,7 +58,7 @@ class CurrentSortNotifier extends Notifier<TorrentSort> {
   TorrentSort build() {
     return ref.watch(settingsProvider).defaultSort;
   }
-  
+
   void set(TorrentSort value) => state = value;
 }
 
@@ -67,7 +68,7 @@ class SortAscendingNotifier extends Notifier<bool> {
   bool build() {
     return ref.watch(settingsProvider).sortAscending;
   }
-  
+
   void set(bool value) => state = value;
   void toggle() => state = !state;
 }
@@ -148,7 +149,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
   Future<void> setDefaultSavePath(String path) async {
     state = state.copyWith(defaultSavePath: path);
     await _saveSettings();
-    
+
     // Invalidate media providers to rescan with new path
     ref.invalidate(localMediaStreamProvider);
     ref.invalidate(localMediaScannerProvider);

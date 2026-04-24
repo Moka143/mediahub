@@ -22,7 +22,8 @@ class SettingsScreen extends ConsumerStatefulWidget {
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTickerProviderStateMixin {
+class _SettingsScreenState extends ConsumerState<SettingsScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   late TextEditingController _hostController;
   late TextEditingController _portController;
@@ -32,8 +33,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
   late TextEditingController _downloadLimitController;
   late TextEditingController _uploadLimitController;
   late TextEditingController _tmdbKeyController;
-  final Debouncer _downloadLimitDebouncer = Debouncer(delay: const Duration(milliseconds: 600));
-  final Debouncer _uploadLimitDebouncer = Debouncer(delay: const Duration(milliseconds: 600));
+  final Debouncer _downloadLimitDebouncer = Debouncer(
+    delay: const Duration(milliseconds: 600),
+  );
+  final Debouncer _uploadLimitDebouncer = Debouncer(
+    delay: const Duration(milliseconds: 600),
+  );
 
   bool _showPassword = false;
   bool _showTmdbKey = false;
@@ -111,10 +116,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: theme.textTheme.titleMedium,
-                ),
+                Text(title, style: theme.textTheme.titleMedium),
                 Text(
                   subtitle,
                   style: theme.textTheme.bodySmall?.copyWith(
@@ -124,10 +126,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
               ],
             ),
           ),
-          Switch(
-            value: value,
-            onChanged: onChanged,
-          ),
+          Switch(value: value, onChanged: onChanged),
         ],
       ),
     );
@@ -135,7 +134,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
 
   Widget _buildAutoDownloadCard(ThemeData theme, AppColorsExtension appColors) {
     final autoDownloadState = ref.watch(autoDownloadProvider);
-    
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.cardPadding),
@@ -145,7 +144,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
             _buildModernSwitchTile(
               icon: Icons.smart_display_rounded,
               title: 'Auto-Download Next Episode',
-              subtitle: 'Automatically queue next episode based on watch progress',
+              subtitle:
+                  'Automatically queue next episode based on watch progress',
               value: autoDownloadState.enabled,
               onChanged: (value) {
                 ref.read(autoDownloadProvider.notifier).setEnabled(value);
@@ -155,7 +155,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
             ),
             if (autoDownloadState.enabled) ...[
               const Divider(height: AppSpacing.lg),
-              
+
               // Quality preference
               Row(
                 children: [
@@ -201,28 +201,33 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                     }).toList(),
                     onChanged: (value) {
                       if (value != null) {
-                        ref.read(autoDownloadProvider.notifier).setDefaultQuality(value);
+                        ref
+                            .read(autoDownloadProvider.notifier)
+                            .setDefaultQuality(value);
                       }
                     },
                   ),
                 ],
               ),
-              
+
               const SizedBox(height: AppSpacing.md),
-              
+
               // Download on progress
               _buildModernSwitchTile(
                 icon: Icons.play_arrow_rounded,
                 title: 'Download While Watching',
-                subtitle: 'Start download when current episode reaches threshold',
+                subtitle:
+                    'Start download when current episode reaches threshold',
                 value: autoDownloadState.downloadOnProgress,
                 onChanged: (value) {
-                  ref.read(autoDownloadProvider.notifier).setDownloadOnProgress(value);
+                  ref
+                      .read(autoDownloadProvider.notifier)
+                      .setDownloadOnProgress(value);
                 },
                 theme: theme,
                 appColors: appColors,
               ),
-              
+
               if (autoDownloadState.downloadOnProgress) ...[
                 const SizedBox(height: AppSpacing.md),
                 Row(
@@ -265,23 +270,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                         min: 0.5,
                         max: 0.95,
                         divisions: 9,
-                        label: '${(autoDownloadState.progressThreshold * 100).toInt()}%',
+                        label:
+                            '${(autoDownloadState.progressThreshold * 100).toInt()}%',
                         onChanged: (value) {
-                          ref.read(autoDownloadProvider.notifier).setProgressThreshold(value);
+                          ref
+                              .read(autoDownloadProvider.notifier)
+                              .setProgressThreshold(value);
                         },
                       ),
                     ),
                   ],
                 ),
               ],
-              
+
               const Divider(height: AppSpacing.lg),
-              
+
               // Info about smart matching
               Container(
                 padding: const EdgeInsets.all(AppSpacing.sm),
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.primaryContainer.withAlpha(AppOpacity.light),
+                  color: theme.colorScheme.primaryContainer.withAlpha(
+                    AppOpacity.light,
+                  ),
                   borderRadius: BorderRadius.circular(AppRadius.sm),
                 ),
                 child: Row(
@@ -341,11 +351,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
       ),
     );
   }
-  
+
   Widget _buildConnectionTab(ThemeData theme, AppColorsExtension appColors) {
     final settings = ref.watch(settingsProvider);
     final connectionState = ref.watch(connectionProvider);
-    
+
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.screenPadding),
       children: [
@@ -354,8 +364,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
           color: connectionState.isConnected
               ? appColors.success.withAlpha(AppOpacity.subtle)
               : connectionState.hasError
-                  ? appColors.errorState.withAlpha(AppOpacity.subtle)
-                  : null,
+              ? appColors.errorState.withAlpha(AppOpacity.subtle)
+              : null,
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.cardPadding),
             child: Row(
@@ -367,21 +377,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                     color: connectionState.isConnected
                         ? appColors.success.withAlpha(AppOpacity.light)
                         : connectionState.hasError
-                            ? appColors.errorState.withAlpha(AppOpacity.light)
-                            : theme.colorScheme.surfaceContainerHighest,
+                        ? appColors.errorState.withAlpha(AppOpacity.light)
+                        : theme.colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(AppRadius.md),
                   ),
                   child: Icon(
                     connectionState.isConnected
                         ? Icons.check_circle_rounded
                         : connectionState.hasError
-                            ? Icons.error_rounded
-                            : Icons.cloud_off_rounded,
+                        ? Icons.error_rounded
+                        : Icons.cloud_off_rounded,
                     color: connectionState.isConnected
                         ? appColors.success
                         : connectionState.hasError
-                            ? appColors.errorState
-                            : appColors.mutedText,
+                        ? appColors.errorState
+                        : appColors.mutedText,
                     size: 24,
                   ),
                 ),
@@ -394,21 +404,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                         connectionState.isConnected
                             ? 'Connected'
                             : connectionState.hasError
-                                ? 'Connection Failed'
-                                : 'Not Connected',
+                            ? 'Connection Failed'
+                            : 'Not Connected',
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w600,
                           color: connectionState.isConnected
                               ? appColors.success
                               : connectionState.hasError
-                                  ? appColors.errorState
-                                  : null,
+                              ? appColors.errorState
+                              : null,
                         ),
                       ),
                       Text(
                         connectionState.isConnected
                             ? 'qBittorrent ${connectionState.qbVersion ?? ''}'
-                            : connectionState.errorMessage ?? 'Configure connection below',
+                            : connectionState.errorMessage ??
+                                  'Configure connection below',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: appColors.mutedText,
                         ),
@@ -429,24 +440,31 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                             color: theme.colorScheme.onPrimary,
                           ),
                         )
-                      : Icon(connectionState.isConnected 
-                          ? Icons.refresh_rounded 
-                          : Icons.power_rounded),
-                  label: Text(connectionState.isConnecting
-                      ? 'Connecting...'
-                      : connectionState.isConnected
-                          ? 'Reconnect'
-                          : 'Connect'),
+                      : Icon(
+                          connectionState.isConnected
+                              ? Icons.refresh_rounded
+                              : Icons.power_rounded,
+                        ),
+                  label: Text(
+                    connectionState.isConnecting
+                        ? 'Connecting...'
+                        : connectionState.isConnected
+                        ? 'Reconnect'
+                        : 'Connect',
+                  ),
                 ),
               ],
             ),
           ),
         ),
-        
+
         const SizedBox(height: AppSpacing.sectionSpacing),
-        
+
         // Server Settings
-        const SettingsSectionHeader(title: 'Server Settings', icon: Icons.dns_rounded),
+        const SettingsSectionHeader(
+          title: 'Server Settings',
+          icon: Icons.dns_rounded,
+        ),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.cardPadding),
@@ -461,7 +479,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                         decoration: InputDecoration(
                           labelText: 'Host',
                           hintText: 'localhost',
-                          prefixIcon: Icon(Icons.dns_rounded, color: appColors.mutedText),
+                          prefixIcon: Icon(
+                            Icons.dns_rounded,
+                            color: appColors.mutedText,
+                          ),
                           helperText: 'IP address or hostname',
                         ),
                         onChanged: (value) {
@@ -477,7 +498,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                         decoration: InputDecoration(
                           labelText: 'Port',
                           hintText: '8080',
-                          prefixIcon: Icon(Icons.tag_rounded, color: appColors.mutedText),
+                          prefixIcon: Icon(
+                            Icons.tag_rounded,
+                            color: appColors.mutedText,
+                          ),
                         ),
                         keyboardType: TextInputType.number,
                         onChanged: (value) {
@@ -495,7 +519,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                   controller: _usernameController,
                   decoration: InputDecoration(
                     labelText: 'Username',
-                    prefixIcon: Icon(Icons.person_rounded, color: appColors.mutedText),
+                    prefixIcon: Icon(
+                      Icons.person_rounded,
+                      color: appColors.mutedText,
+                    ),
                   ),
                   onChanged: (value) {
                     ref.read(settingsProvider.notifier).setUsername(value);
@@ -506,14 +533,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                   controller: _passwordController,
                   decoration: InputDecoration(
                     labelText: 'Password',
-                    prefixIcon: Icon(Icons.lock_rounded, color: appColors.mutedText),
+                    prefixIcon: Icon(
+                      Icons.lock_rounded,
+                      color: appColors.mutedText,
+                    ),
                     suffixIcon: IconButton(
                       icon: Icon(
-                        _showPassword ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+                        _showPassword
+                            ? Icons.visibility_off_rounded
+                            : Icons.visibility_rounded,
                         color: appColors.mutedText,
                       ),
-                      onPressed: () => setState(() => _showPassword = !_showPassword),
-                      tooltip: _showPassword ? 'Hide password' : 'Show password',
+                      onPressed: () =>
+                          setState(() => _showPassword = !_showPassword),
+                      tooltip: _showPassword
+                          ? 'Hide password'
+                          : 'Show password',
                     ),
                   ),
                   obscureText: !_showPassword,
@@ -529,7 +564,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
         const SizedBox(height: AppSpacing.sectionSpacing),
 
         // qBittorrent Path
-        const SettingsSectionHeader(title: 'qBittorrent Application', icon: Icons.settings_applications_rounded),
+        const SettingsSectionHeader(
+          title: 'qBittorrent Application',
+          icon: Icons.settings_applications_rounded,
+        ),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.cardPadding),
@@ -543,11 +581,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                         decoration: InputDecoration(
                           labelText: 'qBittorrent Path',
                           hintText: '/Applications/qBittorrent.app/...',
-                          prefixIcon: Icon(Icons.terminal_rounded, color: appColors.mutedText),
+                          prefixIcon: Icon(
+                            Icons.terminal_rounded,
+                            color: appColors.mutedText,
+                          ),
                           helperText: 'Path to qBittorrent executable',
                         ),
                         onChanged: (value) {
-                          ref.read(settingsProvider.notifier).setQBittorrentPath(value);
+                          ref
+                              .read(settingsProvider.notifier)
+                              .setQBittorrentPath(value);
                         },
                       ),
                     ),
@@ -561,7 +604,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                           final path = result.files.first.path;
                           if (path != null) {
                             _qbPathController.text = path;
-                            ref.read(settingsProvider.notifier).setQBittorrentPath(path);
+                            ref
+                                .read(settingsProvider.notifier)
+                                .setQBittorrentPath(path);
                           }
                         }
                       },
@@ -572,10 +617,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                 _buildModernSwitchTile(
                   icon: Icons.play_circle_outline_rounded,
                   title: 'Auto-start qBittorrent',
-                  subtitle: 'Automatically start qBittorrent when the app launches',
+                  subtitle:
+                      'Automatically start qBittorrent when the app launches',
                   value: settings.autoStartQBittorrent,
                   onChanged: (value) {
-                    ref.read(settingsProvider.notifier).setAutoStartQBittorrent(value);
+                    ref
+                        .read(settingsProvider.notifier)
+                        .setAutoStartQBittorrent(value);
                   },
                   theme: theme,
                   appColors: appColors,
@@ -606,7 +654,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                   decoration: InputDecoration(
                     labelText: 'API Key (v3 auth)',
                     hintText: 'e.g. 0123456789abcdef…',
-                    prefixIcon: Icon(Icons.key_rounded, color: appColors.mutedText),
+                    prefixIcon: Icon(
+                      Icons.key_rounded,
+                      color: appColors.mutedText,
+                    ),
                     suffixIcon: IconButton(
                       icon: Icon(
                         _showTmdbKey
@@ -631,10 +682,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                     icon: const Icon(Icons.open_in_new_rounded, size: 16),
                     label: const Text('Get a free key at themoviedb.org'),
                     onPressed: () async {
-                      final url =
-                          Uri.parse('https://www.themoviedb.org/settings/api');
-                      if (!await launchUrl(url,
-                          mode: LaunchMode.externalApplication)) {
+                      final url = Uri.parse(
+                        'https://www.themoviedb.org/settings/api',
+                      );
+                      if (!await launchUrl(
+                        url,
+                        mode: LaunchMode.externalApplication,
+                      )) {
                         if (!context.mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(content: Text('Could not open $url')),
@@ -653,12 +707,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
 
   Widget _buildDownloadsTab(ThemeData theme, AppColorsExtension appColors) {
     final settings = ref.watch(settingsProvider);
-    
+
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.screenPadding),
       children: [
         // Save Location
-        const SettingsSectionHeader(title: 'Save Location', icon: Icons.folder_rounded),
+        const SettingsSectionHeader(
+          title: 'Save Location',
+          icon: Icons.folder_rounded,
+        ),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.cardPadding),
@@ -674,7 +731,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                       color: theme.colorScheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(AppRadius.md),
                       border: Border.all(
-                        color: theme.colorScheme.outline.withAlpha(AppOpacity.light),
+                        color: theme.colorScheme.outline.withAlpha(
+                          AppOpacity.light,
+                        ),
                       ),
                     ),
                     child: Row(
@@ -710,7 +769,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                   onPressed: () async {
                     final result = await FilePicker.platform.getDirectoryPath();
                     if (result != null) {
-                      ref.read(settingsProvider.notifier).setDefaultSavePath(result);
+                      ref
+                          .read(settingsProvider.notifier)
+                          .setDefaultSavePath(result);
                     }
                   },
                 ),
@@ -720,9 +781,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
         ),
 
         const SizedBox(height: AppSpacing.sectionSpacing),
-        
+
         // Speed Limits
-        const SettingsSectionHeader(title: 'Speed Limits', icon: Icons.speed_rounded),
+        const SettingsSectionHeader(
+          title: 'Speed Limits',
+          icon: Icons.speed_rounded,
+        ),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.cardPadding),
@@ -736,14 +800,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                         decoration: InputDecoration(
                           labelText: 'Download Limit (KB/s)',
                           hintText: '0 = unlimited',
-                          prefixIcon: Icon(Icons.arrow_downward_rounded, color: appColors.success),
+                          prefixIcon: Icon(
+                            Icons.arrow_downward_rounded,
+                            color: appColors.success,
+                          ),
                           helperText: 'Leave empty for unlimited',
                         ),
                         keyboardType: TextInputType.number,
                         onChanged: (value) {
                           final limit = int.tryParse(value) ?? 0;
                           final limitBytes = limit * 1024;
-                          ref.read(settingsProvider.notifier).setDownloadSpeedLimit(limitBytes);
+                          ref
+                              .read(settingsProvider.notifier)
+                              .setDownloadSpeedLimit(limitBytes);
                           _applyDownloadLimit(limitBytes);
                         },
                       ),
@@ -755,14 +824,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                         decoration: InputDecoration(
                           labelText: 'Upload Limit (KB/s)',
                           hintText: '0 = unlimited',
-                          prefixIcon: Icon(Icons.arrow_upward_rounded, color: theme.colorScheme.tertiary),
+                          prefixIcon: Icon(
+                            Icons.arrow_upward_rounded,
+                            color: theme.colorScheme.tertiary,
+                          ),
                           helperText: 'Leave empty for unlimited',
                         ),
                         keyboardType: TextInputType.number,
                         onChanged: (value) {
                           final limit = int.tryParse(value) ?? 0;
                           final limitBytes = limit * 1024;
-                          ref.read(settingsProvider.notifier).setUploadSpeedLimit(limitBytes);
+                          ref
+                              .read(settingsProvider.notifier)
+                              .setUploadSpeedLimit(limitBytes);
                           _applyUploadLimit(limitBytes);
                         },
                       ),
@@ -775,9 +849,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
         ),
 
         const SizedBox(height: AppSpacing.sectionSpacing),
-        
+
         // Behavior
-        const SettingsSectionHeader(title: 'Behavior', icon: Icons.tune_rounded),
+        const SettingsSectionHeader(
+          title: 'Behavior',
+          icon: Icons.tune_rounded,
+        ),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.cardPadding),
@@ -787,7 +864,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
               subtitle: 'Automatically pause torrents when download finishes',
               value: settings.stopSeedingOnComplete,
               onChanged: (value) {
-                ref.read(settingsProvider.notifier).setStopSeedingOnComplete(value);
+                ref
+                    .read(settingsProvider.notifier)
+                    .setStopSeedingOnComplete(value);
               },
               theme: theme,
               appColors: appColors,
@@ -797,15 +876,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
       ],
     );
   }
-  
+
   Widget _buildAppearanceTab(ThemeData theme, AppColorsExtension appColors) {
     final settings = ref.watch(settingsProvider);
-    
+
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.screenPadding),
       children: [
         // Theme
-        const SettingsSectionHeader(title: 'Theme', icon: Icons.dark_mode_rounded),
+        const SettingsSectionHeader(
+          title: 'Theme',
+          icon: Icons.dark_mode_rounded,
+        ),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.cardPadding),
@@ -839,7 +921,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                   ],
                   selected: {settings.themeMode},
                   onSelectionChanged: (modes) {
-                    ref.read(settingsProvider.notifier).setThemeMode(modes.first);
+                    ref
+                        .read(settingsProvider.notifier)
+                        .setThemeMode(modes.first);
                   },
                 ),
               ],
@@ -850,7 +934,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
         const SizedBox(height: AppSpacing.sectionSpacing),
 
         // Update Interval
-        const SettingsSectionHeader(title: 'Refresh Rate', icon: Icons.timer_rounded),
+        const SettingsSectionHeader(
+          title: 'Refresh Rate',
+          icon: Icons.timer_rounded,
+        ),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.cardPadding),
@@ -898,7 +985,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                   }).toList(),
                   onChanged: (value) {
                     if (value != null) {
-                      ref.read(settingsProvider.notifier).setUpdateInterval(value);
+                      ref
+                          .read(settingsProvider.notifier)
+                          .setUpdateInterval(value);
                     }
                   },
                 ),
@@ -908,9 +997,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
         ),
 
         const SizedBox(height: AppSpacing.sectionSpacing),
-        
+
         // Playback Settings (Stremio-inspired)
-        const SettingsSectionHeader(title: 'Playback', icon: Icons.play_circle_rounded),
+        const SettingsSectionHeader(
+          title: 'Playback',
+          icon: Icons.play_circle_rounded,
+        ),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.cardPadding),
@@ -922,7 +1014,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                   subtitle: 'Auto-play next episode when current ends',
                   value: settings.bingeWatchingEnabled,
                   onChanged: (value) {
-                    ref.read(settingsProvider.notifier).setBingeWatchingEnabled(value);
+                    ref
+                        .read(settingsProvider.notifier)
+                        .setBingeWatchingEnabled(value);
                   },
                   theme: theme,
                   appColors: appColors,
@@ -973,7 +1067,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                         }).toList(),
                         onChanged: (value) {
                           if (value != null) {
-                            ref.read(settingsProvider.notifier).setNextEpisodeCountdownSeconds(value);
+                            ref
+                                .read(settingsProvider.notifier)
+                                .setNextEpisodeCountdownSeconds(value);
                           }
                         },
                       ),
@@ -986,15 +1082,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
         ),
 
         const SizedBox(height: AppSpacing.sectionSpacing),
-        
+
         // Auto-Download Settings (Smart Queue)
-        const SettingsSectionHeader(title: 'Smart Auto-Download', icon: Icons.download_for_offline_rounded),
+        const SettingsSectionHeader(
+          title: 'Smart Auto-Download',
+          icon: Icons.download_for_offline_rounded,
+        ),
         _buildAutoDownloadCard(theme, appColors),
 
         const SizedBox(height: AppSpacing.sectionSpacing),
-        
+
         // Advanced Polling Settings
-        const SettingsSectionHeader(title: 'Advanced', icon: Icons.tune_rounded),
+        const SettingsSectionHeader(
+          title: 'Advanced',
+          icon: Icons.tune_rounded,
+        ),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.cardPadding),
@@ -1006,7 +1108,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                   subtitle: 'Reduce refresh rate when no downloads are active',
                   value: settings.useAdaptivePolling,
                   onChanged: (value) {
-                    ref.read(settingsProvider.notifier).setUseAdaptivePolling(value);
+                    ref
+                        .read(settingsProvider.notifier)
+                        .setUseAdaptivePolling(value);
                   },
                   theme: theme,
                   appColors: appColors,
@@ -1057,7 +1161,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                         }).toList(),
                         onChanged: (value) {
                           if (value != null) {
-                            ref.read(settingsProvider.notifier).setIdlePollingInterval(value);
+                            ref
+                                .read(settingsProvider.notifier)
+                                .setIdlePollingInterval(value);
                           }
                         },
                       ),
@@ -1071,7 +1177,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
       ],
     );
   }
-  
+
   Widget _buildAboutTab(ThemeData theme, AppColorsExtension appColors) {
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.screenPadding),
@@ -1097,7 +1203,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
                     borderRadius: BorderRadius.circular(AppRadius.lg),
                     boxShadow: [
                       BoxShadow(
-                        color: theme.colorScheme.primary.withAlpha(AppOpacity.medium),
+                        color: theme.colorScheme.primary.withAlpha(
+                          AppOpacity.medium,
+                        ),
                         blurRadius: 20,
                         offset: const Offset(0, 8),
                       ),
@@ -1149,7 +1257,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
         const SizedBox(height: AppSpacing.sectionSpacing),
 
         // Keyboard Shortcuts
-        const SettingsSectionHeader(title: 'Keyboard Shortcuts', icon: Icons.keyboard_rounded),
+        const SettingsSectionHeader(
+          title: 'Keyboard Shortcuts',
+          icon: Icons.keyboard_rounded,
+        ),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.cardPadding),
@@ -1178,7 +1289,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
         const SizedBox(height: AppSpacing.sectionSpacing),
 
         // Reset
-        const SettingsSectionHeader(title: 'Reset', icon: Icons.restart_alt_rounded),
+        const SettingsSectionHeader(
+          title: 'Reset',
+          icon: Icons.restart_alt_rounded,
+        ),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.cardPadding),
@@ -1232,15 +1346,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
       ],
     );
   }
-  
-  Widget _buildShortcutRow(String action, String shortcut, ThemeData theme, AppColorsExtension appColors) {
+
+  Widget _buildShortcutRow(
+    String action,
+    String shortcut,
+    ThemeData theme,
+    AppColorsExtension appColors,
+  ) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(
-          action,
-          style: theme.textTheme.bodyMedium,
-        ),
+        Text(action, style: theme.textTheme.bodyMedium),
         Container(
           padding: const EdgeInsets.symmetric(
             horizontal: AppSpacing.sm,
@@ -1291,7 +1407,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
             children: [
               const Icon(Icons.error_rounded, color: Colors.white),
               const SizedBox(width: AppSpacing.sm),
-              const Text('Failed to apply download limit. Check your connection.'),
+              const Text(
+                'Failed to apply download limit. Check your connection.',
+              ),
             ],
           ),
           action: SnackBarAction(
@@ -1317,7 +1435,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
             children: [
               const Icon(Icons.error_rounded, color: Colors.white),
               const SizedBox(width: AppSpacing.sm),
-              const Text('Failed to apply upload limit. Check your connection.'),
+              const Text(
+                'Failed to apply upload limit. Check your connection.',
+              ),
             ],
           ),
           action: SnackBarAction(
@@ -1331,7 +1451,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
 
   Future<void> _showResetDialog(BuildContext context) async {
     final appColors = context.appColors;
-    
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -1372,7 +1492,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with SingleTick
 
     if (confirmed == true) {
       await ref.read(settingsProvider.notifier).resetToDefaults();
-      
+
       // Update controllers
       final settings = ref.read(settingsProvider);
       _hostController.text = settings.host;

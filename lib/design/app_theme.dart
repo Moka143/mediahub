@@ -143,7 +143,8 @@ class AppColorsExtension extends ThemeExtension<AppColorsExtension> {
   }) {
     return AppColorsExtension(
       downloading: downloading ?? this.downloading,
-      downloadingBackground: downloadingBackground ?? this.downloadingBackground,
+      downloadingBackground:
+          downloadingBackground ?? this.downloadingBackground,
       seeding: seeding ?? this.seeding,
       seedingBackground: seedingBackground ?? this.seedingBackground,
       paused: paused ?? this.paused,
@@ -163,7 +164,8 @@ class AppColorsExtension extends ThemeExtension<AppColorsExtension> {
       subtleText: subtleText ?? this.subtleText,
       mutedText: mutedText ?? this.mutedText,
       cardBackground: cardBackground ?? this.cardBackground,
-      cardBackgroundElevated: cardBackgroundElevated ?? this.cardBackgroundElevated,
+      cardBackgroundElevated:
+          cardBackgroundElevated ?? this.cardBackgroundElevated,
       shimmerBase: shimmerBase ?? this.shimmerBase,
       shimmerHighlight: shimmerHighlight ?? this.shimmerHighlight,
     );
@@ -174,29 +176,69 @@ class AppColorsExtension extends ThemeExtension<AppColorsExtension> {
     if (other is! AppColorsExtension) return this;
     return AppColorsExtension(
       downloading: Color.lerp(downloading, other.downloading, t)!,
-      downloadingBackground: Color.lerp(downloadingBackground, other.downloadingBackground, t)!,
+      downloadingBackground: Color.lerp(
+        downloadingBackground,
+        other.downloadingBackground,
+        t,
+      )!,
       seeding: Color.lerp(seeding, other.seeding, t)!,
-      seedingBackground: Color.lerp(seedingBackground, other.seedingBackground, t)!,
+      seedingBackground: Color.lerp(
+        seedingBackground,
+        other.seedingBackground,
+        t,
+      )!,
       paused: Color.lerp(paused, other.paused, t)!,
-      pausedBackground: Color.lerp(pausedBackground, other.pausedBackground, t)!,
+      pausedBackground: Color.lerp(
+        pausedBackground,
+        other.pausedBackground,
+        t,
+      )!,
       queued: Color.lerp(queued, other.queued, t)!,
-      queuedBackground: Color.lerp(queuedBackground, other.queuedBackground, t)!,
+      queuedBackground: Color.lerp(
+        queuedBackground,
+        other.queuedBackground,
+        t,
+      )!,
       checking: Color.lerp(checking, other.checking, t)!,
-      checkingBackground: Color.lerp(checkingBackground, other.checkingBackground, t)!,
+      checkingBackground: Color.lerp(
+        checkingBackground,
+        other.checkingBackground,
+        t,
+      )!,
       errorState: Color.lerp(errorState, other.errorState, t)!,
-      errorStateBackground: Color.lerp(errorStateBackground, other.errorStateBackground, t)!,
+      errorStateBackground: Color.lerp(
+        errorStateBackground,
+        other.errorStateBackground,
+        t,
+      )!,
       success: Color.lerp(success, other.success, t)!,
-      successBackground: Color.lerp(successBackground, other.successBackground, t)!,
+      successBackground: Color.lerp(
+        successBackground,
+        other.successBackground,
+        t,
+      )!,
       warning: Color.lerp(warning, other.warning, t)!,
-      warningBackground: Color.lerp(warningBackground, other.warningBackground, t)!,
+      warningBackground: Color.lerp(
+        warningBackground,
+        other.warningBackground,
+        t,
+      )!,
       info: Color.lerp(info, other.info, t)!,
       infoBackground: Color.lerp(infoBackground, other.infoBackground, t)!,
       subtleText: Color.lerp(subtleText, other.subtleText, t)!,
       mutedText: Color.lerp(mutedText, other.mutedText, t)!,
       cardBackground: Color.lerp(cardBackground, other.cardBackground, t)!,
-      cardBackgroundElevated: Color.lerp(cardBackgroundElevated, other.cardBackgroundElevated, t)!,
+      cardBackgroundElevated: Color.lerp(
+        cardBackgroundElevated,
+        other.cardBackgroundElevated,
+        t,
+      )!,
       shimmerBase: Color.lerp(shimmerBase, other.shimmerBase, t)!,
-      shimmerHighlight: Color.lerp(shimmerHighlight, other.shimmerHighlight, t)!,
+      shimmerHighlight: Color.lerp(
+        shimmerHighlight,
+        other.shimmerHighlight,
+        t,
+      )!,
     );
   }
 }
@@ -204,35 +246,37 @@ class AppColorsExtension extends ThemeExtension<AppColorsExtension> {
 /// Extension to easily access app colors from context
 extension AppColorsExtensionX on BuildContext {
   AppColorsExtension get appColors {
-    return Theme.of(this).extension<AppColorsExtension>() ?? AppColorsExtension.light;
+    return Theme.of(this).extension<AppColorsExtension>() ??
+        AppColorsExtension.light;
   }
 }
 
 /// Build the light theme - Modern, clean design
 ThemeData buildLightTheme() {
-  final colorScheme = ColorScheme.fromSeed(
-    seedColor: AppColors.seedColor,
-    brightness: Brightness.light,
-  ).copyWith(
-    surface: const Color(0xFFFAFAFA),
-    surfaceContainerLowest: Colors.white,
-    surfaceContainerLow: const Color(0xFFF5F5F5),
-    surfaceContainer: const Color(0xFFF0F0F0),
-    surfaceContainerHigh: const Color(0xFFEAEAEA),
-    surfaceContainerHighest: const Color(0xFFE5E5E5),
-  );
+  final colorScheme =
+      ColorScheme.fromSeed(
+        seedColor: AppColors.seedColor,
+        brightness: Brightness.light,
+      ).copyWith(
+        surface: const Color(0xFFFAFAFA),
+        surfaceContainerLowest: Colors.white,
+        surfaceContainerLow: const Color(0xFFF5F5F5),
+        surfaceContainer: const Color(0xFFF0F0F0),
+        surfaceContainerHigh: const Color(0xFFEAEAEA),
+        surfaceContainerHighest: const Color(0xFFE5E5E5),
+      );
 
   return ThemeData(
     useMaterial3: true,
     colorScheme: colorScheme,
     extensions: const [AppColorsExtension.light],
-    
+
     // Typography - Modern, clean
     textTheme: _buildTextTheme(colorScheme),
-    
+
     // Scaffold
     scaffoldBackgroundColor: colorScheme.surface,
-    
+
     // App Bar - Clean, minimal
     appBarTheme: AppBarTheme(
       centerTitle: false,
@@ -248,7 +292,7 @@ ThemeData buildLightTheme() {
         letterSpacing: -0.5,
       ),
     ),
-    
+
     // Cards - Subtle elevation, no border
     cardTheme: CardThemeData(
       elevation: 0,
@@ -260,7 +304,7 @@ ThemeData buildLightTheme() {
       clipBehavior: Clip.antiAlias,
       margin: EdgeInsets.zero,
     ),
-    
+
     // List Tiles
     listTileTheme: ListTileThemeData(
       contentPadding: const EdgeInsets.symmetric(
@@ -280,7 +324,7 @@ ThemeData buildLightTheme() {
         color: colorScheme.onSurfaceVariant,
       ),
     ),
-    
+
     // Input Decoration - Modern pill-shaped
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
@@ -310,7 +354,7 @@ ThemeData buildLightTheme() {
         fontWeight: FontWeight.w400,
       ),
     ),
-    
+
     // Chips - Rounded, modern
     chipTheme: ChipThemeData(
       backgroundColor: colorScheme.surfaceContainerHigh,
@@ -320,13 +364,16 @@ ThemeData buildLightTheme() {
         fontWeight: FontWeight.w500,
         color: colorScheme.onSurface,
       ),
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.xs,
+      ),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppRadius.full),
       ),
       side: BorderSide.none,
     ),
-    
+
     // FAB - Modern rounded
     floatingActionButtonTheme: FloatingActionButtonThemeData(
       elevation: AppElevation.md,
@@ -338,7 +385,7 @@ ThemeData buildLightTheme() {
       ),
       extendedPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
     ),
-    
+
     // Elevated Button
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
@@ -357,7 +404,7 @@ ThemeData buildLightTheme() {
         ),
       ),
     ),
-    
+
     // Filled Button
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
@@ -375,7 +422,7 @@ ThemeData buildLightTheme() {
         ),
       ),
     ),
-    
+
     // Outlined Button
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
@@ -394,7 +441,7 @@ ThemeData buildLightTheme() {
         ),
       ),
     ),
-    
+
     // Text Button
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
@@ -412,7 +459,7 @@ ThemeData buildLightTheme() {
         ),
       ),
     ),
-    
+
     // Icon Button
     iconButtonTheme: IconButtonThemeData(
       style: IconButton.styleFrom(
@@ -421,7 +468,7 @@ ThemeData buildLightTheme() {
         ),
       ),
     ),
-    
+
     // SnackBar - Modern floating
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
@@ -432,7 +479,7 @@ ThemeData buildLightTheme() {
       ),
       elevation: AppElevation.lg,
     ),
-    
+
     // Dialog - Large radius
     dialogTheme: DialogThemeData(
       elevation: AppElevation.xl,
@@ -447,7 +494,7 @@ ThemeData buildLightTheme() {
         color: colorScheme.onSurface,
       ),
     ),
-    
+
     // Bottom Sheet - Rounded top
     bottomSheetTheme: BottomSheetThemeData(
       elevation: 0,
@@ -458,11 +505,13 @@ ThemeData buildLightTheme() {
           top: Radius.circular(AppRadius.xxl),
         ),
       ),
-      dragHandleColor: colorScheme.onSurfaceVariant.withAlpha(AppOpacity.medium),
+      dragHandleColor: colorScheme.onSurfaceVariant.withAlpha(
+        AppOpacity.medium,
+      ),
       dragHandleSize: const Size(40, 4),
       showDragHandle: true,
     ),
-    
+
     // Navigation Bar - Clean, minimal
     navigationBarTheme: NavigationBarThemeData(
       elevation: 0,
@@ -489,18 +538,12 @@ ThemeData buildLightTheme() {
       }),
       iconTheme: WidgetStateProperty.resolveWith((states) {
         if (states.contains(WidgetState.selected)) {
-          return IconThemeData(
-            size: 24,
-            color: colorScheme.primary,
-          );
+          return IconThemeData(size: 24, color: colorScheme.primary);
         }
-        return IconThemeData(
-          size: 24,
-          color: colorScheme.onSurfaceVariant,
-        );
+        return IconThemeData(size: 24, color: colorScheme.onSurfaceVariant);
       }),
     ),
-    
+
     // Popup Menu
     popupMenuTheme: PopupMenuThemeData(
       elevation: AppElevation.lg,
@@ -510,20 +553,20 @@ ThemeData buildLightTheme() {
         borderRadius: BorderRadius.circular(AppRadius.md),
       ),
     ),
-    
+
     // Progress Indicator
     progressIndicatorTheme: ProgressIndicatorThemeData(
       linearTrackColor: colorScheme.surfaceContainerHighest,
       circularTrackColor: colorScheme.surfaceContainerHighest,
     ),
-    
+
     // Divider
     dividerTheme: DividerThemeData(
       color: colorScheme.outlineVariant.withAlpha(AppOpacity.medium),
       thickness: 1,
       space: 1,
     ),
-    
+
     // Switch
     switchTheme: SwitchThemeData(
       thumbColor: WidgetStateProperty.resolveWith((states) {
@@ -540,7 +583,7 @@ ThemeData buildLightTheme() {
       }),
       trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
     ),
-    
+
     // Expansion Tile
     expansionTileTheme: ExpansionTileThemeData(
       backgroundColor: Colors.transparent,
@@ -559,29 +602,30 @@ ThemeData buildLightTheme() {
 
 /// Build the dark theme - Rich, deep colors
 ThemeData buildDarkTheme() {
-  final colorScheme = ColorScheme.fromSeed(
-    seedColor: AppColors.seedColor,
-    brightness: Brightness.dark,
-  ).copyWith(
-    surface: const Color(0xFF121212),
-    surfaceContainerLowest: const Color(0xFF0A0A0A),
-    surfaceContainerLow: const Color(0xFF1A1A1A),
-    surfaceContainer: const Color(0xFF1F1F1F),
-    surfaceContainerHigh: const Color(0xFF2A2A2A),
-    surfaceContainerHighest: const Color(0xFF333333),
-  );
+  final colorScheme =
+      ColorScheme.fromSeed(
+        seedColor: AppColors.seedColor,
+        brightness: Brightness.dark,
+      ).copyWith(
+        surface: const Color(0xFF121212),
+        surfaceContainerLowest: const Color(0xFF0A0A0A),
+        surfaceContainerLow: const Color(0xFF1A1A1A),
+        surfaceContainer: const Color(0xFF1F1F1F),
+        surfaceContainerHigh: const Color(0xFF2A2A2A),
+        surfaceContainerHighest: const Color(0xFF333333),
+      );
 
   return ThemeData(
     useMaterial3: true,
     colorScheme: colorScheme,
     extensions: const [AppColorsExtension.dark],
-    
+
     // Typography
     textTheme: _buildTextTheme(colorScheme),
-    
+
     // Scaffold
     scaffoldBackgroundColor: colorScheme.surface,
-    
+
     // App Bar
     appBarTheme: AppBarTheme(
       centerTitle: false,
@@ -597,7 +641,7 @@ ThemeData buildDarkTheme() {
         letterSpacing: -0.5,
       ),
     ),
-    
+
     // Cards
     cardTheme: CardThemeData(
       elevation: 0,
@@ -609,7 +653,7 @@ ThemeData buildDarkTheme() {
       clipBehavior: Clip.antiAlias,
       margin: EdgeInsets.zero,
     ),
-    
+
     // List Tiles
     listTileTheme: ListTileThemeData(
       contentPadding: const EdgeInsets.symmetric(
@@ -629,7 +673,7 @@ ThemeData buildDarkTheme() {
         color: colorScheme.onSurfaceVariant,
       ),
     ),
-    
+
     // Input Decoration
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
@@ -659,7 +703,7 @@ ThemeData buildDarkTheme() {
         fontWeight: FontWeight.w400,
       ),
     ),
-    
+
     // Chips
     chipTheme: ChipThemeData(
       backgroundColor: colorScheme.surfaceContainerHigh,
@@ -669,13 +713,16 @@ ThemeData buildDarkTheme() {
         fontWeight: FontWeight.w500,
         color: colorScheme.onSurface,
       ),
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.xs,
+      ),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppRadius.full),
       ),
       side: BorderSide.none,
     ),
-    
+
     // FAB
     floatingActionButtonTheme: FloatingActionButtonThemeData(
       elevation: AppElevation.md,
@@ -687,7 +734,7 @@ ThemeData buildDarkTheme() {
       ),
       extendedPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
     ),
-    
+
     // Elevated Button
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
@@ -706,7 +753,7 @@ ThemeData buildDarkTheme() {
         ),
       ),
     ),
-    
+
     // Filled Button
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
@@ -724,7 +771,7 @@ ThemeData buildDarkTheme() {
         ),
       ),
     ),
-    
+
     // Outlined Button
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
@@ -743,7 +790,7 @@ ThemeData buildDarkTheme() {
         ),
       ),
     ),
-    
+
     // Text Button
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
@@ -761,7 +808,7 @@ ThemeData buildDarkTheme() {
         ),
       ),
     ),
-    
+
     // Icon Button
     iconButtonTheme: IconButtonThemeData(
       style: IconButton.styleFrom(
@@ -770,7 +817,7 @@ ThemeData buildDarkTheme() {
         ),
       ),
     ),
-    
+
     // SnackBar
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
@@ -781,7 +828,7 @@ ThemeData buildDarkTheme() {
       ),
       elevation: AppElevation.lg,
     ),
-    
+
     // Dialog
     dialogTheme: DialogThemeData(
       elevation: AppElevation.xl,
@@ -796,7 +843,7 @@ ThemeData buildDarkTheme() {
         color: colorScheme.onSurface,
       ),
     ),
-    
+
     // Bottom Sheet
     bottomSheetTheme: BottomSheetThemeData(
       elevation: 0,
@@ -807,11 +854,13 @@ ThemeData buildDarkTheme() {
           top: Radius.circular(AppRadius.xxl),
         ),
       ),
-      dragHandleColor: colorScheme.onSurfaceVariant.withAlpha(AppOpacity.medium),
+      dragHandleColor: colorScheme.onSurfaceVariant.withAlpha(
+        AppOpacity.medium,
+      ),
       dragHandleSize: const Size(40, 4),
       showDragHandle: true,
     ),
-    
+
     // Navigation Bar
     navigationBarTheme: NavigationBarThemeData(
       elevation: 0,
@@ -838,18 +887,12 @@ ThemeData buildDarkTheme() {
       }),
       iconTheme: WidgetStateProperty.resolveWith((states) {
         if (states.contains(WidgetState.selected)) {
-          return IconThemeData(
-            size: 24,
-            color: colorScheme.primary,
-          );
+          return IconThemeData(size: 24, color: colorScheme.primary);
         }
-        return IconThemeData(
-          size: 24,
-          color: colorScheme.onSurfaceVariant,
-        );
+        return IconThemeData(size: 24, color: colorScheme.onSurfaceVariant);
       }),
     ),
-    
+
     // Popup Menu
     popupMenuTheme: PopupMenuThemeData(
       elevation: AppElevation.lg,
@@ -859,20 +902,20 @@ ThemeData buildDarkTheme() {
         borderRadius: BorderRadius.circular(AppRadius.md),
       ),
     ),
-    
+
     // Progress Indicator
     progressIndicatorTheme: ProgressIndicatorThemeData(
       linearTrackColor: colorScheme.surfaceContainerHighest,
       circularTrackColor: colorScheme.surfaceContainerHighest,
     ),
-    
+
     // Divider
     dividerTheme: DividerThemeData(
       color: colorScheme.outlineVariant.withAlpha(AppOpacity.medium),
       thickness: 1,
       space: 1,
     ),
-    
+
     // Switch
     switchTheme: SwitchThemeData(
       thumbColor: WidgetStateProperty.resolveWith((states) {
@@ -889,7 +932,7 @@ ThemeData buildDarkTheme() {
       }),
       trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
     ),
-    
+
     // Expansion Tile
     expansionTileTheme: ExpansionTileThemeData(
       backgroundColor: Colors.transparent,

@@ -57,9 +57,7 @@ class _MoviesScreenState extends ConsumerState<MoviesScreen> {
 
   void _navigateToMovieDetails(Movie movie) {
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => MovieDetailsScreen(movie: movie),
-      ),
+      MaterialPageRoute(builder: (context) => MovieDetailsScreen(movie: movie)),
     );
   }
 
@@ -108,7 +106,9 @@ class _MoviesScreenState extends ConsumerState<MoviesScreen> {
                     )
                   : null,
               filled: true,
-              fillColor: theme.colorScheme.surfaceContainerHighest.withAlpha(AppOpacity.medium),
+              fillColor: theme.colorScheme.surfaceContainerHighest.withAlpha(
+                AppOpacity.medium,
+              ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(AppRadius.lg),
                 borderSide: BorderSide.none,
@@ -157,14 +157,16 @@ class _MoviesScreenState extends ConsumerState<MoviesScreen> {
                   Icon(
                     Icons.search_off_rounded,
                     size: 64,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant.withAlpha(AppOpacity.medium),
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurfaceVariant.withAlpha(AppOpacity.medium),
                   ),
                   SizedBox(height: AppSpacing.md),
                   Text(
                     'No movies found',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),

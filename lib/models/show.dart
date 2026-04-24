@@ -47,7 +47,8 @@ class Show {
       numberOfSeasons: json['number_of_seasons'] as int?,
       numberOfEpisodes: json['number_of_episodes'] as int?,
       imdbId: json['imdb_id'] as String?,
-      genres: (json['genres'] as List<dynamic>?)
+      genres:
+          (json['genres'] as List<dynamic>?)
               ?.map((g) => g['name'] as String)
               .toList() ??
           [],
@@ -90,10 +91,9 @@ class Show {
       : null;
 
   /// Get the year from first air date
-  String? get year =>
-      firstAirDate != null && firstAirDate!.length >= 4
-          ? firstAirDate!.substring(0, 4)
-          : null;
+  String? get year => firstAirDate != null && firstAirDate!.length >= 4
+      ? firstAirDate!.substring(0, 4)
+      : null;
 
   /// Check if show is currently airing
   bool get isAiring => status == 'Returning Series' || inProduction;

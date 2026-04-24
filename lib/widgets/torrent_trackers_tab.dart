@@ -28,12 +28,13 @@ class TorrentTrackersTab extends ConsumerWidget {
     );
   }
 
-  Widget _buildTrackersList(BuildContext context, WidgetRef ref, List<Tracker> trackers) {
+  Widget _buildTrackersList(
+    BuildContext context,
+    WidgetRef ref,
+    List<Tracker> trackers,
+  ) {
     if (trackers.isEmpty) {
-      return EmptyState.noData(
-        icon: Icons.dns_outlined,
-        title: 'No trackers',
-      );
+      return EmptyState.noData(icon: Icons.dns_outlined, title: 'No trackers');
     }
 
     return ListView.builder(
@@ -131,7 +132,12 @@ class _TrackerListItem extends StatelessWidget {
     );
   }
 
-  Widget _buildStatChip(BuildContext context, IconData icon, String label, Color color) {
+  Widget _buildStatChip(
+    BuildContext context,
+    IconData icon,
+    String label,
+    Color color,
+  ) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(

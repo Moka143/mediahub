@@ -275,7 +275,8 @@ class Torrent {
       piecesHave: piecesHave ?? this.piecesHave,
       contentPath: contentPath ?? this.contentPath,
       sequentialDownload: sequentialDownload ?? this.sequentialDownload,
-      firstLastPiecePriority: firstLastPiecePriority ?? this.firstLastPiecePriority,
+      firstLastPiecePriority:
+          firstLastPiecePriority ?? this.firstLastPiecePriority,
     );
   }
 
@@ -314,7 +315,8 @@ class Torrent {
       piecesHave: update['pieces_have'] as int? ?? piecesHave,
       contentPath: update['content_path'] as String? ?? contentPath,
       sequentialDownload: update['seq_dl'] as bool? ?? sequentialDownload,
-      firstLastPiecePriority: update['f_l_piece_prio'] as bool? ?? firstLastPiecePriority,
+      firstLastPiecePriority:
+          update['f_l_piece_prio'] as bool? ?? firstLastPiecePriority,
     );
   }
 

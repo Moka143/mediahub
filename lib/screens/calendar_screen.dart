@@ -60,79 +60,90 @@ class CalendarEpisode {
 /// Provider for calendar episodes from favorite shows
 final calendarEpisodesProvider =
     FutureProvider<Map<DateTime, List<CalendarEpisode>>>((ref) async {
-  final favorites = ref.watch(favoritesProvider);
-  final tmdbService = ref.watch(tmdbApiServiceProvider);
+      final favorites = ref.watch(favoritesProvider);
+      final tmdbService = ref.watch(tmdbApiServiceProvider);
 
-  if (favorites.favoriteIds.isEmpty || !tmdbService.isConfigured) return {};
+      if (favorites.favoriteIds.isEmpty || !tmdbService.isConfigured) return {};
 
-  final Map<DateTime, List<CalendarEpisode>> calendar = {};
+      final Map<DateTime, List<CalendarEpisode>> calendar = {};
 
-  // Date range: 7 days ago to 30 days in future
-  final startDate = DateTime.now().subtract(const Duration(days: 7));
-  final endDate = DateTime.now().add(const Duration(days: 30));
+      // Date range: 7 days ago to 30 days in future
+      final startDate = DateTime.now().subtract(const Duration(days: 7));
+      final endDate = DateTime.now().add(const Duration(days: 30));
 
-  for (final showId in favorites.favoriteIds) {
-    try {
-      // Get show details for name and poster
-      final show = await tmdbService.getShowDetails(showId);
-      final numSeasons = show.numberOfSeasons ?? 0;
-
-      // Get episodes from recent seasons (last 2 seasons to limit API calls)
-      for (int seasonNum = (numSeasons - 1).clamp(1, numSeasons); 
-           seasonNum <= numSeasons; 
-           seasonNum++) {
-        if (seasonNum <= 0) continue; // Skip specials
-
+      for (final showId in favorites.favoriteIds) {
         try {
-          final episodes = await tmdbService.getSeasonEpisodes(showId, seasonNum);
+          // Get show details for name and poster
+          final show = await tmdbService.getShowDetails(showId);
+          final numSeasons = show.numberOfSeasons ?? 0;
 
-          for (final episode in episodes) {
-            if (episode.airDate == null) continue;
+          // Get episodes from recent seasons (last 2 seasons to limit API calls)
+          for (
+            int seasonNum = (numSeasons - 1).clamp(1, numSeasons);
+            seasonNum <= numSeasons;
+            seasonNum++
+          ) {
+            if (seasonNum <= 0) continue; // Skip specials
 
-            final airDate = DateTime.tryParse(episode.airDate!);
-            if (airDate == null) continue;
+            try {
+              final episodes = await tmdbService.getSeasonEpisodes(
+                showId,
+                seasonNum,
+              );
 
-            // Only include episodes within our date range
-            if (airDate.isBefore(startDate) || airDate.isAfter(endDate)) {
-              continue;
+              for (final episode in episodes) {
+                if (episode.airDate == null) continue;
+
+                final airDate = DateTime.tryParse(episode.airDate!);
+                if (airDate == null) continue;
+
+                // Only include episodes within our date range
+                if (airDate.isBefore(startDate) || airDate.isAfter(endDate)) {
+                  continue;
+                }
+
+                // Normalize to date only (no time)
+                final dateKey = DateTime(
+                  airDate.year,
+                  airDate.month,
+                  airDate.day,
+                );
+
+                calendar.putIfAbsent(dateKey, () => []);
+                calendar[dateKey]!.add(
+                  CalendarEpisode(
+                    showId: showId,
+                    showName: show.name,
+                    posterPath: show.posterPath,
+                    seasonNumber: episode.seasonNumber,
+                    episodeNumber: episode.episodeNumber,
+                    episodeName: episode.name,
+                    airDate: airDate,
+                    overview: episode.overview,
+                  ),
+                );
+              }
+            } catch (e) {
+              // Skip seasons that fail to load
             }
-
-            // Normalize to date only (no time)
-            final dateKey = DateTime(airDate.year, airDate.month, airDate.day);
-
-            calendar.putIfAbsent(dateKey, () => []);
-            calendar[dateKey]!.add(CalendarEpisode(
-              showId: showId,
-              showName: show.name,
-              posterPath: show.posterPath,
-              seasonNumber: episode.seasonNumber,
-              episodeNumber: episode.episodeNumber,
-              episodeName: episode.name,
-              airDate: airDate,
-              overview: episode.overview,
-            ));
           }
         } catch (e) {
-          // Skip seasons that fail to load
+          // Skip shows that fail to load
         }
       }
-    } catch (e) {
-      // Skip shows that fail to load
-    }
-  }
 
-  // Sort episodes within each day
-  for (final episodes in calendar.values) {
-    episodes.sort((a, b) {
-      // Sort by show name, then by episode
-      final showCompare = a.showName.compareTo(b.showName);
-      if (showCompare != 0) return showCompare;
-      return a.episodeCode.compareTo(b.episodeCode);
+      // Sort episodes within each day
+      for (final episodes in calendar.values) {
+        episodes.sort((a, b) {
+          // Sort by show name, then by episode
+          final showCompare = a.showName.compareTo(b.showName);
+          if (showCompare != 0) return showCompare;
+          return a.episodeCode.compareTo(b.episodeCode);
+        });
+      }
+
+      return calendar;
     });
-  }
-
-  return calendar;
-});
 
 /// Provider for today's episodes count (for badges)
 final todayEpisodesCountProvider = Provider<int>((ref) {
@@ -165,24 +176,26 @@ final upcomingEpisodesCountProvider = Provider<int>((ref) {
 });
 
 /// Download status for a calendar episode, cross-referencing auto-download tracking
-final calendarEpisodeDownloadStatusProvider = Provider.family<
-    EpisodeDownloadStatus?,
-    ({int showId, int season, int episode})>((ref, params) {
-  final autoState = ref.watch(autoDownloadProvider);
-  final tracking = autoState.lastDownloadedEpisodes[params.showId];
-  if (tracking != null &&
-      tracking.season == params.season &&
-      tracking.episode == params.episode) {
-    return tracking.status;
-  }
-  // Check download queue
-  final queueKey =
-      '${params.showId}_S${params.season.toString().padLeft(2, '0')}E${params.episode.toString().padLeft(2, '0')}';
-  if (autoState.downloadQueue.contains(queueKey)) {
-    return EpisodeDownloadStatus.downloading;
-  }
-  return null;
-});
+final calendarEpisodeDownloadStatusProvider =
+    Provider.family<
+      EpisodeDownloadStatus?,
+      ({int showId, int season, int episode})
+    >((ref, params) {
+      final autoState = ref.watch(autoDownloadProvider);
+      final tracking = autoState.lastDownloadedEpisodes[params.showId];
+      if (tracking != null &&
+          tracking.season == params.season &&
+          tracking.episode == params.episode) {
+        return tracking.status;
+      }
+      // Check download queue
+      final queueKey =
+          '${params.showId}_S${params.season.toString().padLeft(2, '0')}E${params.episode.toString().padLeft(2, '0')}';
+      if (autoState.downloadQueue.contains(queueKey)) {
+        return EpisodeDownloadStatus.downloading;
+      }
+      return null;
+    });
 
 // ============================================================================
 // Calendar Screen
@@ -269,9 +282,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       controller: _scrollController,
       slivers: [
         // Auto-download status card
-        const SliverToBoxAdapter(
-          child: AutoDownloadStatusCard(),
-        ),
+        const SliverToBoxAdapter(child: AutoDownloadStatusCard()),
 
         // Date navigation header
         SliverToBoxAdapter(
@@ -280,21 +291,16 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
 
         // Calendar content
         SliverList(
-          delegate: SliverChildBuilderDelegate(
-            (context, index) {
-              final date = sortedDates[index];
-              final episodes = calendar[date]!;
+          delegate: SliverChildBuilderDelegate((context, index) {
+            final date = sortedDates[index];
+            final episodes = calendar[date]!;
 
-              return _buildDaySection(context, date, episodes, today);
-            },
-            childCount: sortedDates.length,
-          ),
+            return _buildDaySection(context, date, episodes, today);
+          }, childCount: sortedDates.length),
         ),
 
         // Activity log section
-        SliverToBoxAdapter(
-          child: _buildActivityLogSection(context),
-        ),
+        SliverToBoxAdapter(child: _buildActivityLogSection(context)),
 
         // Bottom padding
         const SliverPadding(padding: EdgeInsets.only(bottom: AppSpacing.xl)),
@@ -335,7 +341,8 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
               itemBuilder: (context, index) {
                 final date = today.add(Duration(days: index - 3));
                 final hasEpisodes = dates.contains(date);
-                final isSelected = date.year == _selectedDate.year &&
+                final isSelected =
+                    date.year == _selectedDate.year &&
                     date.month == _selectedDate.month &&
                     date.day == _selectedDate.day;
                 final isToday = date == today;
@@ -388,8 +395,8 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
           color: isSelected
               ? theme.colorScheme.primary
               : isToday
-                  ? theme.colorScheme.primaryContainer
-                  : theme.colorScheme.surfaceContainerHigh,
+              ? theme.colorScheme.primaryContainer
+              : theme.colorScheme.surfaceContainerHigh,
           borderRadius: BorderRadius.circular(AppRadius.lg),
           border: isToday && !isSelected
               ? Border.all(color: theme.colorScheme.primary, width: 2)
@@ -478,8 +485,8 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                   color: isToday
                       ? theme.colorScheme.primary
                       : isPast
-                          ? theme.colorScheme.surfaceContainerHighest
-                          : theme.colorScheme.primaryContainer,
+                      ? theme.colorScheme.surfaceContainerHighest
+                      : theme.colorScheme.primaryContainer,
                   borderRadius: BorderRadius.circular(AppRadius.full),
                 ),
                 child: Text(
@@ -488,8 +495,8 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                     color: isToday
                         ? theme.colorScheme.onPrimary
                         : isPast
-                            ? theme.colorScheme.onSurfaceVariant
-                            : theme.colorScheme.onPrimaryContainer,
+                        ? theme.colorScheme.onSurfaceVariant
+                        : theme.colorScheme.onPrimaryContainer,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -506,7 +513,9 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
           const SizedBox(height: AppSpacing.sm),
 
           // Episode cards
-          ...episodes.map((episode) => _buildEpisodeCard(context, episode, isPast)),
+          ...episodes.map(
+            (episode) => _buildEpisodeCard(context, episode, isPast),
+          ),
         ],
       ),
     );
@@ -576,7 +585,9 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                   Text(
                     timeAgo,
                     style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant.withOpacity(0.6),
+                      color: theme.colorScheme.onSurfaceVariant.withOpacity(
+                        0.6,
+                      ),
                     ),
                   ),
                 ],
@@ -590,11 +601,26 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
 
   (IconData, Color) _eventIcon(AutoDownloadEventType type) {
     return switch (type) {
-      AutoDownloadEventType.downloadStarted => (Icons.download_rounded, AppColors.info),
-      AutoDownloadEventType.downloadCompleted => (Icons.check_circle_rounded, AppColors.success),
-      AutoDownloadEventType.downloadFailed => (Icons.error_rounded, AppColors.error),
-      AutoDownloadEventType.torrentNotFound => (Icons.search_off_rounded, AppColors.warning),
-      AutoDownloadEventType.episodeQueued => (Icons.queue_rounded, AppColors.info),
+      AutoDownloadEventType.downloadStarted => (
+        Icons.download_rounded,
+        AppColors.info,
+      ),
+      AutoDownloadEventType.downloadCompleted => (
+        Icons.check_circle_rounded,
+        AppColors.success,
+      ),
+      AutoDownloadEventType.downloadFailed => (
+        Icons.error_rounded,
+        AppColors.error,
+      ),
+      AutoDownloadEventType.torrentNotFound => (
+        Icons.search_off_rounded,
+        AppColors.warning,
+      ),
+      AutoDownloadEventType.episodeQueued => (
+        Icons.queue_rounded,
+        AppColors.info,
+      ),
       AutoDownloadEventType.checked => (Icons.refresh_rounded, AppColors.info),
     };
   }
@@ -649,12 +675,15 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                   borderRadius: BorderRadius.circular(AppRadius.sm),
                   child: episode.posterPath != null
                       ? Image.network(
-                          TmdbApiService.getPosterUrl(episode.posterPath!,
-                              size: 'w92'),
+                          TmdbApiService.getPosterUrl(
+                            episode.posterPath!,
+                            size: 'w92',
+                          ),
                           width: 50,
                           height: 75,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => _buildPosterPlaceholder(theme),
+                          errorBuilder: (_, __, ___) =>
+                              _buildPosterPlaceholder(theme),
                         )
                       : _buildPosterPlaceholder(theme),
                 ),
@@ -793,40 +822,53 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   }
 
   Widget _buildDownloadStatusBadge(CalendarEpisode episode) {
-    final status = ref.watch(calendarEpisodeDownloadStatusProvider((
-      showId: episode.showId,
-      season: episode.seasonNumber,
-      episode: episode.episodeNumber,
-    )));
+    final status = ref.watch(
+      calendarEpisodeDownloadStatusProvider((
+        showId: episode.showId,
+        season: episode.seasonNumber,
+        episode: episode.episodeNumber,
+      )),
+    );
     if (status == null) return const SizedBox.shrink();
 
     return Padding(
       padding: const EdgeInsets.only(left: AppSpacing.xs),
       child: switch (status) {
-        EpisodeDownloadStatus.downloading =>
-          StatusBadge.info(label: 'Downloading', size: StatusBadgeSize.small),
-        EpisodeDownloadStatus.downloaded =>
-          StatusBadge.success(label: 'Downloaded', size: StatusBadgeSize.small),
-        EpisodeDownloadStatus.watched =>
-          StatusBadge.success(label: 'Watched', size: StatusBadgeSize.small),
-        EpisodeDownloadStatus.awaitingTorrent =>
-          StatusBadge.warning(label: 'No Torrent', size: StatusBadgeSize.small),
-        EpisodeDownloadStatus.available =>
-          StatusBadge.info(label: 'Available', size: StatusBadgeSize.small),
+        EpisodeDownloadStatus.downloading => StatusBadge.info(
+          label: 'Downloading',
+          size: StatusBadgeSize.small,
+        ),
+        EpisodeDownloadStatus.downloaded => StatusBadge.success(
+          label: 'Downloaded',
+          size: StatusBadgeSize.small,
+        ),
+        EpisodeDownloadStatus.watched => StatusBadge.success(
+          label: 'Watched',
+          size: StatusBadgeSize.small,
+        ),
+        EpisodeDownloadStatus.awaitingTorrent => StatusBadge.warning(
+          label: 'No Torrent',
+          size: StatusBadgeSize.small,
+        ),
+        EpisodeDownloadStatus.available => StatusBadge.info(
+          label: 'Available',
+          size: StatusBadgeSize.small,
+        ),
         _ => const SizedBox.shrink(),
       },
     );
   }
 
-  Future<void> _navigateToShow(BuildContext context, CalendarEpisode episode) async {
+  Future<void> _navigateToShow(
+    BuildContext context,
+    CalendarEpisode episode,
+  ) async {
     final tmdbService = ref.read(tmdbApiServiceProvider);
     try {
       final show = await tmdbService.getShowDetails(episode.showId);
       if (context.mounted) {
         Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => ShowDetailsScreen(show: show),
-          ),
+          MaterialPageRoute(builder: (_) => ShowDetailsScreen(show: show)),
         );
       }
     } catch (e) {
@@ -838,7 +880,10 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     }
   }
 
-  Future<void> _downloadEpisode(BuildContext context, CalendarEpisode episode) async {
+  Future<void> _downloadEpisode(
+    BuildContext context,
+    CalendarEpisode episode,
+  ) async {
     final tmdbService = ref.read(tmdbApiServiceProvider);
     try {
       final show = await tmdbService.getShowDetails(episode.showId);
@@ -864,21 +909,28 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       if (torrent == null) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('No torrent found for ${episode.showName} ${episode.episodeCode}')),
+            SnackBar(
+              content: Text(
+                'No torrent found for ${episode.showName} ${episode.episodeCode}',
+              ),
+            ),
           );
         }
-        ref.read(autoDownloadEventsProvider.notifier).addEvent(
-          AutoDownloadEvent(
-            timestamp: DateTime.now(),
-            type: AutoDownloadEventType.torrentNotFound,
-            showId: episode.showId,
-            showName: episode.showName,
-            season: episode.seasonNumber,
-            episode: episode.episodeNumber,
-            quality: quality,
-            message: 'Manual search: no torrent for ${episode.showName} ${episode.episodeCode}',
-          ),
-        );
+        ref
+            .read(autoDownloadEventsProvider.notifier)
+            .addEvent(
+              AutoDownloadEvent(
+                timestamp: DateTime.now(),
+                type: AutoDownloadEventType.torrentNotFound,
+                showId: episode.showId,
+                showName: episode.showName,
+                season: episode.seasonNumber,
+                episode: episode.episodeNumber,
+                quality: quality,
+                message:
+                    'Manual search: no torrent for ${episode.showName} ${episode.episodeCode}',
+              ),
+            );
         return;
       }
 
@@ -903,24 +955,27 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       }
 
       if (success) {
-        ref.read(autoDownloadEventsProvider.notifier).addEvent(
-          AutoDownloadEvent(
-            timestamp: DateTime.now(),
-            type: AutoDownloadEventType.downloadStarted,
-            showId: episode.showId,
-            showName: episode.showName,
-            season: episode.seasonNumber,
-            episode: episode.episodeNumber,
-            quality: quality,
-            message: 'Manual download: ${episode.showName} ${episode.episodeCode} in $quality',
-          ),
-        );
+        ref
+            .read(autoDownloadEventsProvider.notifier)
+            .addEvent(
+              AutoDownloadEvent(
+                timestamp: DateTime.now(),
+                type: AutoDownloadEventType.downloadStarted,
+                showId: episode.showId,
+                showName: episode.showName,
+                season: episode.seasonNumber,
+                episode: episode.episodeNumber,
+                quality: quality,
+                message:
+                    'Manual download: ${episode.showName} ${episode.episodeCode} in $quality',
+              ),
+            );
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Download failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Download failed: $e')));
       }
     }
   }

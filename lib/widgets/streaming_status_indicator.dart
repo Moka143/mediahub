@@ -5,13 +5,7 @@ import 'package:flutter/material.dart';
 import '../design/app_tokens.dart';
 
 /// Status types for the streaming indicator
-enum StreamingStatus {
-  searching,
-  found,
-  buffering,
-  ready,
-  error,
-}
+enum StreamingStatus { searching, found, buffering, ready, error }
 
 /// Modern, integrated streaming status indicator for the video player
 class StreamingStatusIndicator extends StatefulWidget {
@@ -33,7 +27,8 @@ class StreamingStatusIndicator extends StatefulWidget {
   });
 
   @override
-  State<StreamingStatusIndicator> createState() => _StreamingStatusIndicatorState();
+  State<StreamingStatusIndicator> createState() =>
+      _StreamingStatusIndicatorState();
 }
 
 class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
@@ -50,23 +45,19 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
       duration: const Duration(milliseconds: 300),
       vsync: this,
     );
-    
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, -1),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeOutCubic,
-    ));
-    
-    _fadeAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeOut,
-    ));
-    
+
+    _slideAnimation =
+        Tween<Offset>(begin: const Offset(0, -1), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _animationController,
+            curve: Curves.easeOutCubic,
+          ),
+        );
+
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
+    );
+
     _animationController.forward();
     _startAutoHideTimer();
   }
@@ -74,14 +65,16 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
   @override
   void didUpdateWidget(StreamingStatusIndicator oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.status != oldWidget.status || widget.message != oldWidget.message) {
+    if (widget.status != oldWidget.status ||
+        widget.message != oldWidget.message) {
       _startAutoHideTimer();
     }
   }
 
   void _startAutoHideTimer() {
     _autoHideTimer?.cancel();
-    if (widget.status == StreamingStatus.ready || widget.status == StreamingStatus.error) {
+    if (widget.status == StreamingStatus.ready ||
+        widget.status == StreamingStatus.error) {
       _autoHideTimer = Timer(widget.autoHideDuration, () {
         if (mounted) {
           _animationController.reverse().then((_) {
@@ -102,7 +95,7 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return SlideTransition(
       position: _slideAnimation,
       child: FadeTransition(
@@ -129,7 +122,8 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
               mainAxisSize: MainAxisSize.min,
               children: [
                 // Progress bar for buffering
-                if (widget.status == StreamingStatus.buffering && widget.progress != null)
+                if (widget.status == StreamingStatus.buffering &&
+                    widget.progress != null)
                   LinearProgressIndicator(
                     value: widget.progress,
                     backgroundColor: Colors.white.withOpacity(0.1),
@@ -138,8 +132,8 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
                     ),
                     minHeight: 3,
                   )
-                else if (widget.status == StreamingStatus.searching || 
-                         widget.status == StreamingStatus.buffering)
+                else if (widget.status == StreamingStatus.searching ||
+                    widget.status == StreamingStatus.buffering)
                   LinearProgressIndicator(
                     backgroundColor: Colors.white.withOpacity(0.1),
                     valueColor: AlwaysStoppedAnimation<Color>(
@@ -147,7 +141,7 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
                     ),
                     minHeight: 3,
                   ),
-                
+
                 // Content
                 Padding(
                   padding: const EdgeInsets.all(AppSpacing.md),
@@ -156,7 +150,7 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
                       // Status icon
                       _buildStatusIcon(theme),
                       const SizedBox(width: AppSpacing.sm),
-                      
+
                       // Message content
                       Expanded(
                         child: Column(
@@ -180,7 +174,7 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                             ),
-                            if (widget.status == StreamingStatus.buffering && 
+                            if (widget.status == StreamingStatus.buffering &&
                                 widget.progress != null)
                               Padding(
                                 padding: const EdgeInsets.only(top: 4),
@@ -194,7 +188,7 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
                           ],
                         ),
                       ),
-                      
+
                       // Dismiss button for errors or ready state
                       if (widget.status == StreamingStatus.error ||
                           widget.status == StreamingStatus.ready)
@@ -267,11 +261,7 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
                 ),
               ),
             ),
-            Icon(
-              Icons.download_rounded,
-              color: Colors.white70,
-              size: 14,
-            ),
+            Icon(Icons.download_rounded, color: Colors.white70, size: 14),
           ],
         );
       case StreamingStatus.ready:
@@ -333,7 +323,7 @@ class StreamingStatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.sm,
@@ -342,10 +332,7 @@ class StreamingStatusPill extends StatelessWidget {
       decoration: BoxDecoration(
         color: _getBackgroundColor(theme),
         borderRadius: BorderRadius.circular(AppRadius.full),
-        border: Border.all(
-          color: _getBorderColor(theme),
-          width: 1,
-        ),
+        border: Border.all(color: _getBorderColor(theme), width: 1),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -388,9 +375,17 @@ class StreamingStatusPill extends StatelessWidget {
       case StreamingStatus.found:
         return const Icon(Icons.check_rounded, size: 14, color: Colors.green);
       case StreamingStatus.ready:
-        return const Icon(Icons.play_arrow_rounded, size: 14, color: Colors.green);
+        return const Icon(
+          Icons.play_arrow_rounded,
+          size: 14,
+          color: Colors.green,
+        );
       case StreamingStatus.error:
-        return Icon(Icons.error_outline_rounded, size: 14, color: theme.colorScheme.error);
+        return Icon(
+          Icons.error_outline_rounded,
+          size: 14,
+          color: theme.colorScheme.error,
+        );
     }
   }
 

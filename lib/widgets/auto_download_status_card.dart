@@ -94,12 +94,14 @@ class AutoDownloadStatusCard extends ConsumerWidget {
                 const SizedBox(height: AppSpacing.sm),
                 Divider(
                   height: 1,
-                  color: theme.colorScheme.outlineVariant.withAlpha(AppOpacity.medium),
+                  color: theme.colorScheme.outlineVariant.withAlpha(
+                    AppOpacity.medium,
+                  ),
                 ),
                 const SizedBox(height: AppSpacing.sm),
-                ...recentEvents.take(3).map(
-                  (event) => _EventRow(event: event, theme: theme),
-                ),
+                ...recentEvents
+                    .take(3)
+                    .map((event) => _EventRow(event: event, theme: theme)),
               ],
             ],
           ),
@@ -125,11 +127,7 @@ class _StatChip extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(
-          icon,
-          size: 14,
-          color: theme.colorScheme.onSurfaceVariant,
-        ),
+        Icon(icon, size: 14, color: theme.colorScheme.onSurfaceVariant),
         const SizedBox(width: 4),
         Text(
           label,
@@ -182,11 +180,26 @@ class _EventRow extends StatelessWidget {
 
   (IconData, Color) _iconForType(AutoDownloadEventType type) {
     return switch (type) {
-      AutoDownloadEventType.downloadStarted => (Icons.download_rounded, AppColors.info),
-      AutoDownloadEventType.downloadCompleted => (Icons.check_circle_rounded, AppColors.success),
-      AutoDownloadEventType.downloadFailed => (Icons.error_rounded, AppColors.error),
-      AutoDownloadEventType.torrentNotFound => (Icons.search_off_rounded, AppColors.warning),
-      AutoDownloadEventType.episodeQueued => (Icons.queue_rounded, AppColors.info),
+      AutoDownloadEventType.downloadStarted => (
+        Icons.download_rounded,
+        AppColors.info,
+      ),
+      AutoDownloadEventType.downloadCompleted => (
+        Icons.check_circle_rounded,
+        AppColors.success,
+      ),
+      AutoDownloadEventType.downloadFailed => (
+        Icons.error_rounded,
+        AppColors.error,
+      ),
+      AutoDownloadEventType.torrentNotFound => (
+        Icons.search_off_rounded,
+        AppColors.warning,
+      ),
+      AutoDownloadEventType.episodeQueued => (
+        Icons.queue_rounded,
+        AppColors.info,
+      ),
       AutoDownloadEventType.checked => (Icons.refresh_rounded, AppColors.info),
     };
   }

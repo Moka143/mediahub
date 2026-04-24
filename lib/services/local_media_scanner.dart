@@ -99,7 +99,9 @@ class LocalMediaScanner {
     // Sort episodes within each show
     for (final showFiles in grouped.values) {
       showFiles.sort((a, b) {
-        final seasonCompare = (a.seasonNumber ?? 0).compareTo(b.seasonNumber ?? 0);
+        final seasonCompare = (a.seasonNumber ?? 0).compareTo(
+          b.seasonNumber ?? 0,
+        );
         if (seasonCompare != 0) return seasonCompare;
         return (a.episodeNumber ?? 0).compareTo(b.episodeNumber ?? 0);
       });
@@ -109,7 +111,10 @@ class LocalMediaScanner {
   }
 
   /// Get recently downloaded files (last 7 days)
-  List<LocalMediaFile> getRecentFiles(List<LocalMediaFile> files, {int days = 7}) {
+  List<LocalMediaFile> getRecentFiles(
+    List<LocalMediaFile> files, {
+    int days = 7,
+  }) {
     final cutoff = DateTime.now().subtract(Duration(days: days));
     return files.where((f) => f.modifiedDate.isAfter(cutoff)).toList();
   }
@@ -121,13 +126,18 @@ class LocalMediaScanner {
     required int season,
     required int episode,
   }) {
-    final normalizedShowName = showName.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    final normalizedShowName = showName.toLowerCase().replaceAll(
+      RegExp(r'[^a-z0-9]'),
+      '',
+    );
 
     for (final file in files) {
       if (file.seasonNumber == season && file.episodeNumber == episode) {
         if (file.showName != null) {
-          final normalizedFileName =
-              file.showName!.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+          final normalizedFileName = file.showName!.toLowerCase().replaceAll(
+            RegExp(r'[^a-z0-9]'),
+            '',
+          );
           // Check for partial match (handles variations in show names)
           if (normalizedFileName.contains(normalizedShowName) ||
               normalizedShowName.contains(normalizedFileName)) {

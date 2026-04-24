@@ -12,8 +12,8 @@ const _maxEvents = 50;
 /// Provider for auto-download activity events
 final autoDownloadEventsProvider =
     NotifierProvider<AutoDownloadEventsNotifier, List<AutoDownloadEvent>>(
-  AutoDownloadEventsNotifier.new,
-);
+      AutoDownloadEventsNotifier.new,
+    );
 
 class AutoDownloadEventsNotifier extends Notifier<List<AutoDownloadEvent>> {
   @override
@@ -59,8 +59,9 @@ class AutoDownloadEventsNotifier extends Notifier<List<AutoDownloadEvent>> {
 }
 
 /// Last 10 events for the status card
-final recentAutoDownloadEventsProvider =
-    Provider<List<AutoDownloadEvent>>((ref) {
+final recentAutoDownloadEventsProvider = Provider<List<AutoDownloadEvent>>((
+  ref,
+) {
   final events = ref.watch(autoDownloadEventsProvider);
   return events.take(10).toList();
 });

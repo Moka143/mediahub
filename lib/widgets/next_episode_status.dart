@@ -28,7 +28,7 @@ class NextEpisodeStatusWidget extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final appColors = context.appColors;
-    
+
     final nextEpisodeAsync = ref.watch(
       nextEpisodeProvider((
         showId: showId,
@@ -63,10 +63,7 @@ class NextEpisodeStatusWidget extends ConsumerWidget {
             ),
           ),
           const SizedBox(width: AppSpacing.xs),
-          Text(
-            'Checking next episode...',
-            style: theme.textTheme.bodySmall,
-          ),
+          Text('Checking next episode...', style: theme.textTheme.bodySmall),
         ],
       ),
     );
@@ -128,11 +125,7 @@ class NextEpisodeStatusWidget extends ConsumerWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.flag_rounded,
-            size: 14,
-            color: appColors.mutedText,
-          ),
+          Icon(Icons.flag_rounded, size: 14, color: appColors.mutedText),
           const SizedBox(width: AppSpacing.xs),
           Text(
             'Series Complete',
@@ -162,11 +155,7 @@ class NextEpisodeStatusWidget extends ConsumerWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.schedule_rounded,
-            size: 14,
-            color: appColors.warning,
-          ),
+          Icon(Icons.schedule_rounded, size: 14, color: appColors.warning),
           const SizedBox(width: AppSpacing.xs),
           Text(
             message ?? 'Not yet available',
@@ -196,11 +185,7 @@ class NextEpisodeStatusWidget extends ConsumerWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.check_circle_rounded,
-            size: 14,
-            color: appColors.success,
-          ),
+          Icon(Icons.check_circle_rounded, size: 14, color: appColors.success),
           const SizedBox(width: AppSpacing.xs),
           Text(
             '${nextEp.episodeCode} Ready',
@@ -268,7 +253,9 @@ class NextEpisodeStatusWidget extends ConsumerWidget {
           vertical: AppSpacing.xs,
         ),
         decoration: BoxDecoration(
-          color: theme.colorScheme.primaryContainer.withAlpha(AppOpacity.medium),
+          color: theme.colorScheme.primaryContainer.withAlpha(
+            AppOpacity.medium,
+          ),
           borderRadius: BorderRadius.circular(AppRadius.sm),
           border: Border.all(
             color: theme.colorScheme.primary.withAlpha(AppOpacity.light),
@@ -310,7 +297,9 @@ class NextEpisodeStatusWidget extends ConsumerWidget {
 
     final service = ref.read(autoDownloadServiceProvider);
     final autoDownload = ref.read(autoDownloadProvider);
-    final quality = autoDownload.showQualityPreferences[showId] ?? autoDownload.defaultQuality;
+    final quality =
+        autoDownload.showQualityPreferences[showId] ??
+        autoDownload.defaultQuality;
 
     // Show loading
     ScaffoldMessenger.of(context).showSnackBar(
@@ -361,18 +350,22 @@ class NextEpisodeStatusWidget extends ConsumerWidget {
 
     if (success) {
       // Track the download
-      ref.read(autoDownloadProvider.notifier).trackShow(
-        showId: showId,
-        imdbId: imdbId,
-        showName: showName,
-        season: nextEp.seasonNumber,
-        episode: nextEp.episodeNumber,
-        quality: torrent.quality,
-      );
+      ref
+          .read(autoDownloadProvider.notifier)
+          .trackShow(
+            showId: showId,
+            imdbId: imdbId,
+            showName: showName,
+            season: nextEp.seasonNumber,
+            episode: nextEp.episodeNumber,
+            quality: torrent.quality,
+          );
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Streaming ${nextEp.episodeCode} (${torrent.quality}) - buffering...'),
+          content: Text(
+            'Streaming ${nextEp.episodeCode} (${torrent.quality}) - buffering...',
+          ),
           backgroundColor: Theme.of(context).colorScheme.primary,
         ),
       );
@@ -406,7 +399,7 @@ class NextEpisodeStatusBadge extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final appColors = context.appColors;
-    
+
     final nextEpisodeAsync = ref.watch(
       nextEpisodeProvider((
         showId: showId,
@@ -465,17 +458,9 @@ class NextEpisodeStatusBadge extends ConsumerWidget {
     );
   }
 
-  Widget _buildBadge(
-    ThemeData theme,
-    IconData icon,
-    String text,
-    Color color,
-  ) {
+  Widget _buildBadge(ThemeData theme, IconData icon, String text, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 6,
-        vertical: 2,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
         color: color.withAlpha(AppOpacity.subtle),
         borderRadius: BorderRadius.circular(4),

@@ -41,7 +41,8 @@ class SectionHeader extends StatelessWidget {
     final theme = Theme.of(context);
 
     final content = Padding(
-      padding: padding ??
+      padding:
+          padding ??
           EdgeInsets.symmetric(
             horizontal: AppSpacing.screenPadding,
             vertical: large ? AppSpacing.md : AppSpacing.sm,
@@ -52,7 +53,9 @@ class SectionHeader extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(AppSpacing.sm),
               decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer.withAlpha(AppOpacity.semi),
+                color: theme.colorScheme.primaryContainer.withAlpha(
+                  AppOpacity.semi,
+                ),
                 borderRadius: BorderRadius.circular(AppRadius.sm),
               ),
               child: Icon(
@@ -66,12 +69,14 @@ class SectionHeader extends StatelessWidget {
           Expanded(
             child: Text(
               title,
-              style: (large 
-                  ? theme.textTheme.titleLarge
-                  : theme.textTheme.titleMedium)?.copyWith(
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.3,
-              ),
+              style:
+                  (large
+                          ? theme.textTheme.titleLarge
+                          : theme.textTheme.titleMedium)
+                      ?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.3,
+                      ),
             ),
           ),
           if (trailing != null) trailing!,
@@ -97,7 +102,9 @@ class SectionHeader extends StatelessWidget {
           Divider(
             height: 1,
             thickness: 1,
-            color: theme.colorScheme.outlineVariant.withAlpha(AppOpacity.medium),
+            color: theme.colorScheme.outlineVariant.withAlpha(
+              AppOpacity.medium,
+            ),
           ),
           result,
         ],
@@ -126,7 +133,8 @@ class SettingsSectionHeader extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Padding(
-      padding: padding ??
+      padding:
+          padding ??
           const EdgeInsets.only(
             left: AppSpacing.screenPadding,
             right: AppSpacing.screenPadding,
@@ -147,11 +155,7 @@ class SettingsSectionHeader extends StatelessWidget {
                 ),
                 borderRadius: BorderRadius.circular(AppRadius.xs),
               ),
-              child: Icon(
-                icon,
-                size: AppIconSize.sm,
-                color: Colors.white,
-              ),
+              child: Icon(icon, size: AppIconSize.sm, color: Colors.white),
             ),
             const SizedBox(width: AppSpacing.md),
           ],

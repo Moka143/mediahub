@@ -28,7 +28,11 @@ class TorrentPeersTab extends ConsumerWidget {
     );
   }
 
-  Widget _buildPeersList(BuildContext context, WidgetRef ref, List<Peer> peers) {
+  Widget _buildPeersList(
+    BuildContext context,
+    WidgetRef ref,
+    List<Peer> peers,
+  ) {
     if (peers.isEmpty) {
       return EmptyState.noData(
         icon: Icons.people_outline,
@@ -60,12 +64,8 @@ class TorrentPeersTab extends ConsumerWidget {
               Expanded(
                 child: Text('Progress', style: theme.textTheme.labelSmall),
               ),
-              Expanded(
-                child: Text('Down', style: theme.textTheme.labelSmall),
-              ),
-              Expanded(
-                child: Text('Up', style: theme.textTheme.labelSmall),
-              ),
+              Expanded(child: Text('Down', style: theme.textTheme.labelSmall)),
+              Expanded(child: Text('Up', style: theme.textTheme.labelSmall)),
             ],
           ),
         ),
@@ -112,9 +112,7 @@ class _PeerListItem extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
         border: Border(
-          bottom: BorderSide(
-            color: theme.dividerColor.withAlpha(25),
-          ),
+          bottom: BorderSide(color: theme.dividerColor.withAlpha(25)),
         ),
       ),
       child: Row(

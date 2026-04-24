@@ -14,6 +14,7 @@ class EztvTorrent {
   final int? episode;
   final String? smallScreenshot;
   final String? largeScreenshot;
+
   /// File index within a multi-file torrent (from Torrentio)
   /// Used to select specific episode file from season packs
   final int? fileIdx;
@@ -91,7 +92,8 @@ class EztvTorrent {
   /// Get formatted file size
   String get sizeFormatted {
     if (sizeBytes < 1024) return '$sizeBytes B';
-    if (sizeBytes < 1024 * 1024) return '${(sizeBytes / 1024).toStringAsFixed(1)} KB';
+    if (sizeBytes < 1024 * 1024)
+      return '${(sizeBytes / 1024).toStringAsFixed(1)} KB';
     if (sizeBytes < 1024 * 1024 * 1024) {
       return '${(sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB';
     }
@@ -106,8 +108,10 @@ class EztvTorrent {
     if (filename_.contains('720p')) return '720p';
     if (filename_.contains('480p')) return '480p';
     if (filename_.contains('hdtv')) return 'HDTV';
-    if (filename_.contains('webrip') || filename_.contains('web-rip')) return 'WEBRip';
-    if (filename_.contains('webdl') || filename_.contains('web-dl')) return 'WEB-DL';
+    if (filename_.contains('webrip') || filename_.contains('web-rip'))
+      return 'WEBRip';
+    if (filename_.contains('webdl') || filename_.contains('web-dl'))
+      return 'WEB-DL';
     return 'Unknown';
   }
 
@@ -133,13 +137,20 @@ class EztvTorrent {
   /// Get quality priority for sorting (higher is better)
   int get qualityPriority {
     switch (quality) {
-      case '4K': return 4;
-      case '1080p': return 3;
-      case '720p': return 2;
-      case 'WEB-DL': return 2;
-      case 'WEBRip': return 1;
-      case 'HDTV': return 1;
-      default: return 0;
+      case '4K':
+        return 4;
+      case '1080p':
+        return 3;
+      case '720p':
+        return 2;
+      case 'WEB-DL':
+        return 2;
+      case 'WEBRip':
+        return 1;
+      case 'HDTV':
+        return 1;
+      default:
+        return 0;
     }
   }
 

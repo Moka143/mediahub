@@ -29,12 +29,10 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       duration: const Duration(milliseconds: 1200),
     );
 
-    _scaleAnimation = Tween<double>(begin: 0.6, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _controller,
-        curve: Curves.elasticOut,
-      ),
-    );
+    _scaleAnimation = Tween<double>(
+      begin: 0.6,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.elasticOut));
 
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
@@ -50,15 +48,10 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       final hasKey = ref.read(hasTmdbApiKeyProvider);
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) => hasKey
-              ? const MainNavigationScreen()
-              : const OnboardingScreen(),
-          transitionsBuilder:
-              (context, animation, secondaryAnimation, child) {
-            return FadeTransition(
-              opacity: animation,
-              child: child,
-            );
+          pageBuilder: (context, animation, secondaryAnimation) =>
+              hasKey ? const MainNavigationScreen() : const OnboardingScreen(),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            return FadeTransition(opacity: animation, child: child);
           },
           transitionDuration: const Duration(milliseconds: 500),
         ),
@@ -112,7 +105,9 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                     borderRadius: BorderRadius.circular(AppRadius.xl),
                     boxShadow: [
                       BoxShadow(
-                        color: theme.colorScheme.primary.withAlpha(AppOpacity.medium),
+                        color: theme.colorScheme.primary.withAlpha(
+                          AppOpacity.medium,
+                        ),
                         blurRadius: 32,
                         spreadRadius: 4,
                       ),
@@ -120,10 +115,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(AppRadius.xl),
-                    child: Image.asset(
-                      'assets/icon.png',
-                      fit: BoxFit.contain,
-                    ),
+                    child: Image.asset('assets/icon.png', fit: BoxFit.contain),
                   ),
                 ),
                 const SizedBox(height: AppSpacing.xl),

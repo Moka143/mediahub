@@ -38,7 +38,8 @@ class TorrentioStreamPickerDialog extends StatefulWidget {
   });
 
   @override
-  State<TorrentioStreamPickerDialog> createState() => _TorrentioStreamPickerDialogState();
+  State<TorrentioStreamPickerDialog> createState() =>
+      _TorrentioStreamPickerDialogState();
 
   /// Show the dialog and return the selected stream result (or null if cancelled)
   static Future<StreamPickerResult?> show({
@@ -60,8 +61,10 @@ class TorrentioStreamPickerDialog extends StatefulWidget {
   }
 }
 
-class _TorrentioStreamPickerDialogState extends State<TorrentioStreamPickerDialog> {
-  StreamPickerSortOption _sortBy = StreamPickerSortOption.streaming; // Default to streaming-optimized sort
+class _TorrentioStreamPickerDialogState
+    extends State<TorrentioStreamPickerDialog> {
+  StreamPickerSortOption _sortBy =
+      StreamPickerSortOption.streaming; // Default to streaming-optimized sort
   String? _qualityFilter;
   bool _singleFileOnly = false; // Filter to show only single-file torrents
 
@@ -72,7 +75,7 @@ class _TorrentioStreamPickerDialogState extends State<TorrentioStreamPickerDialo
     if (_qualityFilter != null) {
       streams = TorrentioApiService.filterByQuality(streams, _qualityFilter!);
     }
-    
+
     // Apply single-file filter
     if (_singleFileOnly) {
       streams = streams.singleFileOnly();
@@ -84,20 +87,32 @@ class _TorrentioStreamPickerDialogState extends State<TorrentioStreamPickerDialo
         // Sort by streaming score (single-file first, then quality + seeders)
         return streams.sortForStreaming();
       case StreamPickerSortOption.seeders:
-        return TorrentioApiService.sortStreams(streams, sortBy: TorrentioSortOption.seeders);
+        return TorrentioApiService.sortStreams(
+          streams,
+          sortBy: TorrentioSortOption.seeders,
+        );
       case StreamPickerSortOption.quality:
-        return TorrentioApiService.sortStreams(streams, sortBy: TorrentioSortOption.quality);
+        return TorrentioApiService.sortStreams(
+          streams,
+          sortBy: TorrentioSortOption.quality,
+        );
       case StreamPickerSortOption.size:
-        return TorrentioApiService.sortStreams(streams, sortBy: TorrentioSortOption.size);
+        return TorrentioApiService.sortStreams(
+          streams,
+          sortBy: TorrentioSortOption.size,
+        );
       case StreamPickerSortOption.sizeDesc:
-        return TorrentioApiService.sortStreams(streams, sortBy: TorrentioSortOption.sizeDesc);
+        return TorrentioApiService.sortStreams(
+          streams,
+          sortBy: TorrentioSortOption.sizeDesc,
+        );
     }
   }
 
   Set<String> get _availableQualities {
     return TorrentioApiService.getAvailableQualities(widget.streams);
   }
-  
+
   /// Count of single-episode releases available (including video+subs)
   int get _singleFileCount {
     var streams = List<TorrentioStream>.from(widget.streams);
@@ -127,8 +142,12 @@ class _TorrentioStreamPickerDialogState extends State<TorrentioStreamPickerDialo
             Container(
               padding: EdgeInsets.all(AppSpacing.lg),
               decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer.withAlpha(AppOpacity.light),
-                borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+                color: theme.colorScheme.primaryContainer.withAlpha(
+                  AppOpacity.light,
+                ),
+                borderRadius: BorderRadius.vertical(
+                  top: Radius.circular(AppRadius.lg),
+                ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -138,7 +157,9 @@ class _TorrentioStreamPickerDialogState extends State<TorrentioStreamPickerDialo
                       Container(
                         padding: EdgeInsets.all(AppSpacing.sm),
                         decoration: BoxDecoration(
-                          color: theme.colorScheme.primary.withAlpha(AppOpacity.light),
+                          color: theme.colorScheme.primary.withAlpha(
+                            AppOpacity.light,
+                          ),
                           borderRadius: BorderRadius.circular(AppRadius.md),
                         ),
                         child: Icon(
@@ -201,10 +222,9 @@ class _TorrentioStreamPickerDialogState extends State<TorrentioStreamPickerDialo
                               value: null,
                               child: Text('All'),
                             ),
-                            ..._availableQualities.map((q) => DropdownMenuItem(
-                                  value: q,
-                                  child: Text(q),
-                                )),
+                            ..._availableQualities.map(
+                              (q) => DropdownMenuItem(value: q, child: Text(q)),
+                            ),
                           ],
                           onChanged: (value) {
                             setState(() => _qualityFilter = value);
@@ -259,7 +279,8 @@ class _TorrentioStreamPickerDialogState extends State<TorrentioStreamPickerDialo
                     ],
                   ),
                   // Single-file filter toggle
-                  if (_singleFileCount > 0 && _singleFileCount < widget.streams.length) ...[
+                  if (_singleFileCount > 0 &&
+                      _singleFileCount < widget.streams.length) ...[
                     SizedBox(height: AppSpacing.sm),
                     Row(
                       children: [
@@ -268,13 +289,16 @@ class _TorrentioStreamPickerDialogState extends State<TorrentioStreamPickerDialo
                           onChanged: (value) {
                             setState(() => _singleFileOnly = value ?? false);
                           },
-                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
                         ),
                         SizedBox(width: AppSpacing.xs),
                         Expanded(
                           child: GestureDetector(
                             onTap: () {
-                              setState(() => _singleFileOnly = !_singleFileOnly);
+                              setState(
+                                () => _singleFileOnly = !_singleFileOnly,
+                              );
                             },
                             child: Text(
                               'Single-file torrents only ($_singleFileCount available)',
@@ -285,7 +309,8 @@ class _TorrentioStreamPickerDialogState extends State<TorrentioStreamPickerDialo
                           ),
                         ),
                         Tooltip(
-                          message: 'Single-episode releases (including those with subtitles) are faster to stream.\n'
+                          message:
+                              'Single-episode releases (including those with subtitles) are faster to stream.\n'
                               'Season packs require selecting a specific file from the pack.',
                           child: Icon(
                             Icons.info_outline_rounded,
@@ -326,7 +351,8 @@ class _TorrentioStreamPickerDialogState extends State<TorrentioStreamPickerDialo
                             Icon(
                               Icons.search_off_rounded,
                               size: 48,
-                              color: theme.colorScheme.onSurfaceVariant.withAlpha(AppOpacity.medium),
+                              color: theme.colorScheme.onSurfaceVariant
+                                  .withAlpha(AppOpacity.medium),
                             ),
                             SizedBox(height: AppSpacing.md),
                             Text(
@@ -348,11 +374,21 @@ class _TorrentioStreamPickerDialogState extends State<TorrentioStreamPickerDialo
                           stream: stream,
                           onDownload: () {
                             widget.onSelect(stream, false);
-                            Navigator.of(context).pop(StreamPickerResult(stream: stream, isStreaming: false));
+                            Navigator.of(context).pop(
+                              StreamPickerResult(
+                                stream: stream,
+                                isStreaming: false,
+                              ),
+                            );
                           },
                           onStream: () {
                             widget.onSelect(stream, true);
-                            Navigator.of(context).pop(StreamPickerResult(stream: stream, isStreaming: true));
+                            Navigator.of(context).pop(
+                              StreamPickerResult(
+                                stream: stream,
+                                isStreaming: true,
+                              ),
+                            );
                           },
                         );
                       },
@@ -365,7 +401,9 @@ class _TorrentioStreamPickerDialogState extends State<TorrentioStreamPickerDialo
               decoration: BoxDecoration(
                 border: Border(
                   top: BorderSide(
-                    color: theme.colorScheme.outlineVariant.withAlpha(AppOpacity.medium),
+                    color: theme.colorScheme.outlineVariant.withAlpha(
+                      AppOpacity.medium,
+                    ),
                   ),
                 ),
               ),
@@ -422,10 +460,14 @@ class _StreamListItem extends StatelessWidget {
                       vertical: AppSpacing.xxs,
                     ),
                     decoration: BoxDecoration(
-                      color: _getQualityColor(stream.quality).withAlpha(AppOpacity.light),
+                      color: _getQualityColor(
+                        stream.quality,
+                      ).withAlpha(AppOpacity.light),
                       borderRadius: BorderRadius.circular(AppRadius.sm),
                       border: Border.all(
-                        color: _getQualityColor(stream.quality).withAlpha(AppOpacity.medium),
+                        color: _getQualityColor(
+                          stream.quality,
+                        ).withAlpha(AppOpacity.medium),
                       ),
                     ),
                     child: Text(
@@ -445,13 +487,13 @@ class _StreamListItem extends StatelessWidget {
                       vertical: AppSpacing.xxs,
                     ),
                     decoration: BoxDecoration(
-                      color: stream.isSingleEpisodeRelease 
-                          ? Colors.green.withAlpha(AppOpacity.light) 
+                      color: stream.isSingleEpisodeRelease
+                          ? Colors.green.withAlpha(AppOpacity.light)
                           : Colors.orange.withAlpha(AppOpacity.light),
                       borderRadius: BorderRadius.circular(AppRadius.sm),
                       border: Border.all(
-                        color: stream.isSingleEpisodeRelease 
-                            ? Colors.green.withAlpha(AppOpacity.medium) 
+                        color: stream.isSingleEpisodeRelease
+                            ? Colors.green.withAlpha(AppOpacity.medium)
                             : Colors.orange.withAlpha(AppOpacity.medium),
                       ),
                     ),
@@ -459,17 +501,25 @@ class _StreamListItem extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          stream.isSingleEpisodeRelease ? Icons.file_present_rounded : Icons.folder_rounded,
+                          stream.isSingleEpisodeRelease
+                              ? Icons.file_present_rounded
+                              : Icons.folder_rounded,
                           size: 10,
-                          color: stream.isSingleEpisodeRelease ? Colors.green : Colors.orange,
+                          color: stream.isSingleEpisodeRelease
+                              ? Colors.green
+                              : Colors.orange,
                         ),
                         SizedBox(width: 2),
                         Text(
-                          stream.isSingleFile 
-                              ? 'Single' 
-                              : (stream.isSingleEpisodeRelease ? 'w/Subs' : 'Pack'),
+                          stream.isSingleFile
+                              ? 'Single'
+                              : (stream.isSingleEpisodeRelease
+                                    ? 'w/Subs'
+                                    : 'Pack'),
                           style: TextStyle(
-                            color: stream.isSingleEpisodeRelease ? Colors.green : Colors.orange,
+                            color: stream.isSingleEpisodeRelease
+                                ? Colors.green
+                                : Colors.orange,
                             fontSize: 10,
                             fontWeight: FontWeight.w600,
                           ),
@@ -568,7 +618,8 @@ class _StreamListItem extends StatelessWidget {
                       borderRadius: BorderRadius.circular(AppRadius.xs),
                       child: LinearProgressIndicator(
                         value: stream.healthScore / 100,
-                        backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                        backgroundColor:
+                            theme.colorScheme.surfaceContainerHighest,
                         valueColor: AlwaysStoppedAnimation(
                           _getHealthColor(stream.healthScore),
                         ),
@@ -580,7 +631,10 @@ class _StreamListItem extends StatelessWidget {
                   // Stream button
                   OutlinedButton.icon(
                     onPressed: onStream,
-                    icon: const Icon(Icons.play_circle_outline_rounded, size: 16),
+                    icon: const Icon(
+                      Icons.play_circle_outline_rounded,
+                      size: 16,
+                    ),
                     label: const Text('Stream'),
                     style: OutlinedButton.styleFrom(
                       padding: EdgeInsets.symmetric(

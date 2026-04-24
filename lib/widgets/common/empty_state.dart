@@ -93,7 +93,7 @@ class EmptyState extends StatelessWidget {
           : null,
     );
   }
-  
+
   /// Create an empty state for connection errors with troubleshooting help
   factory EmptyState.connectionError({
     Key? key,
@@ -131,10 +131,7 @@ class EmptyState extends StatelessWidget {
   }
 
   /// Create an empty state for offline/no connection
-  factory EmptyState.offline({
-    Key? key,
-    VoidCallback? onRetry,
-  }) {
+  factory EmptyState.offline({Key? key, VoidCallback? onRetry}) {
     return EmptyState(
       key: key,
       icon: Icons.cloud_off_rounded,
@@ -169,7 +166,7 @@ class EmptyState extends StatelessWidget {
     Color iconColor;
     Color bgColor;
     List<Color>? gradientColors;
-    
+
     switch (type) {
       case EmptyStateType.error:
         iconColor = appColors.errorState;
@@ -198,11 +195,7 @@ class EmptyState extends StatelessWidget {
                 color: bgColor,
                 borderRadius: BorderRadius.circular(AppRadius.md),
               ),
-              child: Icon(
-                icon,
-                size: iconSize * 0.4,
-                color: iconColor,
-              ),
+              child: Icon(icon, size: iconSize * 0.4, color: iconColor),
             ),
             const SizedBox(width: AppSpacing.lg),
             Expanded(
@@ -255,7 +248,9 @@ class EmptyState extends StatelessWidget {
                     decoration: BoxDecoration(
                       gradient: gradientColors != null
                           ? LinearGradient(
-                              colors: gradientColors.map((c) => c.withAlpha(AppOpacity.light)).toList(),
+                              colors: gradientColors
+                                  .map((c) => c.withAlpha(AppOpacity.light))
+                                  .toList(),
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                             )
@@ -263,11 +258,7 @@ class EmptyState extends StatelessWidget {
                       color: gradientColors == null ? bgColor : null,
                       shape: BoxShape.circle,
                     ),
-                    child: Icon(
-                      icon,
-                      size: iconSize,
-                      color: iconColor,
-                    ),
+                    child: Icon(icon, size: iconSize, color: iconColor),
                   ),
                 );
               },
@@ -305,11 +296,7 @@ class EmptyState extends StatelessWidget {
 
 /// A modern loading state widget with consistent styling
 class LoadingState extends StatelessWidget {
-  const LoadingState({
-    super.key,
-    this.message,
-    this.compact = false,
-  });
+  const LoadingState({super.key, this.message, this.compact = false});
 
   final String? message;
   final bool compact;
@@ -375,4 +362,3 @@ class LoadingState extends StatelessWidget {
     );
   }
 }
-

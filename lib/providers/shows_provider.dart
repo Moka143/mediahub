@@ -16,18 +16,21 @@ final tmdbApiServiceProvider = Provider<TmdbApiService>((ref) {
 class ShowSearchQueryNotifier extends Notifier<String> {
   @override
   String build() => '';
-  
+
   void set(String value) => state = value;
   void clear() => state = '';
 }
 
 /// Search query state
-final showSearchQueryProvider = NotifierProvider<ShowSearchQueryNotifier, String>(
-  ShowSearchQueryNotifier.new,
-);
+final showSearchQueryProvider =
+    NotifierProvider<ShowSearchQueryNotifier, String>(
+      ShowSearchQueryNotifier.new,
+    );
 
 /// Search results provider
-final showSearchResultsProvider = FutureProvider.autoDispose<List<Show>>((ref) async {
+final showSearchResultsProvider = FutureProvider.autoDispose<List<Show>>((
+  ref,
+) async {
   final query = ref.watch(showSearchQueryProvider);
   if (query.isEmpty) return [];
 
@@ -63,7 +66,7 @@ final onTheAirShowsProvider = FutureProvider<List<Show>>((ref) async {
 class SelectedShowIdNotifier extends Notifier<int?> {
   @override
   int? build() => null;
-  
+
   void set(int? value) => state = value;
   void clear() => state = null;
 }
@@ -83,13 +86,19 @@ final selectedShowProvider = FutureProvider.autoDispose<Show?>((ref) async {
 });
 
 /// Show details by ID (family provider for caching multiple shows)
-final showDetailsProvider = FutureProvider.family<Show, int>((ref, showId) async {
+final showDetailsProvider = FutureProvider.family<Show, int>((
+  ref,
+  showId,
+) async {
   final tmdbService = ref.read(tmdbApiServiceProvider);
   return tmdbService.getShowDetailsWithImdb(showId);
 });
 
 /// Seasons for a show
-final showSeasonsProvider = FutureProvider.family<List<Season>, int>((ref, showId) async {
+final showSeasonsProvider = FutureProvider.family<List<Season>, int>((
+  ref,
+  showId,
+) async {
   final tmdbService = ref.read(tmdbApiServiceProvider);
   return tmdbService.getShowSeasons(showId);
 });
@@ -98,31 +107,41 @@ final showSeasonsProvider = FutureProvider.family<List<Season>, int>((ref, showI
 class SelectedSeasonNumberNotifier extends Notifier<int?> {
   @override
   int? build() => null;
-  
+
   void set(int? value) => state = value;
   void clear() => state = null;
 }
 
 /// Selected season number state
-final selectedSeasonNumberProvider = NotifierProvider<SelectedSeasonNumberNotifier, int?>(
-  SelectedSeasonNumberNotifier.new,
-);
+final selectedSeasonNumberProvider =
+    NotifierProvider<SelectedSeasonNumberNotifier, int?>(
+      SelectedSeasonNumberNotifier.new,
+    );
 
 /// Episodes for a specific season
 final seasonEpisodesProvider =
-    FutureProvider.family<List<Episode>, ({int showId, int seasonNumber})>((ref, params) async {
-  final tmdbService = ref.read(tmdbApiServiceProvider);
-  return tmdbService.getSeasonEpisodes(params.showId, params.seasonNumber);
-});
+    FutureProvider.family<List<Episode>, ({int showId, int seasonNumber})>((
+      ref,
+      params,
+    ) async {
+      final tmdbService = ref.read(tmdbApiServiceProvider);
+      return tmdbService.getSeasonEpisodes(params.showId, params.seasonNumber);
+    });
 
 /// Similar shows provider
-final similarShowsProvider = FutureProvider.family<List<Show>, int>((ref, showId) async {
+final similarShowsProvider = FutureProvider.family<List<Show>, int>((
+  ref,
+  showId,
+) async {
   final tmdbService = ref.read(tmdbApiServiceProvider);
   return tmdbService.getSimilarShows(showId);
 });
 
 /// Recommended shows provider
-final recommendedShowsProvider = FutureProvider.family<List<Show>, int>((ref, showId) async {
+final recommendedShowsProvider = FutureProvider.family<List<Show>, int>((
+  ref,
+  showId,
+) async {
   final tmdbService = ref.read(tmdbApiServiceProvider);
   return tmdbService.getRecommendedShows(showId);
 });

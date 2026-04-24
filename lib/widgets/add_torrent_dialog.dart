@@ -293,7 +293,9 @@ class _AddTorrentDialogState extends ConsumerState<AddTorrentDialog> {
                   vertical: AppSpacing.xs,
                 ),
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest.withAlpha(128),
+                  color: theme.colorScheme.surfaceContainerHighest.withAlpha(
+                    128,
+                  ),
                   borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
                 child: Row(

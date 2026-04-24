@@ -139,7 +139,8 @@ class AppProgressBar extends StatelessWidget {
     }
 
     // Background color
-    final bgColor = backgroundColor ?? progressColor.withAlpha(AppOpacity.light);
+    final bgColor =
+        backgroundColor ?? progressColor.withAlpha(AppOpacity.light);
 
     // Border radius
     final radius = borderRadius ?? AppRadius.xs;
@@ -169,13 +170,17 @@ class AppProgressBar extends StatelessWidget {
                         ],
                       ),
                       borderRadius: BorderRadius.circular(radius),
-                      boxShadow: value > 0.01 ? [
-                        BoxShadow(
-                          color: progressColor.withAlpha(AppOpacity.medium),
-                          blurRadius: 4,
-                          offset: const Offset(0, 1),
-                        ),
-                      ] : null,
+                      boxShadow: value > 0.01
+                          ? [
+                              BoxShadow(
+                                color: progressColor.withAlpha(
+                                  AppOpacity.medium,
+                                ),
+                                blurRadius: 4,
+                                offset: const Offset(0, 1),
+                              ),
+                            ]
+                          : null,
                     ),
                   ),
                 );
@@ -205,7 +210,10 @@ class AppProgressBar extends StatelessWidget {
 
     // Build label with modern styling
     final label = Container(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: AppSpacing.xxs),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.xxs,
+      ),
       decoration: BoxDecoration(
         color: progressColor.withAlpha(AppOpacity.subtle),
         borderRadius: BorderRadius.circular(AppRadius.xs),
@@ -276,7 +284,8 @@ class CircularProgressWithLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final progressColor = color ?? theme.colorScheme.primary;
-    final bgColor = backgroundColor ?? progressColor.withAlpha(AppOpacity.light);
+    final bgColor =
+        backgroundColor ?? progressColor.withAlpha(AppOpacity.light);
 
     return SizedBox(
       width: size,
@@ -293,7 +302,8 @@ class CircularProgressWithLabel extends StatelessWidget {
           if (showLabel)
             Text(
               '${(progress * 100).toInt()}%',
-              style: labelStyle ??
+              style:
+                  labelStyle ??
                   theme.textTheme.bodySmall?.copyWith(
                     fontWeight: FontWeight.bold,
                     fontSize: size * 0.22,

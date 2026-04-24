@@ -52,9 +52,7 @@ class Season {
 
   /// Get the year from air date
   String? get year =>
-      airDate != null && airDate!.length >= 4
-          ? airDate!.substring(0, 4)
-          : null;
+      airDate != null && airDate!.length >= 4 ? airDate!.substring(0, 4) : null;
 
   /// Check if this is a special season (season 0)
   bool get isSpecials => seasonNumber == 0;

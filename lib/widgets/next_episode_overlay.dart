@@ -45,13 +45,13 @@ class _NextEpisodeOverlayState extends State<NextEpisodeOverlay>
       duration: const Duration(milliseconds: 420),
       vsync: this,
     );
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(1.0, 0.0),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeOutCubic,
-    ));
+    _slideAnimation =
+        Tween<Offset>(begin: const Offset(1.0, 0.0), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _animationController,
+            curve: Curves.easeOutCubic,
+          ),
+        );
     _animationController.forward();
 
     _startCountdown();
@@ -143,7 +143,11 @@ class _NextEpisodeOverlayState extends State<NextEpisodeOverlay>
       ),
       child: Row(
         children: [
-          Icon(Icons.skip_next_rounded, color: theme.colorScheme.primary, size: 18),
+          Icon(
+            Icons.skip_next_rounded,
+            color: theme.colorScheme.primary,
+            size: 18,
+          ),
           const SizedBox(width: AppSpacing.xs),
           Expanded(
             child: Text(
@@ -221,7 +225,10 @@ class _NextEpisodeOverlayState extends State<NextEpisodeOverlay>
                 if (episode.quality != null) ...[
                   const SizedBox(height: 5),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(4),
@@ -374,13 +381,7 @@ class _RingPainter extends CustomPainter {
     );
 
     // Start from the top (−π/2) and sweep clockwise
-    canvas.drawArc(
-      rect,
-      -math.pi / 2,
-      2 * math.pi * progress,
-      false,
-      paint,
-    );
+    canvas.drawArc(rect, -math.pi / 2, 2 * math.pi * progress, false, paint);
   }
 
   @override

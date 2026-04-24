@@ -6,11 +6,9 @@ class EztvContentProvider implements ContentProvider {
   final EztvApiService _apiService;
   bool _isEnabled;
 
-  EztvContentProvider({
-    EztvApiService? apiService,
-    bool isEnabled = true,
-  })  : _apiService = apiService ?? EztvApiService(),
-        _isEnabled = isEnabled;
+  EztvContentProvider({EztvApiService? apiService, bool isEnabled = true})
+    : _apiService = apiService ?? EztvApiService(),
+      _isEnabled = isEnabled;
 
   @override
   String get id => 'eztv';
@@ -19,7 +17,8 @@ class EztvContentProvider implements ContentProvider {
   String get name => 'EZTV';
 
   @override
-  String get description => 'TV shows torrent provider specializing in TV series';
+  String get description =>
+      'TV shows torrent provider specializing in TV series';
 
   @override
   String? get iconUrl => null;
@@ -52,9 +51,7 @@ class EztvContentProvider implements ContentProvider {
         episode: episode,
       );
 
-      return torrents
-          .map((t) => StreamSource.fromEztv(t))
-          .toList();
+      return torrents.map((t) => StreamSource.fromEztv(t)).toList();
     } catch (e) {
       print('EZTV error: $e');
       return [];
@@ -62,15 +59,11 @@ class EztvContentProvider implements ContentProvider {
   }
 
   @override
-  Future<List<StreamSource>> getStreamsForShow({
-    required String imdbId,
-  }) async {
+  Future<List<StreamSource>> getStreamsForShow({required String imdbId}) async {
     try {
       final torrents = await _apiService.getTorrentsByImdbId(imdbId);
 
-      return torrents
-          .map((t) => StreamSource.fromEztv(t))
-          .toList();
+      return torrents.map((t) => StreamSource.fromEztv(t)).toList();
     } catch (e) {
       print('EZTV error: $e');
       return [];

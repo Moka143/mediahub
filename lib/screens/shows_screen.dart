@@ -28,9 +28,7 @@ class _ShowsScreenState extends ConsumerState<ShowsScreen> {
 
   void _navigateToShowDetails(Show show) {
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => ShowDetailsScreen(show: show),
-      ),
+      MaterialPageRoute(builder: (context) => ShowDetailsScreen(show: show)),
     );
   }
 

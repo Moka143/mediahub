@@ -82,8 +82,9 @@ class _LocalMediaListItemState extends ConsumerState<LocalMediaListItem> {
         : null;
 
     // For movies (no season/episode), try to look up poster from TMDB
-    final isMovie = widget.file.seasonNumber == null && widget.file.episodeNumber == null;
-    
+    final isMovie =
+        widget.file.seasonNumber == null && widget.file.episodeNumber == null;
+
     if (posterUrl == null && isMovie) {
       // Extract movie name from filename for lookup
       final movieName = _extractMovieName(widget.file.fileName);
@@ -93,7 +94,9 @@ class _LocalMediaListItemState extends ConsumerState<LocalMediaListItem> {
       }
     } else if (posterUrl == null && widget.file.showName != null) {
       // For TV shows, look up show poster
-      final showPosterAsync = ref.watch(showPosterProvider(widget.file.showName!));
+      final showPosterAsync = ref.watch(
+        showPosterProvider(widget.file.showName!),
+      );
       posterUrl = showPosterAsync.value;
     }
 
@@ -121,10 +124,7 @@ class _LocalMediaListItemState extends ConsumerState<LocalMediaListItem> {
                     color: theme.colorScheme.primary,
                   ),
                 )
-              : Icon(
-                  Icons.movie_outlined,
-                  color: theme.colorScheme.primary,
-                ),
+              : Icon(Icons.movie_outlined, color: theme.colorScheme.primary),
         ),
         if (widget.file.isWatched)
           Positioned(
@@ -140,11 +140,7 @@ class _LocalMediaListItemState extends ConsumerState<LocalMediaListItem> {
                   width: 2,
                 ),
               ),
-              child: const Icon(
-                Icons.check,
-                size: 10,
-                color: Colors.white,
-              ),
+              child: const Icon(Icons.check, size: 10, color: Colors.white),
             ),
           ),
       ],
@@ -229,7 +225,13 @@ class _LocalMediaListItemState extends ConsumerState<LocalMediaListItem> {
     name = name
         .replaceAll(RegExp(r'[\.\-_]'), ' ')
         .replaceAll(RegExp(r'\b(19|20)\d{2}\b.*', caseSensitive: false), '')
-        .replaceAll(RegExp(r'\b(720p|1080p|2160p|4k|uhd|hdr|bluray|brrip|webrip|web-dl|hdtv|dvdrip|x264|x265|hevc|aac|ac3|dts)\b.*', caseSensitive: false), '')
+        .replaceAll(
+          RegExp(
+            r'\b(720p|1080p|2160p|4k|uhd|hdr|bluray|brrip|webrip|web-dl|hdtv|dvdrip|x264|x265|hevc|aac|ac3|dts)\b.*',
+            caseSensitive: false,
+          ),
+          '',
+        )
         .replaceAll(RegExp(r'\[.*?\]'), '')
         .replaceAll(RegExp(r'\(.*?\)'), '')
         .replaceAll(RegExp(r'\s+'), ' ')

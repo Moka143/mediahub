@@ -63,7 +63,9 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
   }
 
   Future<void> _loadTorrentAvailability() async {
-    final showDetails = await ref.read(showDetailsProvider(widget.show.id).future);
+    final showDetails = await ref.read(
+      showDetailsProvider(widget.show.id).future,
+    );
     if (showDetails.imdbId == null) return;
 
     setState(() => _isLoadingTorrents = true);
@@ -90,7 +92,10 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
 
     try {
       final episodes = await ref.read(
-        seasonEpisodesProvider((showId: widget.show.id, seasonNumber: seasonNumber)).future,
+        seasonEpisodesProvider((
+          showId: widget.show.id,
+          seasonNumber: seasonNumber,
+        )).future,
       );
       if (mounted) {
         setState(() {
@@ -99,9 +104,9 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load episodes: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to load episodes: $e')));
       }
     }
   }
@@ -127,7 +132,9 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
       if (response.streams.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No streams available for this episode')),
+            const SnackBar(
+              content: Text('No streams available for this episode'),
+            ),
           );
         }
         return;
@@ -139,25 +146,35 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
           title: showDetails.name,
           subtitle: episode.episodeCode,
           streams: response.streams,
-          onSelect: (stream, isStreaming) => _downloadStream(stream, episode, showDetails, isStreaming: isStreaming),
+          onSelect: (stream, isStreaming) => _downloadStream(
+            stream,
+            episode,
+            showDetails,
+            isStreaming: isStreaming,
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load streams: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to load streams: $e')));
       }
     }
   }
 
-  Future<void> _downloadStream(TorrentioStream stream, Episode episode, Show show, {bool isStreaming = false}) async {
+  Future<void> _downloadStream(
+    TorrentioStream stream,
+    Episode episode,
+    Show show, {
+    bool isStreaming = false,
+  }) async {
     final connectionState = ref.read(connection_provider.connectionProvider);
-    
+
     // Use the global ScaffoldMessenger to ensure SnackBar persists across navigation
     final messenger = rootScaffoldMessengerKey.currentState;
     if (messenger == null) return;
-    
+
     try {
       if (!connectionState.isConnected) {
         messenger.showSnackBar(
@@ -171,23 +188,23 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
 
       // Store ref for the SnackBar action callback
       final containerRef = ProviderScope.containerOf(context);
-      
+
       // Hide any existing SnackBar first
       messenger.hideCurrentSnackBar();
-      
+
       if (isStreaming) {
         // Use the new streaming service for robust streaming
         await _startStreamingSession(stream, episode, show);
       } else {
         // Regular download
         final apiService = ref.read(connection_provider.qbApiServiceProvider);
-        
+
         final success = await apiService.addTorrent(
           magnetLink: stream.magnetUri,
           sequentialDownload: false,
           firstLastPiecePrio: false,
         );
-        
+
         if (!success) {
           messenger.showSnackBar(
             const SnackBar(
@@ -197,16 +214,18 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
           );
           return;
         }
-        
+
         // If this is a season pack, set file priorities
         if (stream.isSeasonPack && stream.fileIdx != null) {
           // Wait for metadata then select only the target file
           _selectFileFromSeasonPack(stream);
         }
-        
+
         messenger.showSnackBar(
           SnackBar(
-            content: Text('Started downloading ${episode.episodeCode}${stream.isSeasonPack ? " (from pack)" : ""}'),
+            content: Text(
+              'Started downloading ${episode.episodeCode}${stream.isSeasonPack ? " (from pack)" : ""}',
+            ),
             backgroundColor: AppColors.success,
             duration: const Duration(seconds: 5),
             action: SnackBarAction(
@@ -215,7 +234,9 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
               onPressed: () {
                 messenger.hideCurrentSnackBar();
                 containerRef.read(currentTabIndexProvider.notifier).set(0);
-                rootNavigatorKey.currentState?.popUntil((route) => route.isFirst);
+                rootNavigatorKey.currentState?.popUntil(
+                  (route) => route.isFirst,
+                );
               },
             ),
           ),
@@ -231,11 +252,15 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
       );
     }
   }
-  
+
   /// Start a streaming session using the new StreamingService
-  Future<void> _startStreamingSession(TorrentioStream stream, Episode episode, Show show) async {
+  Future<void> _startStreamingSession(
+    TorrentioStream stream,
+    Episode episode,
+    Show show,
+  ) async {
     final containerRef = ProviderScope.containerOf(context);
-    
+
     // Show initial streaming overlay (updatable, so _monitorStreamingSession
     // can update it in-place without replaying the entrance animation).
     final isSingleFile = stream.isSingleFile;
@@ -245,7 +270,9 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
     final result = showUpdatableStreamingOverlay(
       context,
       title: 'Starting ${episode.episodeCode}',
-      subtitle: isSingleFile ? 'Connecting...' : 'Selecting from season pack...',
+      subtitle: isSingleFile
+          ? 'Connecting...'
+          : 'Selecting from season pack...',
       isIndeterminate: true,
       showClose: true,
       onClose: () {
@@ -263,22 +290,24 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
     );
     _streamingOverlay = result.entry;
     _streamingOverlayData = result.data;
-    
+
     // Start streaming session
     setState(() => _isStreaming = true);
-    final session = await ref.read(streamingSessionsProvider.notifier).startStreaming(
-      stream: stream,
-      showImdbId: show.imdbId,
-      showName: show.name,
-      season: episode.seasonNumber,
-      episode: episode.episodeNumber,
-      episodeCode: episode.episodeCode,
-    );
-    
+    final session = await ref
+        .read(streamingSessionsProvider.notifier)
+        .startStreaming(
+          stream: stream,
+          showImdbId: show.imdbId,
+          showName: show.name,
+          season: episode.seasonNumber,
+          episode: episode.episodeNumber,
+          episodeCode: episode.episodeCode,
+        );
+
     if (session == null) {
       _streamingOverlay?.remove();
       _streamingOverlay = null;
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Failed to start streaming session'),
@@ -287,20 +316,20 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
       );
       return;
     }
-    
+
     // Monitor the session for readiness
     _monitorStreamingSession(session.id, episode, show);
   }
-  
+
   /// Select only the target file from a season pack
   Future<void> _selectFileFromSeasonPack(TorrentioStream stream) async {
     if (stream.fileIdx == null) return;
-    
+
     final apiService = ref.read(connection_provider.qbApiServiceProvider);
-    
+
     // Wait for metadata to be available
     await Future.delayed(const Duration(seconds: 3));
-    
+
     try {
       final files = await apiService.getTorrentFiles(stream.infoHash);
       if (files.isEmpty) {
@@ -308,25 +337,29 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
         await Future.delayed(const Duration(seconds: 3));
         final retryFiles = await apiService.getTorrentFiles(stream.infoHash);
         if (retryFiles.isEmpty) {
-          debugPrint('[ShowDetails] No files found in torrent, cannot select specific file');
+          debugPrint(
+            '[ShowDetails] No files found in torrent, cannot select specific file',
+          );
           return;
         }
       }
-      
+
       // Set all files to skip (priority 0)
       final allFileIds = List.generate(files.length, (i) => i);
       await apiService.setFilePriority(stream.infoHash, allFileIds, 0);
-      
+
       // Set target file to high priority
       if (stream.fileIdx! < files.length) {
         await apiService.setFilePriority(stream.infoHash, [stream.fileIdx!], 7);
-        debugPrint('[ShowDetails] Selected file ${stream.fileIdx} from season pack');
+        debugPrint(
+          '[ShowDetails] Selected file ${stream.fileIdx} from season pack',
+        );
       }
     } catch (e) {
       debugPrint('[ShowDetails] Error selecting file from season pack: $e');
     }
   }
-  
+
   /// Monitor a streaming session and open player when ready.
   ///
   /// Uses a [StreamSubscription] (not `await for`) so the monitor
@@ -378,7 +411,8 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
           // Update the existing overlay in-place — no remove/recreate, no flicker.
           _streamingOverlayData?.value = StreamingOverlayData(
             title: 'Buffering ${episode.episodeCode}',
-            subtitle: '${(session.bufferProgress * 100).toStringAsFixed(1)}% ready',
+            subtitle:
+                '${(session.bufferProgress * 100).toStringAsFixed(1)}% ready',
             progress: session.bufferProgress,
             isIndeterminate: false,
           );
@@ -393,7 +427,9 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
 
           // Clear the active session so the safety-net listener in
           // main_navigation_screen doesn't also open the player.
-          containerRef.read(streamingSessionsProvider.notifier).clearActiveSession();
+          containerRef
+              .read(streamingSessionsProvider.notifier)
+              .clearActiveSession();
 
           // Navigate via root key — works whether screen is mounted or not
           if (session.videoFile != null) {
@@ -406,7 +442,8 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
                 ),
               ),
             );
-          } else if (session.contentPath != null && session.selectedFilePath != null) {
+          } else if (session.contentPath != null &&
+              session.selectedFilePath != null) {
             // Fallback: open via content path
             if (mounted) {
               _openStreamingPlayer(session.contentPath!, episode, show);
@@ -423,7 +460,9 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
 
           rootScaffoldMessengerKey.currentState?.showSnackBar(
             SnackBar(
-              content: Text('Streaming error: ${session.errorMessage ?? "Failed to stream"}'),
+              content: Text(
+                'Streaming error: ${session.errorMessage ?? "Failed to stream"}',
+              ),
               backgroundColor: AppColors.error,
               behavior: SnackBarBehavior.floating,
             ),
@@ -442,7 +481,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
       }
     });
   }
-  
+
   /// Open the video player with a LocalMediaFile.
   /// Uses [rootNavigatorKey] so it works even if this screen is no longer mounted.
   void _openPlayerWithFile(LocalMediaFile file, Show show) {
@@ -451,35 +490,40 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
 
     rootNavigatorKey.currentState?.push(
       MaterialPageRoute(
-        builder: (_) => VideoPlayerScreen(
-          file: file,
-          showImdbId: show.imdbId,
-        ),
+        builder: (_) => VideoPlayerScreen(file: file, showImdbId: show.imdbId),
       ),
     );
   }
 
-  Future<void> _monitorStreamingProgress(TorrentioStream stream, Episode episode, Show show) async {
+  Future<void> _monitorStreamingProgress(
+    TorrentioStream stream,
+    Episode episode,
+    Show show,
+  ) async {
     final apiService = ref.read(connection_provider.qbApiServiceProvider);
     final messenger = rootScaffoldMessengerKey.currentState;
-    
+
     // Poll for torrent progress
-    for (int i = 0; i < 120; i++) { // Max 10 minutes (120 * 5s)
+    for (int i = 0; i < 120; i++) {
+      // Max 10 minutes (120 * 5s)
       await Future.delayed(const Duration(seconds: 5));
-      
+
       if (!mounted) return;
-      
+
       // Find the torrent by matching the magnet hash
       final torrents = await apiService.getTorrents();
-      final torrent = torrents.firstWhereOrNull((t) => 
-        stream.magnetUri.toLowerCase().contains(t.hash.toLowerCase())
+      final torrent = torrents.firstWhereOrNull(
+        (t) => stream.magnetUri.toLowerCase().contains(t.hash.toLowerCase()),
       );
-      
+
       if (torrent == null) continue;
-      
+
       // Check if ready for streaming (at least 5% of beginning downloaded)
-      final isReady = await apiService.isReadyForStreaming(torrent.hash, minProgress: 0.05);
-      
+      final isReady = await apiService.isReadyForStreaming(
+        torrent.hash,
+        minProgress: 0.05,
+      );
+
       if (isReady) {
         if (mounted) {
           messenger?.hideCurrentSnackBar();
@@ -490,40 +534,52 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
               duration: const Duration(seconds: 3),
             ),
           );
-          
+
           // Navigate to player with the content path
           _openStreamingPlayer(torrent.contentPath, episode, show);
         }
         return;
       }
-      
+
       // Update progress message every 30 seconds
       if (i % 6 == 0 && i > 0) {
         messenger?.hideCurrentSnackBar();
         messenger?.showSnackBar(
           SnackBar(
-            content: Text('Buffering ${episode.episodeCode}... ${(torrent.progress * 100).toStringAsFixed(1)}%'),
+            content: Text(
+              'Buffering ${episode.episodeCode}... ${(torrent.progress * 100).toStringAsFixed(1)}%',
+            ),
             backgroundColor: AppColors.info,
             duration: const Duration(seconds: 5),
           ),
         );
       }
     }
-    
+
     // Timeout
     messenger?.showSnackBar(
       SnackBar(
-        content: Text('Streaming timeout for ${episode.episodeCode}. Download continues in background.'),
+        content: Text(
+          'Streaming timeout for ${episode.episodeCode}. Download continues in background.',
+        ),
         backgroundColor: AppColors.warning,
         duration: const Duration(seconds: 5),
       ),
     );
   }
 
-  void _openStreamingPlayer(String contentPath, Episode episode, Show show) async {
+  void _openStreamingPlayer(
+    String contentPath,
+    Episode episode,
+    Show show,
+  ) async {
     // Find the video file in the content path
-    final videoFile = await _findVideoFile(contentPath, episode: episode, show: show);
-    
+    final videoFile = await _findVideoFile(
+      contentPath,
+      episode: episode,
+      show: show,
+    );
+
     if (videoFile == null) {
       final messenger = rootScaffoldMessengerKey.currentState;
       messenger?.showSnackBar(
@@ -534,26 +590,28 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
       );
       return;
     }
-    
+
     if (mounted) {
       Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (context) => VideoPlayerScreen(
-            file: videoFile,
-            showImdbId: show.imdbId,
-          ),
+          builder: (context) =>
+              VideoPlayerScreen(file: videoFile, showImdbId: show.imdbId),
         ),
       );
     }
   }
 
-  Future<LocalMediaFile?> _findVideoFile(String contentPath, {Episode? episode, Show? show}) async {
+  Future<LocalMediaFile?> _findVideoFile(
+    String contentPath, {
+    Episode? episode,
+    Show? show,
+  }) async {
     try {
       final path = contentPath;
       final fileOrDir = FileSystemEntity.typeSync(path);
-      
+
       List<File> videoFiles = [];
-      
+
       if (fileOrDir == FileSystemEntityType.file) {
         // It's a file, check if it's a video
         final ext = path.split('.').last.toLowerCase();
@@ -572,14 +630,14 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
           }
         }
       }
-      
+
       if (videoFiles.isEmpty) return null;
-      
+
       // Pick the largest video file (usually the main content)
       videoFiles.sort((a, b) => b.lengthSync().compareTo(a.lengthSync()));
       final largestFile = videoFiles.first;
       final stat = largestFile.statSync();
-      
+
       return LocalMediaFile(
         path: largestFile.path,
         fileName: largestFile.path.split(Platform.pathSeparator).last,
@@ -622,9 +680,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
         _buildSliverAppBar(show, isFavorite),
 
         // Show info
-        SliverToBoxAdapter(
-          child: _buildShowInfo(show),
-        ),
+        SliverToBoxAdapter(child: _buildShowInfo(show)),
 
         // Seasons
         SliverToBoxAdapter(
@@ -650,9 +706,9 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
                 const SizedBox(width: AppSpacing.md),
                 Text(
                   'Seasons & Episodes',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
                 ),
                 if (_isLoadingTorrents) ...[
                   const SizedBox(width: AppSpacing.md),
@@ -670,34 +726,31 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
         // Season list
         seasons.when(
           data: (seasonList) => SliverList(
-            delegate: SliverChildBuilderDelegate(
-              (context, index) {
-                final season = seasonList[index];
-                final isExpanded = _expandedSeasons[season.seasonNumber] ?? false;
-                final episodes = _loadedEpisodes[season.seasonNumber] ?? [];
+            delegate: SliverChildBuilderDelegate((context, index) {
+              final season = seasonList[index];
+              final isExpanded = _expandedSeasons[season.seasonNumber] ?? false;
+              final episodes = _loadedEpisodes[season.seasonNumber] ?? [];
 
-                return SeasonTile(
-                  season: season,
-                  episodes: episodes,
-                  isExpanded: isExpanded,
-                  isLoading: isExpanded && episodes.isEmpty,
-                  showName: show.name,
-                  isStreaming: _isStreaming,
-                  torrentAvailability: _torrentAvailability,
-                  onExpansionChanged: (expanded) {
-                    setState(() {
-                      _expandedSeasons[season.seasonNumber] = expanded;
-                    });
-                    if (expanded) {
-                      _loadEpisodes(season.seasonNumber);
-                    }
-                  },
-                  onEpisodeTap: (episode) => _onEpisodeTap(episode, show),
-                  onDownloadTap: (episode) => _onEpisodeTap(episode, show),
-                );
-              },
-              childCount: seasonList.length,
-            ),
+              return SeasonTile(
+                season: season,
+                episodes: episodes,
+                isExpanded: isExpanded,
+                isLoading: isExpanded && episodes.isEmpty,
+                showName: show.name,
+                isStreaming: _isStreaming,
+                torrentAvailability: _torrentAvailability,
+                onExpansionChanged: (expanded) {
+                  setState(() {
+                    _expandedSeasons[season.seasonNumber] = expanded;
+                  });
+                  if (expanded) {
+                    _loadEpisodes(season.seasonNumber);
+                  }
+                },
+                onEpisodeTap: (episode) => _onEpisodeTap(episode, show),
+                onDownloadTap: (episode) => _onEpisodeTap(episode, show),
+              );
+            }, childCount: seasonList.length),
           ),
           loading: () => SliverToBoxAdapter(
             child: Center(
@@ -718,9 +771,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
         ),
 
         // Bottom padding
-        SliverToBoxAdapter(
-          child: SizedBox(height: AppSpacing.xl),
-        ),
+        SliverToBoxAdapter(child: SizedBox(height: AppSpacing.xl)),
       ],
     );
   }
@@ -743,7 +794,9 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
                 ),
               )
             else
-              Container(color: Theme.of(context).colorScheme.surfaceContainerHighest),
+              Container(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              ),
 
             // Gradient overlay
             Container(
@@ -785,7 +838,9 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
                       style: TextStyle(
                         color: Colors.white.withValues(alpha: 0.8),
                         fontSize: 14,
-                        shadows: const [Shadow(blurRadius: 4, color: Colors.black)],
+                        shadows: const [
+                          Shadow(blurRadius: 4, color: Colors.black),
+                        ],
                       ),
                     ),
                 ],
@@ -804,10 +859,14 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
           ),
           child: IconButton(
             onPressed: () {
-              ref.read(favoritesProvider.notifier).toggleFavorite(show.id, show: show);
+              ref
+                  .read(favoritesProvider.notifier)
+                  .toggleFavorite(show.id, show: show);
             },
             icon: Icon(
-              isFavorite ? Icons.favorite_rounded : Icons.favorite_outline_rounded,
+              isFavorite
+                  ? Icons.favorite_rounded
+                  : Icons.favorite_outline_rounded,
               color: isFavorite ? Colors.redAccent : Colors.white,
             ),
             tooltip: isFavorite ? 'Remove from favorites' : 'Add to favorites',
@@ -837,7 +896,9 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
                     vertical: AppSpacing.xs,
                   ),
                   decoration: BoxDecoration(
-                    color: getRatingColor(show.voteAverage).withAlpha(AppOpacity.light),
+                    color: getRatingColor(
+                      show.voteAverage,
+                    ).withAlpha(AppOpacity.light),
                     borderRadius: BorderRadius.circular(AppRadius.full),
                   ),
                   child: Row(
@@ -887,12 +948,14 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
               spacing: AppSpacing.sm,
               runSpacing: AppSpacing.sm,
               children: show.genres
-                  .map((genre) => Chip(
-                        label: Text(genre),
-                        labelStyle: const TextStyle(fontSize: 12),
-                        padding: EdgeInsets.zero,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ))
+                  .map(
+                    (genre) => Chip(
+                      label: Text(genre),
+                      labelStyle: const TextStyle(fontSize: 12),
+                      padding: EdgeInsets.zero,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  )
                   .toList(),
             ),
           SizedBox(height: AppSpacing.lg),
@@ -934,7 +997,11 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
                       color: appColors.warning.withAlpha(AppOpacity.light),
                       borderRadius: BorderRadius.circular(AppRadius.sm),
                     ),
-                    child: Icon(Icons.schedule_rounded, color: appColors.warning, size: 20),
+                    child: Icon(
+                      Icons.schedule_rounded,
+                      color: appColors.warning,
+                      size: 20,
+                    ),
                   ),
                   const SizedBox(width: AppSpacing.md),
                   Column(

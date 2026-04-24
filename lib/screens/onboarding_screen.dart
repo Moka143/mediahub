@@ -25,10 +25,12 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   bool _obscure = true;
   bool _saving = false;
 
-  static final Uri _tmdbSignupUrl =
-      Uri.parse('https://www.themoviedb.org/signup');
-  static final Uri _tmdbApiUrl =
-      Uri.parse('https://www.themoviedb.org/settings/api');
+  static final Uri _tmdbSignupUrl = Uri.parse(
+    'https://www.themoviedb.org/signup',
+  );
+  static final Uri _tmdbApiUrl = Uri.parse(
+    'https://www.themoviedb.org/settings/api',
+  );
 
   @override
   void dispose() {
@@ -115,9 +117,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                       hintText: 'e.g. 0123456789abcdef…',
                       border: const OutlineInputBorder(),
                       suffixIcon: IconButton(
-                        icon: Icon(_obscure
-                            ? Icons.visibility_rounded
-                            : Icons.visibility_off_rounded),
+                        icon: Icon(
+                          _obscure
+                              ? Icons.visibility_rounded
+                              : Icons.visibility_off_rounded,
+                        ),
                         tooltip: _obscure ? 'Show' : 'Hide',
                         onPressed: () => setState(() => _obscure = !_obscure),
                       ),

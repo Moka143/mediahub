@@ -62,7 +62,16 @@ class _TorrentFilesTabState extends ConsumerState<TorrentFilesTab> {
 
   bool _isVideoFile(String fileName) {
     final ext = fileName.split('.').last.toLowerCase();
-    return ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'webm', 'flv', 'm4v'].contains(ext);
+    return [
+      'mp4',
+      'mkv',
+      'avi',
+      'mov',
+      'wmv',
+      'webm',
+      'flv',
+      'm4v',
+    ].contains(ext);
   }
 
   Future<void> _setBatchPriority(FilePriority priority) async {
@@ -76,7 +85,10 @@ class _TorrentFilesTabState extends ConsumerState<TorrentFilesTab> {
     _clearSelection();
   }
 
-  Future<void> _setAllPriority(List<TorrentFile> files, FilePriority priority) async {
+  Future<void> _setAllPriority(
+    List<TorrentFile> files,
+    FilePriority priority,
+  ) async {
     final apiService = ref.read(qbApiServiceProvider);
     await apiService.setFilePriority(
       widget.torrentHash,
@@ -333,14 +345,15 @@ class _FileListItem extends ConsumerWidget {
             children: [
               // Selection checkbox or file icon
               if (isSelectionMode)
-                Checkbox(
-                  value: isSelected,
-                  onChanged: (_) => onTap(),
-                )
+                Checkbox(value: isSelected, onChanged: (_) => onTap())
               else
                 CircleAvatar(
                   backgroundColor: theme.colorScheme.primaryContainer,
-                  child: Icon(fileIcon, color: theme.colorScheme.primary, size: 20),
+                  child: Icon(
+                    fileIcon,
+                    color: theme.colorScheme.primary,
+                    size: 20,
+                  ),
                 ),
 
               const SizedBox(width: AppSpacing.md),
@@ -374,7 +387,8 @@ class _FileListItem extends ConsumerWidget {
                             child: LinearProgressIndicator(
                               value: file.progress,
                               minHeight: 4,
-                              backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                              backgroundColor:
+                                  theme.colorScheme.surfaceContainerHighest,
                             ),
                           ),
                         ),
@@ -462,7 +476,9 @@ class _FileListItem extends ConsumerWidget {
       initialValue: priority,
       onSelected: (newPriority) async {
         final apiService = ref.read(qbApiServiceProvider);
-        await apiService.setFilePriority(torrentHash, [file.index], newPriority.value);
+        await apiService.setFilePriority(torrentHash, [
+          file.index,
+        ], newPriority.value);
         ref.invalidate(torrentFilesProvider(torrentHash));
       },
       itemBuilder: (context) => FilePriority.values.map((p) {

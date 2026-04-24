@@ -43,7 +43,8 @@ class Movie {
   factory Movie.fromJson(Map<String, dynamic> json) {
     return Movie(
       id: json['id'] as int,
-      title: json['title'] as String? ?? json['original_title'] as String? ?? '',
+      title:
+          json['title'] as String? ?? json['original_title'] as String? ?? '',
       originalTitle: json['original_title'] as String?,
       overview: json['overview'] as String?,
       posterPath: json['poster_path'] as String?,
@@ -54,7 +55,8 @@ class Movie {
       status: json['status'] as String?,
       runtime: json['runtime'] as int?,
       imdbId: json['imdb_id'] as String?,
-      genres: (json['genres'] as List<dynamic>?)
+      genres:
+          (json['genres'] as List<dynamic>?)
               ?.map((g) => g['name'] as String)
               .toList() ??
           [],
@@ -99,10 +101,9 @@ class Movie {
       : null;
 
   /// Get the year from release date
-  String? get year =>
-      releaseDate != null && releaseDate!.length >= 4
-          ? releaseDate!.substring(0, 4)
-          : null;
+  String? get year => releaseDate != null && releaseDate!.length >= 4
+      ? releaseDate!.substring(0, 4)
+      : null;
 
   /// Get formatted runtime (e.g., "2h 15m")
   String? get runtimeFormatted {

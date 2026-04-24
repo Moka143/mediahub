@@ -1,11 +1,7 @@
 import '../models/eztv_torrent.dart';
 
 /// Stream source types
-enum StreamSourceType {
-  torrent,
-  magnet,
-  directUrl,
-}
+enum StreamSourceType { torrent, magnet, directUrl }
 
 /// Represents a stream source from any provider
 class StreamSource {
@@ -43,7 +39,8 @@ class StreamSource {
   String get formattedSize {
     if (sizeBytes == null) return 'Unknown';
     if (sizeBytes! < 1024) return '$sizeBytes B';
-    if (sizeBytes! < 1024 * 1024) return '${(sizeBytes! / 1024).toStringAsFixed(1)} KB';
+    if (sizeBytes! < 1024 * 1024)
+      return '${(sizeBytes! / 1024).toStringAsFixed(1)} KB';
     if (sizeBytes! < 1024 * 1024 * 1024) {
       return '${(sizeBytes! / (1024 * 1024)).toStringAsFixed(1)} MB';
     }
@@ -110,9 +107,7 @@ abstract class ContentProvider {
   });
 
   /// Get streams for a specific show by IMDB ID
-  Future<List<StreamSource>> getStreamsForShow({
-    required String imdbId,
-  });
+  Future<List<StreamSource>> getStreamsForShow({required String imdbId});
 }
 
 /// Registry for content providers
@@ -142,7 +137,9 @@ class ContentProviderRegistry {
   /// Search across all enabled providers
   Future<List<StreamSource>> searchAll(String query) async {
     final results = await Future.wait(
-      enabledProviders.map((p) => p.search(query).catchError((_) => <StreamSource>[])),
+      enabledProviders.map(
+        (p) => p.search(query).catchError((_) => <StreamSource>[]),
+      ),
     );
     return results.expand((r) => r).toList();
   }
@@ -154,32 +151,48 @@ class ContentProviderRegistry {
     required int episode,
   }) async {
     final results = await Future.wait(
-      enabledProviders.map((p) => p.getStreamsForEpisode(
-        imdbId: imdbId,
-        season: season,
-        episode: episode,
-      ).catchError((_) => <StreamSource>[])),
+      enabledProviders.map(
+        (p) => p
+            .getStreamsForEpisode(
+              imdbId: imdbId,
+              season: season,
+              episode: episode,
+            )
+            .catchError((_) => <StreamSource>[]),
+      ),
     );
-    
+
     final allStreams = results.expand((r) => r).toList();
-    
+
     // Sort by quality and seeds
     allStreams.sort((a, b) {
       // Prefer higher quality
-      final qualityOrder = ['4K', '2160p', '1080p', '720p', '480p', 'HDTV', 'WEB'];
-      final aQuality = qualityOrder.indexWhere((q) => a.quality?.contains(q) ?? false);
-      final bQuality = qualityOrder.indexWhere((q) => b.quality?.contains(q) ?? false);
-      
+      final qualityOrder = [
+        '4K',
+        '2160p',
+        '1080p',
+        '720p',
+        '480p',
+        'HDTV',
+        'WEB',
+      ];
+      final aQuality = qualityOrder.indexWhere(
+        (q) => a.quality?.contains(q) ?? false,
+      );
+      final bQuality = qualityOrder.indexWhere(
+        (q) => b.quality?.contains(q) ?? false,
+      );
+
       if (aQuality != bQuality) {
         if (aQuality == -1) return 1;
         if (bQuality == -1) return -1;
         return aQuality.compareTo(bQuality);
       }
-      
+
       // Then by seeds
       return (b.seeds ?? 0).compareTo(a.seeds ?? 0);
     });
-    
+
     return allStreams;
   }
 }

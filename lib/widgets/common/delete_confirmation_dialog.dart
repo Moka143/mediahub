@@ -119,15 +119,8 @@ class DeleteConfirmationDialog extends StatelessWidget {
     final appColors = context.appColors;
 
     return AlertDialog(
-      icon: Icon(
-        icon,
-        color: appColors.errorState,
-        size: AppIconSize.xl,
-      ),
-      title: Text(
-        title,
-        textAlign: TextAlign.center,
-      ),
+      icon: Icon(icon, color: appColors.errorState, size: AppIconSize.xl),
+      title: Text(title, textAlign: TextAlign.center),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,

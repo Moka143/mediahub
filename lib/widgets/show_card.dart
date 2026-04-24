@@ -32,7 +32,8 @@ class ShowCard extends StatefulWidget {
   State<ShowCard> createState() => _ShowCardState();
 }
 
-class _ShowCardState extends State<ShowCard> with SingleTickerProviderStateMixin {
+class _ShowCardState extends State<ShowCard>
+    with SingleTickerProviderStateMixin {
   bool _isHovered = false;
 
   @override
@@ -56,8 +57,9 @@ class _ShowCardState extends State<ShowCard> with SingleTickerProviderStateMixin
             borderRadius: BorderRadius.circular(AppRadius.lg),
             boxShadow: [
               BoxShadow(
-                color: (isDark ? Colors.black : AppColors.seedColor)
-                    .withAlpha(_isHovered ? AppOpacity.medium : AppOpacity.light),
+                color: (isDark ? Colors.black : AppColors.seedColor).withAlpha(
+                  _isHovered ? AppOpacity.medium : AppOpacity.light,
+                ),
                 blurRadius: _isHovered ? 20 : 12,
                 offset: Offset(0, _isHovered ? 8 : 4),
                 spreadRadius: _isHovered ? 2 : 0,
@@ -118,7 +120,9 @@ class _ShowCardState extends State<ShowCard> with SingleTickerProviderStateMixin
                         vertical: AppSpacing.xxs,
                       ),
                       decoration: BoxDecoration(
-                        color: getRatingColor(widget.show.voteAverage).withAlpha(AppOpacity.almostOpaque),
+                        color: getRatingColor(
+                          widget.show.voteAverage,
+                        ).withAlpha(AppOpacity.almostOpaque),
                         borderRadius: BorderRadius.circular(AppRadius.sm),
                         border: Border.all(
                           color: Colors.white.withAlpha(AppOpacity.light),
@@ -177,7 +181,9 @@ class _ShowCardState extends State<ShowCard> with SingleTickerProviderStateMixin
                 if (widget.newEpisodeCount > 0)
                   Positioned(
                     top: AppSpacing.sm,
-                    left: widget.show.year != null ? AppSpacing.lg * 3 : AppSpacing.sm,
+                    left: widget.show.year != null
+                        ? AppSpacing.lg * 3
+                        : AppSpacing.sm,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: AppSpacing.sm,
@@ -188,7 +194,9 @@ class _ShowCardState extends State<ShowCard> with SingleTickerProviderStateMixin
                         borderRadius: BorderRadius.circular(AppRadius.sm),
                         boxShadow: [
                           BoxShadow(
-                            color: theme.colorScheme.primary.withAlpha(AppOpacity.medium),
+                            color: theme.colorScheme.primary.withAlpha(
+                              AppOpacity.medium,
+                            ),
                             blurRadius: 8,
                             offset: const Offset(0, 2),
                           ),
@@ -255,7 +263,9 @@ class _ShowCardState extends State<ShowCard> with SingleTickerProviderStateMixin
                     child: Container(
                       decoration: BoxDecoration(
                         border: Border.all(
-                          color: theme.colorScheme.primary.withAlpha(AppOpacity.strong),
+                          color: theme.colorScheme.primary.withAlpha(
+                            AppOpacity.strong,
+                          ),
                           width: AppBorderWidth.thick,
                         ),
                         borderRadius: BorderRadius.circular(AppRadius.lg),
@@ -275,7 +285,8 @@ class _ShowCardState extends State<ShowCard> with SingleTickerProviderStateMixin
       return Image.network(
         widget.show.posterUrl!,
         fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) => _buildPlaceholder(context),
+        errorBuilder: (context, error, stackTrace) =>
+            _buildPlaceholder(context),
         loadingBuilder: (context, child, loadingProgress) {
           if (loadingProgress == null) return child;
           return _buildLoadingPlaceholder(context);
@@ -342,7 +353,9 @@ class _ShowCardState extends State<ShowCard> with SingleTickerProviderStateMixin
           child: CircularProgressIndicator(
             strokeWidth: 2.5,
             valueColor: AlwaysStoppedAnimation(
-              Theme.of(context).colorScheme.primary.withAlpha(AppOpacity.strong),
+              Theme.of(
+                context,
+              ).colorScheme.primary.withAlpha(AppOpacity.strong),
             ),
           ),
         ),
@@ -378,7 +391,9 @@ class ShowCardRow extends StatelessWidget {
       children: [
         // Header - modern style
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.screenPadding),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.screenPadding,
+          ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -414,7 +429,9 @@ class ShowCardRow extends StatelessWidget {
                   child: ListView.builder(
                     scrollDirection: Axis.horizontal,
                     physics: const NeverScrollableScrollPhysics(),
-                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.screenPadding),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.screenPadding,
+                    ),
                     itemCount: 5,
                     itemBuilder: (context, index) => Padding(
                       padding: const EdgeInsets.only(right: AppSpacing.lg),
@@ -423,32 +440,34 @@ class ShowCardRow extends StatelessWidget {
                   ),
                 )
               : shows.isEmpty
-                  ? Center(
-                      child: Text(
-                        'No shows found',
-                        style: TextStyle(color: appColors.mutedText),
+              ? Center(
+                  child: Text(
+                    'No shows found',
+                    style: TextStyle(color: appColors.mutedText),
+                  ),
+                )
+              : ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.screenPadding,
+                  ),
+                  clipBehavior: Clip.none,
+                  itemCount: shows.length,
+                  itemBuilder: (context, index) {
+                    final show = shows[index];
+                    return Padding(
+                      padding: EdgeInsets.only(
+                        right: index < shows.length - 1 ? AppSpacing.lg : 0,
                       ),
-                    )
-                  : ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.screenPadding),
-                      clipBehavior: Clip.none,
-                      itemCount: shows.length,
-                      itemBuilder: (context, index) {
-                        final show = shows[index];
-                        return Padding(
-                          padding: EdgeInsets.only(
-                            right: index < shows.length - 1 ? AppSpacing.lg : 0,
-                          ),
-                          child: ShowCard(
-                            show: show,
-                            width: 140,
-                            height: 210,
-                            onTap: () => onShowTap(show),
-                          ),
-                        );
-                      },
-                    ),
+                      child: ShowCard(
+                        show: show,
+                        width: 140,
+                        height: 210,
+                        onTap: () => onShowTap(show),
+                      ),
+                    );
+                  },
+                ),
         ),
       ],
     );
@@ -504,7 +523,8 @@ class ShowCardGrid extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final columns = crossAxisCount ?? _getAdaptiveColumnCount(constraints.maxWidth);
+        final columns =
+            crossAxisCount ?? _getAdaptiveColumnCount(constraints.maxWidth);
 
         return GridView.builder(
           controller: controller,
@@ -518,10 +538,7 @@ class ShowCardGrid extends StatelessWidget {
           itemCount: shows.length,
           itemBuilder: (context, index) {
             final show = shows[index];
-            return ShowCard(
-              show: show,
-              onTap: () => onShowTap(show),
-            );
+            return ShowCard(show: show, onTap: () => onShowTap(show));
           },
         );
       },

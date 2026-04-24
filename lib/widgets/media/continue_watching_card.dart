@@ -37,38 +37,48 @@ class _ContinueWatchingCardState extends ConsumerState<ContinueWatchingCard> {
 
   AsyncValue<String?>? _getPosterAsync() {
     final progress = widget.progress;
-    
+
     // If it's a TV show (has season/episode info), use show poster provider
-    if (progress.showName != null && 
+    if (progress.showName != null &&
         progress.showName!.isNotEmpty &&
         (progress.seasonNumber != null || progress.episodeNumber != null)) {
       return ref.watch(showPosterProvider(progress.showName!));
     }
-    
+
     // For movies or unknown content, use movie poster provider
-    final searchName = progress.showName ?? _extractMovieName(progress.displayTitle);
+    final searchName =
+        progress.showName ?? _extractMovieName(progress.displayTitle);
     if (searchName.isNotEmpty) {
       return ref.watch(moviePosterProvider(searchName));
     }
-    
+
     return null;
   }
 
   String _extractMovieName(String title) {
     // Remove file extension
-    var name = title.replaceAll(RegExp(r'\.(mp4|mkv|avi|mov|wmv|flv|webm|m4v)$', caseSensitive: false), '');
-    
+    var name = title.replaceAll(
+      RegExp(r'\.(mp4|mkv|avi|mov|wmv|flv|webm|m4v)$', caseSensitive: false),
+      '',
+    );
+
     // Remove quality indicators
-    name = name.replaceAll(RegExp(r'[\.\s]?(1080p|720p|480p|2160p|4K|HDRip|BluRay|WEB-DL|WEBRip|BRRip|DVDRip|HDTV).*', caseSensitive: false), '');
-    
+    name = name.replaceAll(
+      RegExp(
+        r'[\.\s]?(1080p|720p|480p|2160p|4K|HDRip|BluRay|WEB-DL|WEBRip|BRRip|DVDRip|HDTV).*',
+        caseSensitive: false,
+      ),
+      '',
+    );
+
     // Remove year patterns
     name = name.replaceAll(RegExp(r'\s*\(\d{4}\)\s*'), ' ');
     name = name.replaceAll(RegExp(r'\s*\d{4}\s*$'), '');
-    
+
     // Replace dots/underscores with spaces
     name = name.replaceAll(RegExp(r'[\._]'), ' ');
     name = name.replaceAll(RegExp(r'\s+'), ' ').trim();
-    
+
     return name;
   }
 
@@ -116,7 +126,10 @@ class _ContinueWatchingCardState extends ConsumerState<ContinueWatchingCard> {
                       fit: StackFit.expand,
                       children: [
                         // Background - poster or gradient placeholder
-                        buildPosterImage(theme: theme, posterAsync: posterAsync),
+                        buildPosterImage(
+                          theme: theme,
+                          posterAsync: posterAsync,
+                        ),
 
                         // Gradient overlay for text readability
                         Positioned.fill(
@@ -150,7 +163,9 @@ class _ContinueWatchingCardState extends ConsumerState<ContinueWatchingCard> {
                                   shape: BoxShape.circle,
                                   boxShadow: [
                                     BoxShadow(
-                                      color: Colors.black.withValues(alpha: 0.3),
+                                      color: Colors.black.withValues(
+                                        alpha: 0.3,
+                                      ),
                                       blurRadius: 8,
                                       offset: const Offset(0, 2),
                                     ),
@@ -179,7 +194,9 @@ class _ContinueWatchingCardState extends ConsumerState<ContinueWatchingCard> {
                               decoration: BoxDecoration(
                                 color: theme.colorScheme.primaryContainer
                                     .withValues(alpha: 0.9),
-                                borderRadius: BorderRadius.circular(AppRadius.xs),
+                                borderRadius: BorderRadius.circular(
+                                  AppRadius.xs,
+                                ),
                               ),
                               child: Text(
                                 widget.progress.episodeCode!,
@@ -199,10 +216,13 @@ class _ContinueWatchingCardState extends ConsumerState<ContinueWatchingCard> {
                             right: AppSpacing.xs,
                             child: Material(
                               color: Colors.black54,
-                              borderRadius: BorderRadius.circular(AppRadius.full),
+                              borderRadius: BorderRadius.circular(
+                                AppRadius.full,
+                              ),
                               child: InkWell(
-                                borderRadius:
-                                    BorderRadius.circular(AppRadius.full),
+                                borderRadius: BorderRadius.circular(
+                                  AppRadius.full,
+                                ),
                                 onTap: widget.onRemove,
                                 child: const Padding(
                                   padding: EdgeInsets.all(4),
@@ -255,7 +275,8 @@ class _ContinueWatchingCardState extends ConsumerState<ContinueWatchingCard> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          widget.progress.showName ?? widget.progress.displayTitle,
+                          widget.progress.showName ??
+                              widget.progress.displayTitle,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(

@@ -34,10 +34,11 @@ class PlatformUtils {
 
   /// Get the default download directory for the current platform
   static String getDefaultDownloadPath() {
-    final home = Platform.environment['HOME'] ?? 
-                 Platform.environment['USERPROFILE'] ?? 
-                 '';
-    
+    final home =
+        Platform.environment['HOME'] ??
+        Platform.environment['USERPROFILE'] ??
+        '';
+
     if (Platform.isWindows) {
       return '$home\\Downloads';
     } else {

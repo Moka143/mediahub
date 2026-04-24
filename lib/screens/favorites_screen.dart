@@ -122,14 +122,18 @@ class FavoritesScreen extends ConsumerWidget {
                       color: appColors.errorState.withAlpha(AppOpacity.light),
                       borderRadius: BorderRadius.circular(AppRadius.sm),
                     ),
-                    child: Icon(Icons.favorite_rounded, color: appColors.errorState, size: 20),
+                    child: Icon(
+                      Icons.favorite_rounded,
+                      color: appColors.errorState,
+                      size: 20,
+                    ),
                   ),
                   const SizedBox(width: AppSpacing.md),
                   Text(
                     'My Shows (${favoritesState.favoriteIds.length})',
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ],
               ),
@@ -177,14 +181,18 @@ class FavoritesScreen extends ConsumerWidget {
                   color: appColors.warning.withAlpha(AppOpacity.light),
                   borderRadius: BorderRadius.circular(AppRadius.sm),
                 ),
-                child: Icon(Icons.schedule_rounded, color: appColors.warning, size: 20),
+                child: Icon(
+                  Icons.schedule_rounded,
+                  color: appColors.warning,
+                  size: 20,
+                ),
               ),
               const SizedBox(width: AppSpacing.md),
               Text(
                 'Upcoming Episodes',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -200,7 +208,8 @@ class FavoritesScreen extends ConsumerWidget {
               onTap: () {
                 Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (context) => ShowDetailsScreen(show: upcoming.show),
+                    builder: (context) =>
+                        ShowDetailsScreen(show: upcoming.show),
                   ),
                 );
               },
@@ -212,7 +221,11 @@ class FavoritesScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildShowsGrid(BuildContext context, List<Show> shows, WidgetRef ref) {
+  Widget _buildShowsGrid(
+    BuildContext context,
+    List<Show> shows,
+    WidgetRef ref,
+  ) {
     final width = MediaQuery.of(context).size.width;
     final crossAxisCount = (width / 200).floor().clamp(2, 6);
 
@@ -248,10 +261,7 @@ class _UpcomingEpisodeItem extends StatelessWidget {
   final UpcomingEpisode upcoming;
   final VoidCallback? onTap;
 
-  const _UpcomingEpisodeItem({
-    required this.upcoming,
-    this.onTap,
-  });
+  const _UpcomingEpisodeItem({required this.upcoming, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -295,7 +305,10 @@ class _UpcomingEpisodeItem extends StatelessWidget {
           vertical: AppSpacing.xs,
         ),
         decoration: BoxDecoration(
-          color: _getTimeColor(upcoming.daysUntilAir, appColors).withAlpha(AppOpacity.light),
+          color: _getTimeColor(
+            upcoming.daysUntilAir,
+            appColors,
+          ).withAlpha(AppOpacity.light),
           borderRadius: BorderRadius.circular(AppRadius.xs),
         ),
         child: Text(

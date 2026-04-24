@@ -26,7 +26,8 @@ class MovieCard extends StatefulWidget {
   State<MovieCard> createState() => _MovieCardState();
 }
 
-class _MovieCardState extends State<MovieCard> with SingleTickerProviderStateMixin {
+class _MovieCardState extends State<MovieCard>
+    with SingleTickerProviderStateMixin {
   bool _isHovered = false;
 
   @override
@@ -50,8 +51,9 @@ class _MovieCardState extends State<MovieCard> with SingleTickerProviderStateMix
             borderRadius: BorderRadius.circular(AppRadius.lg),
             boxShadow: [
               BoxShadow(
-                color: (isDark ? Colors.black : AppColors.seedColor)
-                    .withAlpha(_isHovered ? AppOpacity.medium : AppOpacity.light),
+                color: (isDark ? Colors.black : AppColors.seedColor).withAlpha(
+                  _isHovered ? AppOpacity.medium : AppOpacity.light,
+                ),
                 blurRadius: _isHovered ? 20 : 12,
                 offset: Offset(0, _isHovered ? 8 : 4),
                 spreadRadius: _isHovered ? 2 : 0,
@@ -128,7 +130,9 @@ class _MovieCardState extends State<MovieCard> with SingleTickerProviderStateMix
                         vertical: AppSpacing.xxs,
                       ),
                       decoration: BoxDecoration(
-                        color: getRatingColor(widget.movie.voteAverage).withAlpha(AppOpacity.almostOpaque),
+                        color: getRatingColor(
+                          widget.movie.voteAverage,
+                        ).withAlpha(AppOpacity.almostOpaque),
                         borderRadius: BorderRadius.circular(AppRadius.sm),
                         border: Border.all(
                           color: Colors.white.withAlpha(AppOpacity.light),
@@ -189,7 +193,9 @@ class _MovieCardState extends State<MovieCard> with SingleTickerProviderStateMix
                     child: Container(
                       decoration: BoxDecoration(
                         border: Border.all(
-                          color: theme.colorScheme.primary.withAlpha(AppOpacity.strong),
+                          color: theme.colorScheme.primary.withAlpha(
+                            AppOpacity.strong,
+                          ),
                           width: AppBorderWidth.thick,
                         ),
                         borderRadius: BorderRadius.circular(AppRadius.lg),
@@ -209,7 +215,8 @@ class _MovieCardState extends State<MovieCard> with SingleTickerProviderStateMix
       return Image.network(
         widget.movie.posterUrl!,
         fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) => _buildPlaceholder(context),
+        errorBuilder: (context, error, stackTrace) =>
+            _buildPlaceholder(context),
         loadingBuilder: (context, child, loadingProgress) {
           if (loadingProgress == null) return child;
           return _buildLoadingPlaceholder(context);
@@ -237,7 +244,9 @@ class _MovieCardState extends State<MovieCard> with SingleTickerProviderStateMix
         child: Icon(
           Icons.movie_outlined,
           size: 48,
-          color: theme.colorScheme.onSurfaceVariant.withAlpha(AppOpacity.medium),
+          color: theme.colorScheme.onSurfaceVariant.withAlpha(
+            AppOpacity.medium,
+          ),
         ),
       ),
     );
@@ -300,10 +309,7 @@ class MovieCardGrid extends StatelessWidget {
       itemCount: movies.length,
       itemBuilder: (context, index) {
         final movie = movies[index];
-        return MovieCard(
-          movie: movie,
-          onTap: () => onMovieTap?.call(movie),
-        );
+        return MovieCard(movie: movie, onTap: () => onMovieTap?.call(movie));
       },
     );
   }
@@ -341,7 +347,9 @@ class MovieCardRow extends StatelessWidget {
       height: cardHeight,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
-        padding: padding ?? EdgeInsets.symmetric(horizontal: AppSpacing.screenPadding),
+        padding:
+            padding ??
+            EdgeInsets.symmetric(horizontal: AppSpacing.screenPadding),
         itemCount: movies.length,
         itemBuilder: (context, index) {
           final movie = movies[index];
@@ -365,11 +373,7 @@ class MovieSectionHeader extends StatelessWidget {
   final String title;
   final VoidCallback? onSeeAll;
 
-  const MovieSectionHeader({
-    super.key,
-    required this.title,
-    this.onSeeAll,
-  });
+  const MovieSectionHeader({super.key, required this.title, this.onSeeAll});
 
   @override
   Widget build(BuildContext context) {
@@ -387,10 +391,7 @@ class MovieSectionHeader extends StatelessWidget {
             ),
           ),
           if (onSeeAll != null)
-            TextButton(
-              onPressed: onSeeAll,
-              child: const Text('See All'),
-            ),
+            TextButton(onPressed: onSeeAll, child: const Text('See All')),
         ],
       ),
     );
@@ -429,15 +430,12 @@ class AsyncMovieRow extends StatelessWidget {
                     child: Text(
                       'No movies found',
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          ),
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
                     ),
                   ),
                 )
-              : MovieCardRow(
-                  movies: movieList,
-                  onMovieTap: onMovieTap,
-                ),
+              : MovieCardRow(movies: movieList, onMovieTap: onMovieTap),
           loading: () => const SizedBox(
             height: 210,
             child: Center(child: CircularProgressIndicator()),
@@ -458,10 +456,7 @@ class AsyncMovieRow extends StatelessWidget {
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   if (onRetry != null)
-                    TextButton(
-                      onPressed: onRetry,
-                      child: const Text('Retry'),
-                    ),
+                    TextButton(onPressed: onRetry, child: const Text('Retry')),
                 ],
               ),
             ),

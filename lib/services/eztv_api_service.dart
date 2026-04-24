@@ -8,7 +8,8 @@ class EztvApiService {
   final Dio _dio;
 
   EztvApiService()
-      : _dio = Dio(BaseOptions(
+    : _dio = Dio(
+        BaseOptions(
           baseUrl: _baseUrl,
           connectTimeout: const Duration(seconds: 15),
           receiveTimeout: const Duration(seconds: 15),
@@ -16,7 +17,8 @@ class EztvApiService {
             'Accept': 'application/json',
             'User-Agent': 'Mozilla/5.0 (compatible; TorrentClient/1.0)',
           },
-        ));
+        ),
+      );
 
   /// Get torrents by IMDB ID
   /// IMDB ID should be in format "tt1234567" or just "1234567"
@@ -27,10 +29,7 @@ class EztvApiService {
 
       final response = await _dio.get(
         '/get-torrents',
-        queryParameters: {
-          'imdb_id': cleanId,
-          'limit': 100,
-        },
+        queryParameters: {'imdb_id': cleanId, 'limit': 100},
       );
 
       if (response.data == null) return [];
@@ -38,9 +37,7 @@ class EztvApiService {
       final torrents = response.data['torrents'];
       if (torrents == null || torrents is! List) return [];
 
-      return (torrents)
-          .map((json) => EztvTorrent.fromJson(json))
-          .toList();
+      return (torrents).map((json) => EztvTorrent.fromJson(json)).toList();
     } on DioException catch (e) {
       if (e.response?.statusCode == 404) {
         return []; // No torrents found
@@ -52,17 +49,11 @@ class EztvApiService {
   }
 
   /// Get torrents with pagination
-  Future<EztvSearchResult> getTorrents({
-    int page = 1,
-    int limit = 30,
-  }) async {
+  Future<EztvSearchResult> getTorrents({int page = 1, int limit = 30}) async {
     try {
       final response = await _dio.get(
         '/get-torrents',
-        queryParameters: {
-          'page': page,
-          'limit': limit,
-        },
+        queryParameters: {'page': page, 'limit': limit},
       );
 
       if (response.data == null) {
@@ -73,7 +64,11 @@ class EztvApiService {
       final totalCount = response.data['torrents_count'] as int? ?? 0;
 
       if (torrents == null || torrents is! List) {
-        return EztvSearchResult(torrents: [], totalCount: totalCount, page: page);
+        return EztvSearchResult(
+          torrents: [],
+          totalCount: totalCount,
+          page: page,
+        );
       }
 
       final torrentList = (torrents)
@@ -120,14 +115,16 @@ class EztvApiService {
       // First try API-provided season/episode fields
       int? torrentSeason = torrent.season;
       int? torrentEpisode = torrent.episode;
-      
+
       // If API fields are missing, parse from filename using SXXEXX pattern
       if (torrentSeason == null || torrentEpisode == null) {
-        final (parsedSeason, parsedEpisode) = _parseSeasonEpisodeFromFilename(torrent.filename);
+        final (parsedSeason, parsedEpisode) = _parseSeasonEpisodeFromFilename(
+          torrent.filename,
+        );
         torrentSeason ??= parsedSeason;
         torrentEpisode ??= parsedEpisode;
       }
-      
+
       // Check if torrent matches the requested season/episode
       if (season != null && torrentSeason != season) return false;
       if (episode != null && torrentEpisode != episode) return false;
@@ -192,8 +189,11 @@ class EztvApiService {
     bool ascending = true,
   }) {
     final sorted = List<EztvTorrent>.from(torrents);
-    sorted.sort((a, b) =>
-        ascending ? a.sizeBytes.compareTo(b.sizeBytes) : b.sizeBytes.compareTo(a.sizeBytes));
+    sorted.sort(
+      (a, b) => ascending
+          ? a.sizeBytes.compareTo(b.sizeBytes)
+          : b.sizeBytes.compareTo(a.sizeBytes),
+    );
     return sorted;
   }
 
@@ -221,7 +221,9 @@ class EztvApiService {
   }
 
   /// Group torrents by episode (within a season)
-  static Map<int, List<EztvTorrent>> groupByEpisode(List<EztvTorrent> torrents) {
+  static Map<int, List<EztvTorrent>> groupByEpisode(
+    List<EztvTorrent> torrents,
+  ) {
     final Map<int, List<EztvTorrent>> grouped = {};
     for (final torrent in torrents) {
       if (torrent.episode != null) {

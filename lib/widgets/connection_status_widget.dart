@@ -220,7 +220,9 @@ class _ConnectionBannerState extends ConsumerState<ConnectionBanner> {
           child: Material(
             color: backgroundColor,
             child: InkWell(
-              onTap: connectionState.hasError && connectionState.errorMessage != null
+              onTap:
+                  connectionState.hasError &&
+                      connectionState.errorMessage != null
                   ? () => setState(() => _isExpanded = !_isExpanded)
                   : null,
               child: Padding(
@@ -239,7 +241,11 @@ class _ConnectionBannerState extends ConsumerState<ConnectionBanner> {
                             color: textColor.withAlpha(AppOpacity.light),
                             borderRadius: BorderRadius.circular(AppRadius.sm),
                           ),
-                          child: Icon(icon, color: textColor, size: AppIconSize.sm),
+                          child: Icon(
+                            icon,
+                            color: textColor,
+                            size: AppIconSize.sm,
+                          ),
                         ),
                         const SizedBox(width: AppSpacing.md),
                         Expanded(
@@ -258,7 +264,9 @@ class _ConnectionBannerState extends ConsumerState<ConnectionBanner> {
                                 Text(
                                   hintMessage,
                                   style: theme.textTheme.bodySmall?.copyWith(
-                                    color: textColor.withAlpha(AppOpacity.heavy),
+                                    color: textColor.withAlpha(
+                                      AppOpacity.heavy,
+                                    ),
                                   ),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
@@ -267,15 +275,22 @@ class _ConnectionBannerState extends ConsumerState<ConnectionBanner> {
                             ],
                           ),
                         ),
-                        if (connectionState.hasError && connectionState.errorMessage != null) ...[
+                        if (connectionState.hasError &&
+                            connectionState.errorMessage != null) ...[
                           IconButton(
-                            onPressed: () => setState(() => _isExpanded = !_isExpanded),
+                            onPressed: () =>
+                                setState(() => _isExpanded = !_isExpanded),
                             icon: AnimatedRotation(
                               turns: _isExpanded ? 0.5 : 0,
                               duration: AppDuration.fast,
-                              child: Icon(Icons.keyboard_arrow_down_rounded, color: textColor),
+                              child: Icon(
+                                Icons.keyboard_arrow_down_rounded,
+                                color: textColor,
+                              ),
                             ),
-                            tooltip: _isExpanded ? 'Hide details' : 'Show details',
+                            tooltip: _isExpanded
+                                ? 'Hide details'
+                                : 'Show details',
                             padding: EdgeInsets.zero,
                             constraints: const BoxConstraints(),
                           ),
@@ -300,7 +315,8 @@ class _ConnectionBannerState extends ConsumerState<ConnectionBanner> {
                       ],
                     ),
                     // Expanded error details
-                    if (_isExpanded && connectionState.errorMessage != null) ...[
+                    if (_isExpanded &&
+                        connectionState.errorMessage != null) ...[
                       const SizedBox(height: AppSpacing.md),
                       Container(
                         padding: const EdgeInsets.all(AppSpacing.md),
@@ -322,7 +338,9 @@ class _ConnectionBannerState extends ConsumerState<ConnectionBanner> {
                             Text(
                               connectionState.errorMessage!,
                               style: theme.textTheme.bodySmall?.copyWith(
-                                color: textColor.withAlpha(AppOpacity.almostOpaque),
+                                color: textColor.withAlpha(
+                                  AppOpacity.almostOpaque,
+                                ),
                                 fontFamily: 'monospace',
                               ),
                             ),
@@ -335,19 +353,27 @@ class _ConnectionBannerState extends ConsumerState<ConnectionBanner> {
                               ),
                             ),
                             const SizedBox(height: AppSpacing.xs),
-                            ..._getTroubleshootingTips(connectionState.errorMessage!).map(
+                            ..._getTroubleshootingTips(
+                              connectionState.errorMessage!,
+                            ).map(
                               (tip) => Padding(
                                 padding: const EdgeInsets.only(bottom: 4),
                                 child: Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text('• ', style: TextStyle(color: textColor)),
+                                    Text(
+                                      '• ',
+                                      style: TextStyle(color: textColor),
+                                    ),
                                     Expanded(
                                       child: Text(
                                         tip,
-                                        style: theme.textTheme.bodySmall?.copyWith(
-                                          color: textColor.withAlpha(AppOpacity.almostOpaque),
-                                        ),
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(
+                                              color: textColor.withAlpha(
+                                                AppOpacity.almostOpaque,
+                                              ),
+                                            ),
                                       ),
                                     ),
                                   ],
@@ -389,7 +415,7 @@ class _ConnectionBannerState extends ConsumerState<ConnectionBanner> {
   List<String> _getTroubleshootingTips(String errorMessage) {
     final lower = errorMessage.toLowerCase();
     final tips = <String>[];
-    
+
     if (lower.contains('connection refused') || lower.contains('no route')) {
       tips.add('Make sure qBittorrent is running');
       tips.add('Check if the Web UI is enabled in qBittorrent settings');
@@ -409,7 +435,7 @@ class _ConnectionBannerState extends ConsumerState<ConnectionBanner> {
       tips.add('Check your network connection');
       tips.add('Review the connection settings');
     }
-    
+
     return tips;
   }
 }

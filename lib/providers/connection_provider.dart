@@ -9,12 +9,7 @@ import '../services/qbittorrent_process_service.dart';
 import 'settings_provider.dart';
 
 /// Connection status enum
-enum ConnectionStatus {
-  disconnected,
-  connecting,
-  connected,
-  error,
-}
+enum ConnectionStatus { disconnected, connecting, connected, error }
 
 /// Connection state class
 class ConnectionState {
@@ -78,9 +73,10 @@ final qbApiServiceProvider = Provider<QBittorrentApiService>((ref) {
 });
 
 /// Provider for connection state
-final connectionProvider = NotifierProvider<ConnectionNotifier, ConnectionState>(
-  ConnectionNotifier.new,
-);
+final connectionProvider =
+    NotifierProvider<ConnectionNotifier, ConnectionState>(
+      ConnectionNotifier.new,
+    );
 
 /// Notifier for managing connection state
 class ConnectionNotifier extends Notifier<ConnectionState> {
@@ -99,7 +95,8 @@ class ConnectionNotifier extends Notifier<ConnectionState> {
     return const ConnectionState();
   }
 
-  QBittorrentProcessService get _processService => ref.read(qbProcessServiceProvider);
+  QBittorrentProcessService get _processService =>
+      ref.read(qbProcessServiceProvider);
   QBittorrentApiService get _apiService => ref.read(qbApiServiceProvider);
   bool get _autoStart => ref.read(settingsProvider).autoStartQBittorrent;
 
@@ -171,7 +168,8 @@ class ConnectionNotifier extends Notifier<ConnectionState> {
       } else {
         state = state.copyWith(
           status: ConnectionStatus.error,
-          errorMessage: 'Failed to authenticate. Check username/password in Settings.',
+          errorMessage:
+              'Failed to authenticate. Check username/password in Settings.',
         );
         return false;
       }
@@ -181,7 +179,8 @@ class ConnectionNotifier extends Notifier<ConnectionState> {
         case DioExceptionType.connectionTimeout:
           errorMsg = 'Connection timeout. Is qBittorrent running?';
         case DioExceptionType.connectionError:
-          errorMsg = 'Cannot connect to ${_apiService.baseUrl}. Is qBittorrent Web UI enabled?';
+          errorMsg =
+              'Cannot connect to ${_apiService.baseUrl}. Is qBittorrent Web UI enabled?';
         case DioExceptionType.receiveTimeout:
           errorMsg = 'Server not responding';
         default:
@@ -214,16 +213,20 @@ class ConnectionNotifier extends Notifier<ConnectionState> {
   Future<void> _syncSpeedLimits() async {
     try {
       final settings = ref.read(settingsProvider);
-      
+
       // Only sync if limits are set (non-zero)
       if (settings.downloadSpeedLimit > 0) {
         await _apiService.setDownloadLimit(settings.downloadSpeedLimit);
-        debugPrint('[Connection] Synced download limit: ${settings.downloadSpeedLimit ~/ 1024} KB/s');
+        debugPrint(
+          '[Connection] Synced download limit: ${settings.downloadSpeedLimit ~/ 1024} KB/s',
+        );
       }
-      
+
       if (settings.uploadSpeedLimit > 0) {
         await _apiService.setUploadLimit(settings.uploadSpeedLimit);
-        debugPrint('[Connection] Synced upload limit: ${settings.uploadSpeedLimit ~/ 1024} KB/s');
+        debugPrint(
+          '[Connection] Synced upload limit: ${settings.uploadSpeedLimit ~/ 1024} KB/s',
+        );
       }
     } catch (e) {
       debugPrint('[Connection] Failed to sync speed limits: $e');

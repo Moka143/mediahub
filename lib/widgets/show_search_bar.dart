@@ -120,7 +120,9 @@ class _ShowSearchBarState extends State<ShowSearchBar> {
               ),
               suffixIcon: _buildSuffixIcon(),
               filled: true,
-              fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+              fillColor: theme.colorScheme.surfaceContainerHighest.withValues(
+                alpha: 0.5,
+              ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(AppRadius.md),
                 borderSide: BorderSide.none,
@@ -201,7 +203,8 @@ class _ShowSearchBarWithSuggestionsState
     super.initState();
     _focusNode.addListener(() {
       setState(() {
-        _showSuggestions = _focusNode.hasFocus && widget.recentSearches.isNotEmpty;
+        _showSuggestions =
+            _focusNode.hasFocus && widget.recentSearches.isNotEmpty;
       });
     });
   }
@@ -263,15 +266,19 @@ class _ShowSearchBarWithSuggestionsState
                     ],
                   ),
                 ),
-                ...widget.recentSearches.take(5).map((search) => ListTile(
-                      leading: const Icon(Icons.history),
-                      title: Text(search),
-                      dense: true,
-                      onTap: () {
-                        _focusNode.unfocus();
-                        widget.onRecentSearchTap?.call(search);
-                      },
-                    )),
+                ...widget.recentSearches
+                    .take(5)
+                    .map(
+                      (search) => ListTile(
+                        leading: const Icon(Icons.history),
+                        title: Text(search),
+                        dense: true,
+                        onTap: () {
+                          _focusNode.unfocus();
+                          widget.onRecentSearchTap?.call(search);
+                        },
+                      ),
+                    ),
               ],
             ),
           ),

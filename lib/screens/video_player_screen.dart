@@ -57,18 +57,18 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   bool _isFullscreen = false;
   bool _showResumePrompt = false;
   Duration? _resumePosition;
-  
+
   // Gesture state
   bool _isSeeking = false;
   double _seekDelta = 0;
   Offset? _dragStartPosition;
   Duration? _dragStartTime;
-  
+
   // Double tap indicators
   bool _showSkipForward = false;
   bool _showSkipBackward = false;
   Timer? _skipIndicatorTimer;
-  
+
   // Binge watching / Next episode state
   bool _showNextEpisodeOverlay = false;
   bool _nextEpisodeOverlayDismissed = false;
@@ -79,13 +79,14 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   String? _currentImdbId;
   StreamSubscription<Duration>? _positionSubscription;
   StreamSubscription<bool>? _completedSubscription;
-  
+
   // Auto-download tracking
   bool _autoDownloadTriggered = false;
-  bool _nextEpisodeDownloadStarted = false; // Track if we started downloading next ep
+  bool _nextEpisodeDownloadStarted =
+      false; // Track if we started downloading next ep
   Episode? _downloadingEpisode; // The episode we're downloading
   StreamSubscription<Duration>? _autoDownloadSubscription;
-  
+
   // Streaming status indicator
   StreamingStatus? _streamingStatus;
   String _streamingMessage = '';
@@ -117,25 +118,33 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
 
     // Set up subtitle context if movie IMDB ID is provided
     if (widget.movieImdbId != null) {
-      ref.read(subtitleContextProvider.notifier).setMovieContext(widget.movieImdbId!);
+      ref
+          .read(subtitleContextProvider.notifier)
+          .setMovieContext(widget.movieImdbId!);
       debugPrint('[Subtitles] Set movie context: ${widget.movieImdbId}');
     }
-    
+
     // Set up subtitle context if show IMDB ID is provided with episode info
-    if (widget.showImdbId != null && 
-        widget.file.seasonNumber != null && 
+    if (widget.showImdbId != null &&
+        widget.file.seasonNumber != null &&
         widget.file.episodeNumber != null) {
-      ref.read(subtitleContextProvider.notifier).setSeriesContext(
-        imdbId: widget.showImdbId!,
-        season: widget.file.seasonNumber!,
-        episode: widget.file.episodeNumber!,
+      ref
+          .read(subtitleContextProvider.notifier)
+          .setSeriesContext(
+            imdbId: widget.showImdbId!,
+            season: widget.file.seasonNumber!,
+            episode: widget.file.episodeNumber!,
+          );
+      debugPrint(
+        '[Subtitles] Set series context from widget: ${widget.showImdbId} S${widget.file.seasonNumber}E${widget.file.episodeNumber}',
       );
-      debugPrint('[Subtitles] Set series context from widget: ${widget.showImdbId} S${widget.file.seasonNumber}E${widget.file.episodeNumber}');
     }
 
     // Check for existing progress
-    final existingProgress = ref.read(fileWatchProgressProvider(widget.file.path));
-    
+    final existingProgress = ref.read(
+      fileWatchProgressProvider(widget.file.path),
+    );
+
     // For streaming: set up debounced buffering BEFORE opening the file so
     // we don't miss any initial buffering events from mpv.
     if (widget.isStreaming) {
@@ -211,36 +220,40 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   void _setupNextEpisodeWatcher() async {
     final player = ref.read(playerProvider);
     final bingeWatchingEnabled = ref.read(bingeWatchingEnabledProvider);
-    
+
     if (!bingeWatchingEnabled) return;
-    
+
     // Always check TMDB first to know what the ACTUAL next episode should be
     // This ensures we don't skip episodes (e.g., showing E05 when E04 is missing)
     await _checkTmdbForNextEpisode();
-    
+
     // If TMDB found a next episode, check if it's downloaded
     if (_nextEpisodeFromTmdb != null) {
       final showName = widget.file.showName;
       if (showName != null) {
         final scanner = ref.read(localMediaScannerProvider);
         final files = await scanner.scanDirectory();
-        
+
         final downloadedNextEp = scanner.findEpisodeFile(
           files,
           showName: showName,
           season: _nextEpisodeFromTmdb!.seasonNumber,
           episode: _nextEpisodeFromTmdb!.episodeNumber,
         );
-        
+
         if (downloadedNextEp != null) {
           // The actual next episode IS downloaded - use it
-          debugPrint('[NextEpisode] Found downloaded next episode: ${downloadedNextEp.fileName}');
+          debugPrint(
+            '[NextEpisode] Found downloaded next episode: ${downloadedNextEp.fileName}',
+          );
           setState(() {
             _nextEpisode = downloadedNextEp;
             _nextEpisodeFromTmdb = null; // Clear TMDB since we have the file
           });
         } else {
-          debugPrint('[NextEpisode] Next episode S${_nextEpisodeFromTmdb!.seasonNumber}E${_nextEpisodeFromTmdb!.episodeNumber} not downloaded - will offer download');
+          debugPrint(
+            '[NextEpisode] Next episode S${_nextEpisodeFromTmdb!.seasonNumber}E${_nextEpisodeFromTmdb!.episodeNumber} not downloaded - will offer download',
+          );
         }
       }
     } else {
@@ -248,23 +261,23 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       // This handles cases where TMDB lookup fails
       _nextEpisode = ref.read(nextEpisodeProvider(widget.file));
     }
-    
+
     // Only proceed if we have either a downloaded episode or TMDB info
     final hasNextEpisode = _nextEpisode != null || _nextEpisodeFromTmdb != null;
     if (!hasNextEpisode) return;
-    
+
     // Watch position to show next episode overlay
     _positionSubscription = player.stream.position.listen((position) {
       if (!mounted || _nextEpisodeOverlayDismissed) return;
-      
+
       final duration = player.state.duration;
       if (duration.inSeconds <= 0) return;
-      
+
       final countdownSeconds = ref.read(nextEpisodeCountdownSecondsProvider);
       final remaining = duration - position;
-      
+
       // Show overlay when remaining time equals countdown seconds
-      if (remaining.inSeconds <= countdownSeconds && 
+      if (remaining.inSeconds <= countdownSeconds &&
           remaining.inSeconds > 0 &&
           !_showNextEpisodeOverlay &&
           !_showResumePrompt) {
@@ -281,41 +294,51 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     final showName = file.showName;
     final season = file.seasonNumber;
     final episode = file.episodeNumber;
-    
-    debugPrint('[AutoDownload] Checking TMDB for next episode: $showName S${season}E$episode');
-    
+
+    debugPrint(
+      '[AutoDownload] Checking TMDB for next episode: $showName S${season}E$episode',
+    );
+
     if (showName == null || season == null || episode == null) {
       debugPrint('[AutoDownload] Missing show info, skipping TMDB check');
       return;
     }
-    
+
     try {
       final tmdbService = ref.read(tmdbServiceProvider);
       final shows = await tmdbService.searchShows(showName);
-      
-      debugPrint('[AutoDownload] TMDB search results: ${shows.length} shows found');
-      
+
+      debugPrint(
+        '[AutoDownload] TMDB search results: ${shows.length} shows found',
+      );
+
       if (shows.isEmpty) return;
-      
+
       final show = shows.first;
       _currentShowId = show.id;
-      
+
       // Get full show details with IMDB ID (using append_to_response for external_ids)
       final showDetails = await tmdbService.getShowDetailsWithImdb(show.id);
       _currentImdbId = showDetails.imdbId;
-      
-      debugPrint('[AutoDownload] Show: ${show.name}, TMDB ID: ${show.id}, IMDB ID: $_currentImdbId');
-      
+
+      debugPrint(
+        '[AutoDownload] Show: ${show.name}, TMDB ID: ${show.id}, IMDB ID: $_currentImdbId',
+      );
+
       // Set subtitle context for OpenSubtitles
       if (_currentImdbId != null && season != null && episode != null) {
-        ref.read(subtitleContextProvider.notifier).setSeriesContext(
-          imdbId: _currentImdbId!,
-          season: season,
-          episode: episode,
+        ref
+            .read(subtitleContextProvider.notifier)
+            .setSeriesContext(
+              imdbId: _currentImdbId!,
+              season: season,
+              episode: episode,
+            );
+        debugPrint(
+          '[Subtitles] Set series context: $_currentImdbId S${season}E$episode',
         );
-        debugPrint('[Subtitles] Set series context: $_currentImdbId S${season}E$episode');
       }
-      
+
       // Use auto-download service to get next episode info
       final autoDownloadService = ref.read(autoDownloadServiceProvider);
       final result = await autoDownloadService.getNextEpisode(
@@ -323,9 +346,11 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         currentSeason: season,
         currentEpisode: episode,
       );
-      
-      debugPrint('[AutoDownload] Next episode result: ${result.nextEpisode?.episodeCode ?? "none"}, hasNext: ${result.hasNextEpisode}');
-      
+
+      debugPrint(
+        '[AutoDownload] Next episode result: ${result.nextEpisode?.episodeCode ?? "none"}, hasNext: ${result.hasNextEpisode}',
+      );
+
       if (mounted) {
         setState(() {
           _nextEpisodeResult = result;
@@ -340,7 +365,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   void _setupAutoDownloadWatcher() {
     final player = ref.read(playerProvider);
     final autoDownloadState = ref.read(autoDownloadProvider);
-    
+
     // Only setup auto-download if BOTH enabled AND downloadOnProgress are true
     // User must explicitly enable auto-download in settings
     if (!autoDownloadState.enabled) {
@@ -351,22 +376,24 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       debugPrint('[AutoDownload] Download on progress disabled in settings');
       return;
     }
-    
-    debugPrint('[AutoDownload] Auto-download enabled, threshold: ${autoDownloadState.progressThreshold}');
-    
+
+    debugPrint(
+      '[AutoDownload] Auto-download enabled, threshold: ${autoDownloadState.progressThreshold}',
+    );
+
     // Watch position to trigger auto-download at threshold
     _autoDownloadSubscription = player.stream.position.listen((position) {
       if (!mounted || _autoDownloadTriggered) return;
-      
+
       // Re-check settings in case user disabled during playback
       final currentState = ref.read(autoDownloadProvider);
       if (!currentState.enabled || !currentState.downloadOnProgress) return;
-      
+
       final duration = player.state.duration;
       if (duration.inSeconds <= 0) return;
-      
+
       final progress = position.inMilliseconds / duration.inMilliseconds;
-      
+
       // Trigger auto-download when progress reaches threshold
       if (progress >= currentState.progressThreshold) {
         _autoDownloadTriggered = true;
@@ -377,35 +404,37 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
 
   Future<void> _triggerAutoDownload() async {
     final file = widget.file;
-    
+
     // Need show ID and IMDB ID - try to look them up from local media
     final showName = file.showName;
     final season = file.seasonNumber;
     final episode = file.episodeNumber;
     final quality = file.quality ?? '1080p';
-    
+
     if (showName == null || season == null || episode == null) return;
-    
+
     // Try to find the show ID from TMDB
     try {
       final tmdbService = ref.read(tmdbServiceProvider);
       final shows = await tmdbService.searchShows(showName);
-      
+
       if (shows.isEmpty) return;
-      
+
       final show = shows.first;
       final showDetails = await tmdbService.getShowDetails(show.id);
-      
+
       // Trigger auto-download
-      ref.read(autoDownloadProvider.notifier).onWatchProgress(
-        showId: show.id,
-        imdbId: showDetails.imdbId,
-        showName: showName,
-        season: season,
-        episode: episode,
-        progress: ref.read(autoDownloadProvider).progressThreshold,
-        currentQuality: quality,
-      );
+      ref
+          .read(autoDownloadProvider.notifier)
+          .onWatchProgress(
+            showId: show.id,
+            imdbId: showDetails.imdbId,
+            showName: showName,
+            season: season,
+            episode: episode,
+            progress: ref.read(autoDownloadProvider).progressThreshold,
+            currentQuality: quality,
+          );
     } catch (e) {
       debugPrint('Auto-download trigger failed: $e');
     }
@@ -414,69 +443,77 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   /// Watch for playback completion to auto-play next episode if available
   void _setupPlaybackCompletionWatcher() {
     final player = ref.read(playerProvider);
-    
+
     _completedSubscription = player.stream.completed.listen((completed) async {
       if (!completed || !mounted) return;
-      
-      debugPrint('[AutoDownload] Playback completed, checking for next episode...');
-      
+
+      debugPrint(
+        '[AutoDownload] Playback completed, checking for next episode...',
+      );
+
       // If we started downloading the next episode, check if it's ready
       if (_nextEpisodeDownloadStarted && _downloadingEpisode != null) {
-        debugPrint('[AutoDownload] Next episode download was started, checking if ready...');
+        debugPrint(
+          '[AutoDownload] Next episode download was started, checking if ready...',
+        );
         await _tryPlayDownloadedNextEpisode();
         return;
       }
-      
+
       // Also check if a downloaded next episode exists (may have been downloaded in background)
       await _checkAndPlayNextEpisode();
     });
   }
-  
+
   /// Try to play the next episode that was being downloaded
   Future<void> _tryPlayDownloadedNextEpisode() async {
     final episode = _downloadingEpisode;
     if (episode == null) return;
-    
+
     final showName = widget.file.showName;
     if (showName == null) return;
-    
-    debugPrint('[AutoDownload] Looking for downloaded file: $showName S${episode.seasonNumber}E${episode.episodeNumber}');
-    
+
+    debugPrint(
+      '[AutoDownload] Looking for downloaded file: $showName S${episode.seasonNumber}E${episode.episodeNumber}',
+    );
+
     // Refresh local files to find newly downloaded episode
     final refreshMedia = ref.read(refreshLocalMediaProvider);
     await refreshMedia();
-    
+
     // Small delay to ensure file is detected
     await Future.delayed(const Duration(seconds: 2));
-    
+
     // Re-scan for the episode
     final scanner = ref.read(localMediaScannerProvider);
     final files = await scanner.scanDirectory();
-    
+
     final nextFile = scanner.findEpisodeFile(
       files,
       showName: showName,
       season: episode.seasonNumber,
       episode: episode.episodeNumber,
     );
-    
+
     if (nextFile != null && mounted) {
-      debugPrint('[AutoDownload] Found downloaded episode! Playing: ${nextFile.fileName}');
-      
+      debugPrint(
+        '[AutoDownload] Found downloaded episode! Playing: ${nextFile.fileName}',
+      );
+
       // Dismiss any streaming indicator
       _dismissStreamingStatus();
-      
+
       final playerService = ref.read(playerServiceProvider);
       await playerService.stop();
-      
+
       final fileToPlay = nextFile; // Capture non-null value
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => VideoPlayerScreen(file: fileToPlay),
-        ),
+        MaterialPageRoute(builder: (_) => VideoPlayerScreen(file: fileToPlay)),
       );
     } else {
-      debugPrint('[AutoDownload] Downloaded file not found yet - may still be downloading');
+      debugPrint(
+        '[AutoDownload] Downloaded file not found yet - may still be downloading',
+      );
       // Show message that file is still downloading
       if (mounted) {
         _showStreamingStatus(
@@ -487,24 +524,27 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       }
     }
   }
-  
+
   /// Check if next episode has been downloaded (background download) and play it
   Future<void> _checkAndPlayNextEpisode() async {
     final showName = widget.file.showName;
     final currentSeason = widget.file.seasonNumber;
     final currentEpisode = widget.file.episodeNumber;
-    
-    if (showName == null || currentSeason == null || currentEpisode == null) return;
-    
+
+    if (showName == null || currentSeason == null || currentEpisode == null)
+      return;
+
     // Calculate next episode number
     final nextEpisodeNum = currentEpisode + 1;
-    
-    debugPrint('[AutoDownload] Checking for next episode: $showName S${currentSeason}E$nextEpisodeNum');
-    
+
+    debugPrint(
+      '[AutoDownload] Checking for next episode: $showName S${currentSeason}E$nextEpisodeNum',
+    );
+
     // Refresh local files
     final scanner = ref.read(localMediaScannerProvider);
     final files = await scanner.scanDirectory();
-    
+
     // Try current season next episode first
     var nextFile = scanner.findEpisodeFile(
       files,
@@ -512,7 +552,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       season: currentSeason,
       episode: nextEpisodeNum,
     );
-    
+
     // If not found, try first episode of next season
     if (nextFile == null) {
       nextFile = scanner.findEpisodeFile(
@@ -522,18 +562,18 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         episode: 1,
       );
     }
-    
+
     if (nextFile != null && mounted) {
-      debugPrint('[AutoDownload] Found next episode! Playing: ${nextFile.fileName}');
-      
+      debugPrint(
+        '[AutoDownload] Found next episode! Playing: ${nextFile.fileName}',
+      );
+
       final playerService = ref.read(playerServiceProvider);
       await playerService.stop();
-      
+
       final fileToPlay = nextFile; // Capture non-null value
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => VideoPlayerScreen(file: fileToPlay),
-        ),
+        MaterialPageRoute(builder: (_) => VideoPlayerScreen(file: fileToPlay)),
       );
     }
   }
@@ -541,20 +581,18 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   void _onPlayNextEpisode() async {
     _positionSubscription?.cancel();
     _dismissStreamingStatus();
-    
+
     final nextEpisode = _nextEpisode;
     if (nextEpisode == null) return;
-    
+
     // Stop current playback
     final playerService = ref.read(playerServiceProvider);
     await playerService.stop();
-    
+
     if (mounted) {
       // Navigate to next episode
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => VideoPlayerScreen(file: nextEpisode),
-        ),
+        MaterialPageRoute(builder: (_) => VideoPlayerScreen(file: nextEpisode)),
       );
     }
   }
@@ -607,7 +645,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       Navigator.of(context).pop();
     }
   }
-  
+
   // Handle horizontal swipe to seek
   void _onHorizontalDragStart(DragStartDetails details) {
     final player = ref.read(playerProvider);
@@ -619,29 +657,31 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     });
     _onUserInteraction();
   }
-  
+
   void _onHorizontalDragUpdate(DragUpdateDetails details) {
     if (!_isSeeking || _dragStartPosition == null) return;
-    
+
     final screenWidth = MediaQuery.of(context).size.width;
     final dragDistance = details.globalPosition.dx - _dragStartPosition!.dx;
-    
+
     // Each 100 pixels = 10 seconds
     final seekSeconds = (dragDistance / 100) * 10;
-    
+
     setState(() {
       _seekDelta = seekSeconds;
     });
   }
-  
+
   void _onHorizontalDragEnd(DragEndDetails details) {
     if (!_isSeeking || _dragStartTime == null) return;
-    
+
     final newPosition = _dragStartTime! + Duration(seconds: _seekDelta.round());
-    final clampedPosition = newPosition.isNegative ? Duration.zero : newPosition;
-    
+    final clampedPosition = newPosition.isNegative
+        ? Duration.zero
+        : newPosition;
+
     ref.read(playerServiceProvider).seek(clampedPosition);
-    
+
     setState(() {
       _isSeeking = false;
       _seekDelta = 0;
@@ -649,12 +689,12 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       _dragStartTime = null;
     });
   }
-  
+
   // Handle double tap to skip
   void _onDoubleTapDown(TapDownDetails details) {
     final screenWidth = MediaQuery.of(context).size.width;
     final tapX = details.globalPosition.dx;
-    
+
     if (tapX < screenWidth / 3) {
       // Left third - skip backward 10s
       _showSkipIndicator(forward: false);
@@ -669,7 +709,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     }
     _onUserInteraction();
   }
-  
+
   void _showSkipIndicator({required bool forward}) {
     _skipIndicatorTimer?.cancel();
     setState(() {
@@ -726,10 +766,18 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
               // Main video area with gesture detection
               GestureDetector(
                 onTap: _showNextEpisodeOverlay ? null : _onUserInteraction,
-                onDoubleTapDown: _showNextEpisodeOverlay ? null : _onDoubleTapDown,
-                onHorizontalDragStart: _showNextEpisodeOverlay ? null : _onHorizontalDragStart,
-                onHorizontalDragUpdate: _showNextEpisodeOverlay ? null : _onHorizontalDragUpdate,
-                onHorizontalDragEnd: _showNextEpisodeOverlay ? null : _onHorizontalDragEnd,
+                onDoubleTapDown: _showNextEpisodeOverlay
+                    ? null
+                    : _onDoubleTapDown,
+                onHorizontalDragStart: _showNextEpisodeOverlay
+                    ? null
+                    : _onHorizontalDragStart,
+                onHorizontalDragUpdate: _showNextEpisodeOverlay
+                    ? null
+                    : _onHorizontalDragUpdate,
+                onHorizontalDragEnd: _showNextEpisodeOverlay
+                    ? null
+                    : _onHorizontalDragEnd,
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
@@ -741,38 +789,30 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
 
                     // Buffering indicator
                     if (isBuffering) const _BufferingIndicator(),
-                    
+
                     // Skip backward indicator (left side)
                     if (_showSkipBackward)
                       Positioned(
                         left: 60,
                         top: 0,
                         bottom: 0,
-                        child: Center(
-                          child: _buildSkipIndicator(false),
-                        ),
+                        child: Center(child: _buildSkipIndicator(false)),
                       ),
-                    
+
                     // Skip forward indicator (right side)
                     if (_showSkipForward)
                       Positioned(
                         right: 60,
                         top: 0,
                         bottom: 0,
-                        child: Center(
-                          child: _buildSkipIndicator(true),
-                        ),
-                      ),
-                    
-                    // Seek indicator during drag
-                    if (_isSeeking)
-                      Center(
-                        child: _buildSeekIndicator(),
+                        child: Center(child: _buildSkipIndicator(true)),
                       ),
 
+                    // Seek indicator during drag
+                    if (_isSeeking) Center(child: _buildSeekIndicator()),
+
                     // Resume prompt overlay
-                    if (_showResumePrompt)
-                      _buildResumePrompt(),
+                    if (_showResumePrompt) _buildResumePrompt(),
 
                     // Custom controls overlay
                     if (!_showResumePrompt)
@@ -785,9 +825,12 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
                             file: widget.file,
                             isPlaying: isPlaying,
                             isFullscreen: _isFullscreen,
-                            onPlayPause: () => ref.read(playerServiceProvider).playOrPause(),
-                            onSeekForward: () => ref.read(playerServiceProvider).seekForward(),
-                            onSeekBackward: () => ref.read(playerServiceProvider).seekBackward(),
+                            onPlayPause: () =>
+                                ref.read(playerServiceProvider).playOrPause(),
+                            onSeekForward: () =>
+                                ref.read(playerServiceProvider).seekForward(),
+                            onSeekBackward: () =>
+                                ref.read(playerServiceProvider).seekBackward(),
                             onToggleFullscreen: _toggleFullscreen,
                             onClose: _exitPlayer,
                           ),
@@ -798,21 +841,24 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
               ),
 
               // Next episode overlay (OUTSIDE of GestureDetector so buttons work)
-              if (_showNextEpisodeOverlay && (_nextEpisode != null || _nextEpisodeFromTmdb != null))
+              if (_showNextEpisodeOverlay &&
+                  (_nextEpisode != null || _nextEpisodeFromTmdb != null))
                 Positioned.fill(
                   child: Container(
                     color: Colors.black.withOpacity(0.5),
                     child: _nextEpisode != null
                         ? NextEpisodeOverlay(
                             nextEpisode: _nextEpisode!,
-                            countdownSeconds: ref.read(nextEpisodeCountdownSecondsProvider),
+                            countdownSeconds: ref.read(
+                              nextEpisodeCountdownSecondsProvider,
+                            ),
                             onPlayNext: _onPlayNextEpisode,
                             onCancel: _onCancelNextEpisode,
                           )
                         : _buildTmdbNextEpisodeOverlay(),
                   ),
                 ),
-              
+
               // Streaming status indicator (top of screen, inside player)
               if (_streamingStatus != null)
                 Positioned(
@@ -838,7 +884,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       ),
     );
   }
-  
+
   void _dismissStreamingStatus() {
     if (mounted) {
       setState(() {
@@ -849,7 +895,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       });
     }
   }
-  
+
   void _showStreamingStatus({
     required StreamingStatus status,
     required String message,
@@ -865,16 +911,16 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       });
     }
   }
-  
+
   Widget _buildSkipIndicator(bool forward) {
     return _SkipRippleIndicator(forward: forward);
   }
-  
+
   Widget _buildSeekIndicator() {
     final isForward = _seekDelta >= 0;
     final seconds = _seekDelta.abs().round();
     final targetTime = _dragStartTime! + Duration(seconds: _seekDelta.round());
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       decoration: BoxDecoration(
@@ -918,7 +964,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
 
   Widget _buildResumePrompt() {
     final theme = Theme.of(context);
-    
+
     return Container(
       color: Colors.black87,
       child: Center(
@@ -1010,12 +1056,12 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     final theme = Theme.of(context);
     final episode = _nextEpisodeFromTmdb;
     final result = _nextEpisodeResult;
-    
+
     if (episode == null) return const SizedBox.shrink();
-    
+
     final isAvailableToDownload = result?.hasNextEpisode == true;
     final message = result?.message;
-    
+
     return Align(
       alignment: Alignment.bottomRight,
       child: Padding(
@@ -1059,8 +1105,8 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
                   child: Row(
                     children: [
                       Icon(
-                        isAvailableToDownload 
-                            ? Icons.download_rounded 
+                        isAvailableToDownload
+                            ? Icons.download_rounded
                             : Icons.schedule_rounded,
                         color: theme.colorScheme.secondary,
                         size: 20,
@@ -1068,7 +1114,9 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
                       const SizedBox(width: AppSpacing.sm),
                       Expanded(
                         child: Text(
-                          isAvailableToDownload ? 'Next Episode Available' : 'Up Next',
+                          isAvailableToDownload
+                              ? 'Next Episode Available'
+                              : 'Up Next',
                           style: theme.textTheme.titleSmall?.copyWith(
                             color: Colors.white,
                             fontWeight: FontWeight.w600,
@@ -1145,7 +1193,10 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
                           flex: 2,
                           child: FilledButton.icon(
                             onPressed: _onStreamNextEpisode,
-                            icon: const Icon(Icons.play_circle_outline_rounded, size: 20),
+                            icon: const Icon(
+                              Icons.play_circle_outline_rounded,
+                              size: 20,
+                            ),
                             label: const Text('Stream'),
                             style: FilledButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 12),
@@ -1167,30 +1218,35 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   Future<void> _onStreamNextEpisode() async {
     debugPrint('[Streaming] Stream button pressed');
     final episode = _nextEpisodeFromTmdb;
-    debugPrint('[Streaming] Episode: ${episode?.episodeCode}, IMDB: $_currentImdbId');
-    
+    debugPrint(
+      '[Streaming] Episode: ${episode?.episodeCode}, IMDB: $_currentImdbId',
+    );
+
     if (episode == null || _currentImdbId == null) {
       debugPrint('[Streaming] Missing episode or IMDB ID, canceling');
       _onCancelNextEpisode();
       return;
     }
-    
+
     final autoDownloadService = ref.read(autoDownloadServiceProvider);
     final settings = ref.read(settingsProvider);
-    final quality = widget.file.quality ?? ref.read(autoDownloadProvider).defaultQuality;
-    
-    debugPrint('[Streaming] Searching for torrent: S${episode.seasonNumber}E${episode.episodeNumber} quality: $quality');
-    
+    final quality =
+        widget.file.quality ?? ref.read(autoDownloadProvider).defaultQuality;
+
+    debugPrint(
+      '[Streaming] Searching for torrent: S${episode.seasonNumber}E${episode.episodeNumber} quality: $quality',
+    );
+
     // Dismiss overlay immediately so user sees progress
     _onCancelNextEpisode();
-    
+
     // Show searching indicator
     _showStreamingStatus(
       status: StreamingStatus.searching,
       message: 'Finding torrent...',
       episodeCode: episode.episodeCode,
     );
-    
+
     // Find torrent for the episode
     final torrent = await autoDownloadService.findTorrentForEpisode(
       imdbId: _currentImdbId!,
@@ -1198,11 +1254,11 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       episode: episode.episodeNumber,
       preferredQuality: quality,
     );
-    
+
     if (!mounted) return;
-    
+
     debugPrint('[Streaming] Torrent found: ${torrent?.title ?? "null"}');
-    
+
     if (torrent == null) {
       _showStreamingStatus(
         status: StreamingStatus.error,
@@ -1211,12 +1267,16 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       );
       return;
     }
-    
-    debugPrint('[Streaming] Starting stream download: ${torrent.magnetUrl.substring(0, 50)}...');
+
+    debugPrint(
+      '[Streaming] Starting stream download: ${torrent.magnetUrl.substring(0, 50)}...',
+    );
     if (torrent.fileIdx != null) {
-      debugPrint('[Streaming] Season pack detected - will select file index: ${torrent.fileIdx}');
+      debugPrint(
+        '[Streaming] Season pack detected - will select file index: ${torrent.fileIdx}',
+      );
     }
-    
+
     // Start download with sequential mode for streaming
     final success = await autoDownloadService.downloadNextEpisode(
       magnetLink: torrent.magnetUrl,
@@ -1224,30 +1284,32 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       infoHash: torrent.hash,
       fileIdx: torrent.fileIdx,
     );
-    
+
     if (!mounted) return;
-    
+
     debugPrint('[Streaming] Stream started: $success');
-    
+
     if (success) {
       // Track the show for future auto-downloads
       if (_currentShowId != null) {
-        ref.read(autoDownloadProvider.notifier).trackShow(
-          showId: _currentShowId!,
-          imdbId: _currentImdbId,
-          showName: widget.file.showName ?? '',
-          season: episode.seasonNumber,
-          episode: episode.episodeNumber,
-          quality: torrent.quality,
-        );
+        ref
+            .read(autoDownloadProvider.notifier)
+            .trackShow(
+              showId: _currentShowId!,
+              imdbId: _currentImdbId,
+              showName: widget.file.showName ?? '',
+              season: episode.seasonNumber,
+              episode: episode.episodeNumber,
+              quality: torrent.quality,
+            );
       }
-      
+
       // Track that we started downloading this episode
       setState(() {
         _nextEpisodeDownloadStarted = true;
         _downloadingEpisode = episode;
       });
-      
+
       // Show buffering status
       _showStreamingStatus(
         status: StreamingStatus.buffering,
@@ -1255,7 +1317,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         episodeCode: episode.episodeCode,
         progress: 0.0,
       );
-      
+
       // Start monitoring stream readiness for next episode
       _monitorNextEpisodeStream(torrent.magnetUrl, episode);
     } else {
@@ -1268,26 +1330,30 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   }
 
   /// Monitor streaming progress for the next episode
-  Future<void> _monitorNextEpisodeStream(String magnetUrl, Episode episode) async {
+  Future<void> _monitorNextEpisodeStream(
+    String magnetUrl,
+    Episode episode,
+  ) async {
     final qbtService = ref.read(qbApiServiceProvider);
-    
+
     // Wait a moment for qBittorrent to process the magnet
     await Future.delayed(const Duration(seconds: 3));
-    
+
     // Poll for torrent progress
-    for (int i = 0; i < 120; i++) { // Max 10 minutes
+    for (int i = 0; i < 120; i++) {
+      // Max 10 minutes
       await Future.delayed(const Duration(seconds: 5));
-      
+
       if (!mounted) return;
-      
+
       // Find the torrent by matching the magnet hash
       final torrents = await qbtService.getTorrents();
-      final torrent = torrents.firstWhereOrNull((t) => 
-        magnetUrl.toLowerCase().contains(t.hash.toLowerCase())
+      final torrent = torrents.firstWhereOrNull(
+        (t) => magnetUrl.toLowerCase().contains(t.hash.toLowerCase()),
       );
-      
+
       if (torrent == null) continue;
-      
+
       // Update progress in the indicator
       _showStreamingStatus(
         status: StreamingStatus.buffering,
@@ -1295,10 +1361,13 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         episodeCode: episode.episodeCode,
         progress: torrent.progress,
       );
-      
+
       // Check if ready for streaming
-      final isReady = await qbtService.isReadyForStreaming(torrent.hash, minProgress: 0.05);
-      
+      final isReady = await qbtService.isReadyForStreaming(
+        torrent.hash,
+        minProgress: 0.05,
+      );
+
       if (isReady && mounted) {
         // Update the next episode to the downloaded file
         final videoFile = await _findVideoFileInPath(torrent.contentPath);
@@ -1307,7 +1376,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
             _nextEpisode = videoFile;
             _nextEpisodeFromTmdb = null; // Clear TMDB version
           });
-          
+
           // Show ready status
           _showStreamingStatus(
             status: StreamingStatus.ready,
@@ -1318,7 +1387,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         return;
       }
     }
-    
+
     // Timeout - dismiss indicator
     _dismissStreamingStatus();
   }
@@ -1328,7 +1397,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     try {
       final fileOrDir = FileSystemEntity.typeSync(contentPath);
       List<File> videoFiles = [];
-      
+
       if (fileOrDir == FileSystemEntityType.file) {
         final ext = contentPath.split('.').last.toLowerCase();
         if (videoExtensions.contains(ext)) {
@@ -1345,13 +1414,13 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
           }
         }
       }
-      
+
       if (videoFiles.isEmpty) return null;
-      
+
       videoFiles.sort((a, b) => b.lengthSync().compareTo(a.lengthSync()));
       final largestFile = videoFiles.first;
       final stat = largestFile.statSync();
-      
+
       return LocalMediaFile(
         path: largestFile.path,
         fileName: largestFile.path.split(Platform.pathSeparator).last,
@@ -1436,9 +1505,10 @@ class _SkipRippleIndicatorState extends State<_SkipRippleIndicator>
       vsync: this,
       duration: const Duration(milliseconds: 460),
     );
-    _scale = Tween<double>(begin: 0.7, end: 1.15).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic),
-    );
+    _scale = Tween<double>(
+      begin: 0.7,
+      end: 1.15,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
     _opacity = TweenSequence<double>([
       TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.0), weight: 20),
       TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.0), weight: 50),
@@ -1472,7 +1542,11 @@ class _SkipRippleIndicatorState extends State<_SkipRippleIndicator>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (!widget.forward) ...[
-                    Icon(Icons.replay_10_rounded, color: Colors.white, size: 34),
+                    Icon(
+                      Icons.replay_10_rounded,
+                      color: Colors.white,
+                      size: 34,
+                    ),
                     const SizedBox(width: 6),
                     const Text(
                       '10s',
@@ -1492,7 +1566,11 @@ class _SkipRippleIndicatorState extends State<_SkipRippleIndicator>
                       ),
                     ),
                     const SizedBox(width: 6),
-                    Icon(Icons.forward_10_rounded, color: Colors.white, size: 34),
+                    Icon(
+                      Icons.forward_10_rounded,
+                      color: Colors.white,
+                      size: 34,
+                    ),
                   ],
                 ],
               ),

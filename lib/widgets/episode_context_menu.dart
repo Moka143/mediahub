@@ -28,11 +28,13 @@ class EpisodeContextMenu extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isWatched = ref.watch(isEpisodeWatchedProvider((
-      showId: showId,
-      season: seasonNumber,
-      episode: episodeNumber,
-    )));
+    final isWatched = ref.watch(
+      isEpisodeWatchedProvider((
+        showId: showId,
+        season: seasonNumber,
+        episode: episodeNumber,
+      )),
+    );
 
     return GestureDetector(
       onSecondaryTapDown: (details) {
@@ -44,7 +46,10 @@ class EpisodeContextMenu extends ConsumerWidget {
         _showContextMenu(
           context,
           ref,
-          Offset(position.dx + box.size.width / 2, position.dy + box.size.height / 2),
+          Offset(
+            position.dx + box.size.width / 2,
+            position.dy + box.size.height / 2,
+          ),
           isWatched,
         );
       },
@@ -85,7 +90,9 @@ class EpisodeContextMenu extends ConsumerWidget {
           child: Row(
             children: [
               Icon(
-                isWatched ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+                isWatched
+                    ? Icons.visibility_off_rounded
+                    : Icons.visibility_rounded,
                 size: 20,
               ),
               const SizedBox(width: AppSpacing.sm),
@@ -113,17 +120,14 @@ class EpisodeContextMenu extends ConsumerWidget {
           onPlay?.call();
           break;
         case 'toggle_watched':
-          ref.read(manualWatchedProvider.notifier).toggleEpisodeWatched(
-                showId,
-                seasonNumber,
-                episodeNumber,
-              );
+          ref
+              .read(manualWatchedProvider.notifier)
+              .toggleEpisodeWatched(showId, seasonNumber, episodeNumber);
           break;
         case 'mark_season':
-          ref.read(manualWatchedProvider.notifier).markSeasonWatched(
-                showId,
-                seasonNumber,
-              );
+          ref
+              .read(manualWatchedProvider.notifier)
+              .markSeasonWatched(showId, seasonNumber);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Season $seasonNumber marked as watched'),
@@ -152,7 +156,8 @@ class SeasonContextMenu extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final manualWatched = ref.watch(manualWatchedProvider);
-    final isWatched = manualWatched.isSeasonWatched(showId, seasonNumber) ||
+    final isWatched =
+        manualWatched.isSeasonWatched(showId, seasonNumber) ||
         manualWatched.isShowWatched(showId);
 
     return GestureDetector(
@@ -165,7 +170,10 @@ class SeasonContextMenu extends ConsumerWidget {
         _showContextMenu(
           context,
           ref,
-          Offset(position.dx + box.size.width / 2, position.dy + box.size.height / 2),
+          Offset(
+            position.dx + box.size.width / 2,
+            position.dy + box.size.height / 2,
+          ),
           isWatched,
         );
       },
@@ -193,13 +201,17 @@ class SeasonContextMenu extends ConsumerWidget {
           child: Row(
             children: [
               Icon(
-                isWatched ? Icons.visibility_off_rounded : Icons.done_all_rounded,
+                isWatched
+                    ? Icons.visibility_off_rounded
+                    : Icons.done_all_rounded,
                 size: 20,
               ),
               const SizedBox(width: AppSpacing.sm),
-              Text(isWatched
-                  ? 'Mark Season $seasonNumber as Unwatched'
-                  : 'Mark Season $seasonNumber as Watched'),
+              Text(
+                isWatched
+                    ? 'Mark Season $seasonNumber as Unwatched'
+                    : 'Mark Season $seasonNumber as Watched',
+              ),
             ],
           ),
         ),
@@ -210,10 +222,9 @@ class SeasonContextMenu extends ConsumerWidget {
       switch (value) {
         case 'toggle_watched':
           if (isWatched) {
-            ref.read(manualWatchedProvider.notifier).markSeasonUnwatched(
-                  showId,
-                  seasonNumber,
-                );
+            ref
+                .read(manualWatchedProvider.notifier)
+                .markSeasonUnwatched(showId, seasonNumber);
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text('Season $seasonNumber marked as unwatched'),
@@ -221,10 +232,9 @@ class SeasonContextMenu extends ConsumerWidget {
               ),
             );
           } else {
-            ref.read(manualWatchedProvider.notifier).markSeasonWatched(
-                  showId,
-                  seasonNumber,
-                );
+            ref
+                .read(manualWatchedProvider.notifier)
+                .markSeasonWatched(showId, seasonNumber);
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text('Season $seasonNumber marked as watched'),
@@ -266,7 +276,10 @@ class ShowContextMenu extends ConsumerWidget {
         _showContextMenu(
           context,
           ref,
-          Offset(position.dx + box.size.width / 2, position.dy + box.size.height / 2),
+          Offset(
+            position.dx + box.size.width / 2,
+            position.dy + box.size.height / 2,
+          ),
           isWatched,
         );
       },
@@ -294,11 +307,15 @@ class ShowContextMenu extends ConsumerWidget {
           child: Row(
             children: [
               Icon(
-                isWatched ? Icons.visibility_off_rounded : Icons.done_all_rounded,
+                isWatched
+                    ? Icons.visibility_off_rounded
+                    : Icons.done_all_rounded,
                 size: 20,
               ),
               const SizedBox(width: AppSpacing.sm),
-              Text(isWatched ? 'Mark Show as Unwatched' : 'Mark Show as Watched'),
+              Text(
+                isWatched ? 'Mark Show as Unwatched' : 'Mark Show as Watched',
+              ),
             ],
           ),
         ),
@@ -336,11 +353,7 @@ class WatchedBadge extends StatelessWidget {
   final bool isWatched;
   final double size;
 
-  const WatchedBadge({
-    super.key,
-    required this.isWatched,
-    this.size = 20,
-  });
+  const WatchedBadge({super.key, required this.isWatched, this.size = 20});
 
   @override
   Widget build(BuildContext context) {

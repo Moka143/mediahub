@@ -51,7 +51,9 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
       if (response.streams.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No streams available for this movie')),
+            const SnackBar(
+              content: Text('No streams available for this movie'),
+            ),
           );
         }
         return;
@@ -63,14 +65,15 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
           title: movieDetails.title,
           subtitle: movieDetails.year,
           streams: response.streams,
-          onSelect: (stream, isStreaming) => _downloadStream(stream, movieDetails, isStreaming: isStreaming),
+          onSelect: (stream, isStreaming) =>
+              _downloadStream(stream, movieDetails, isStreaming: isStreaming),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load streams: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to load streams: $e')));
       }
     } finally {
       if (mounted) {
@@ -79,7 +82,11 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
     }
   }
 
-  Future<void> _downloadStream(TorrentioStream stream, Movie movie, {bool isStreaming = false}) async {
+  Future<void> _downloadStream(
+    TorrentioStream stream,
+    Movie movie, {
+    bool isStreaming = false,
+  }) async {
     final connectionState = ref.read(connection_provider.connectionProvider);
 
     // Use the global ScaffoldMessenger
@@ -127,7 +134,9 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
         // For streaming, show a different message and start monitoring
         messenger.showSnackBar(
           SnackBar(
-            content: Text('Starting stream for "${movie.title}" - playback will begin when ready...'),
+            content: Text(
+              'Starting stream for "${movie.title}" - playback will begin when ready...',
+            ),
             backgroundColor: AppColors.info,
             duration: const Duration(seconds: 5),
             action: SnackBarAction(
@@ -136,12 +145,14 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
               onPressed: () {
                 messenger.hideCurrentSnackBar();
                 containerRef.read(currentTabIndexProvider.notifier).set(0);
-                rootNavigatorKey.currentState?.popUntil((route) => route.isFirst);
+                rootNavigatorKey.currentState?.popUntil(
+                  (route) => route.isFirst,
+                );
               },
             ),
           ),
         );
-        
+
         // Start monitoring for streaming readiness
         setState(() => _isStreaming = true);
         _monitorStreamingProgress(stream, movie);
@@ -157,7 +168,9 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
               onPressed: () {
                 messenger.hideCurrentSnackBar();
                 containerRef.read(currentTabIndexProvider.notifier).set(0);
-                rootNavigatorKey.currentState?.popUntil((route) => route.isFirst);
+                rootNavigatorKey.currentState?.popUntil(
+                  (route) => route.isFirst,
+                );
               },
             ),
           ),
@@ -174,7 +187,10 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
     }
   }
 
-  Future<void> _monitorStreamingProgress(TorrentioStream stream, Movie movie) async {
+  Future<void> _monitorStreamingProgress(
+    TorrentioStream stream,
+    Movie movie,
+  ) async {
     final apiService = ref.read(connection_provider.qbApiServiceProvider);
     // Use root messenger/navigator so we keep working after the screen is popped
     final messenger = rootScaffoldMessengerKey.currentState;
@@ -186,14 +202,17 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
 
         // Find the torrent by hash
         final torrents = await apiService.getTorrents();
-        final torrent = torrents.firstWhereOrNull((t) =>
-            stream.magnetUri.toLowerCase().contains(t.hash.toLowerCase()));
+        final torrent = torrents.firstWhereOrNull(
+          (t) => stream.magnetUri.toLowerCase().contains(t.hash.toLowerCase()),
+        );
 
         if (torrent == null) continue;
 
         // Check if ready for streaming (≥5 % of beginning downloaded)
-        final isReady =
-            await apiService.isReadyForStreaming(torrent.hash, minProgress: 0.05);
+        final isReady = await apiService.isReadyForStreaming(
+          torrent.hash,
+          minProgress: 0.05,
+        );
 
         if (isReady) {
           messenger?.hideCurrentSnackBar();
@@ -227,7 +246,8 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
           messenger?.showSnackBar(
             SnackBar(
               content: Text(
-                  'Buffering "${movie.title}"... ${(torrent.progress * 100).toStringAsFixed(1)}%'),
+                'Buffering "${movie.title}"... ${(torrent.progress * 100).toStringAsFixed(1)}%',
+              ),
               backgroundColor: AppColors.info,
               duration: const Duration(seconds: 5),
             ),
@@ -239,7 +259,8 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
       messenger?.showSnackBar(
         SnackBar(
           content: Text(
-              'Streaming timeout for "${movie.title}". Download continues in background.'),
+            'Streaming timeout for "${movie.title}". Download continues in background.',
+          ),
           backgroundColor: AppColors.warning,
           duration: const Duration(seconds: 5),
         ),
@@ -267,10 +288,8 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
     // Use rootNavigatorKey — works whether the screen is mounted or not
     rootNavigatorKey.currentState?.push(
       MaterialPageRoute(
-        builder: (_) => VideoPlayerScreen(
-          file: videoFile,
-          movieImdbId: movie.imdbId,
-        ),
+        builder: (_) =>
+            VideoPlayerScreen(file: videoFile, movieImdbId: movie.imdbId),
       ),
     );
   }
@@ -279,9 +298,9 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
     try {
       final path = contentPath;
       final fileOrDir = FileSystemEntity.typeSync(path);
-      
+
       List<File> videoFiles = [];
-      
+
       if (fileOrDir == FileSystemEntityType.file) {
         // It's a file, check if it's a video
         final ext = path.split('.').last.toLowerCase();
@@ -300,14 +319,14 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
           }
         }
       }
-      
+
       if (videoFiles.isEmpty) return null;
-      
+
       // Pick the largest video file (usually the main content)
       videoFiles.sort((a, b) => b.lengthSync().compareTo(a.lengthSync()));
       final largestFile = videoFiles.first;
       final stat = largestFile.statSync();
-      
+
       return LocalMediaFile(
         path: largestFile.path,
         fileName: largestFile.path.split(Platform.pathSeparator).last,
@@ -334,12 +353,17 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.error_outline, size: 64, color: theme.colorScheme.error),
+              Icon(
+                Icons.error_outline,
+                size: 64,
+                color: theme.colorScheme.error,
+              ),
               SizedBox(height: AppSpacing.md),
               Text('Failed to load movie details'),
               SizedBox(height: AppSpacing.md),
               FilledButton(
-                onPressed: () => ref.invalidate(movieDetailsProvider(widget.movie.id)),
+                onPressed: () =>
+                    ref.invalidate(movieDetailsProvider(widget.movie.id)),
                 child: const Text('Retry'),
               ),
             ],
@@ -353,7 +377,9 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
     final theme = Theme.of(context);
     final similarMovies = ref.watch(similarMoviesProvider(movie.id));
     // Don't show as "in library" while actively streaming
-    final localFile = _isStreaming ? null : ref.watch(movieLocalFileProvider(movie.title));
+    final localFile = _isStreaming
+        ? null
+        : ref.watch(movieLocalFileProvider(movie.title));
 
     return CustomScrollView(
       slivers: [
@@ -441,7 +467,8 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
                               fontWeight: FontWeight.bold,
                             ),
                           ),
-                          if (movie.tagline != null && movie.tagline!.isNotEmpty) ...[
+                          if (movie.tagline != null &&
+                              movie.tagline!.isNotEmpty) ...[
                             SizedBox(height: AppSpacing.xs),
                             Text(
                               movie.tagline!,
@@ -491,13 +518,16 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
                                   ),
                                   decoration: BoxDecoration(
                                     color: theme.colorScheme.primaryContainer,
-                                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                                    borderRadius: BorderRadius.circular(
+                                      AppRadius.sm,
+                                    ),
                                   ),
                                   child: Text(
                                     genre,
                                     style: TextStyle(
                                       fontSize: 11,
-                                      color: theme.colorScheme.onPrimaryContainer,
+                                      color:
+                                          theme.colorScheme.onPrimaryContainer,
                                     ),
                                   ),
                                 );
@@ -525,24 +555,37 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
                                   builder: (context) => VideoPlayerScreen(
                                     file: localFile,
                                     movieImdbId: movie.imdbId,
-                                    startPosition: localFile.hasProgress ? localFile.progress?.position : null,
+                                    startPosition: localFile.hasProgress
+                                        ? localFile.progress?.position
+                                        : null,
                                   ),
                                 ),
                               );
                             },
                             icon: const Icon(Icons.play_arrow_rounded),
-                            label: Text(localFile.hasProgress && !localFile.isWatched ? 'Continue' : 'Play'),
+                            label: Text(
+                              localFile.hasProgress && !localFile.isWatched
+                                  ? 'Continue'
+                                  : 'Play',
+                            ),
                             style: FilledButton.styleFrom(
-                              padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
+                              padding: EdgeInsets.symmetric(
+                                vertical: AppSpacing.md,
+                              ),
                               backgroundColor: AppColors.success,
                             ),
                           ),
                         ),
                         SizedBox(width: AppSpacing.sm),
                         FilledButton.tonal(
-                          onPressed: _isLoadingStreams ? null : () => _onDownloadTap(movie),
+                          onPressed: _isLoadingStreams
+                              ? null
+                              : () => _onDownloadTap(movie),
                           style: FilledButton.styleFrom(
-                            padding: EdgeInsets.symmetric(vertical: AppSpacing.md, horizontal: AppSpacing.md),
+                            padding: EdgeInsets.symmetric(
+                              vertical: AppSpacing.md,
+                              horizontal: AppSpacing.md,
+                            ),
                           ),
                           child: const Icon(Icons.download_rounded),
                         ),
@@ -553,7 +596,9 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton.icon(
-                      onPressed: _isLoadingStreams ? null : () => _onDownloadTap(movie),
+                      onPressed: _isLoadingStreams
+                          ? null
+                          : () => _onDownloadTap(movie),
                       icon: _isLoadingStreams
                           ? SizedBox(
                               width: 20,
@@ -564,7 +609,9 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
                               ),
                             )
                           : const Icon(Icons.download_rounded),
-                      label: Text(_isLoadingStreams ? 'Loading streams...' : 'Download'),
+                      label: Text(
+                        _isLoadingStreams ? 'Loading streams...' : 'Download',
+                      ),
                       style: FilledButton.styleFrom(
                         padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
                       ),
@@ -613,7 +660,9 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
                                 itemBuilder: (context, index) {
                                   final similar = movies[index];
                                   return Padding(
-                                    padding: EdgeInsets.only(right: AppSpacing.md),
+                                    padding: EdgeInsets.only(
+                                      right: AppSpacing.md,
+                                    ),
                                     child: MovieCard(
                                       movie: similar,
                                       width: 140,
@@ -621,7 +670,10 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
                                       onTap: () {
                                         Navigator.of(context).push(
                                           MaterialPageRoute(
-                                            builder: (context) => MovieDetailsScreen(movie: similar),
+                                            builder: (context) =>
+                                                MovieDetailsScreen(
+                                                  movie: similar,
+                                                ),
                                           ),
                                         );
                                       },

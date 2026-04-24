@@ -39,11 +39,13 @@ class EpisodeListItem extends ConsumerWidget {
     // Check if episode is available locally (skip during active streaming to avoid double player)
     LocalMediaFile? localFile;
     if (showName != null && !isStreaming) {
-      localFile = ref.watch(episodeLocalFileProvider((
-        showName: showName!,
-        season: episode.seasonNumber,
-        episode: episode.episodeNumber,
-      )));
+      localFile = ref.watch(
+        episodeLocalFileProvider((
+          showName: showName!,
+          season: episode.seasonNumber,
+          episode: episode.episodeNumber,
+        )),
+      );
     }
 
     return InkWell(
@@ -74,7 +76,9 @@ class EpisodeListItem extends ConsumerWidget {
                           vertical: 2,
                         ),
                         decoration: BoxDecoration(
-                          color: theme.colorScheme.primary.withAlpha(AppOpacity.light),
+                          color: theme.colorScheme.primary.withAlpha(
+                            AppOpacity.light,
+                          ),
                           borderRadius: BorderRadius.circular(AppRadius.xs),
                         ),
                         child: Text(
@@ -135,7 +139,9 @@ class EpisodeListItem extends ConsumerWidget {
                           _formatDate(episode.airDate!),
                           style: TextStyle(
                             fontSize: 12,
-                            color: hasAired ? appColors.mutedText : appColors.warning,
+                            color: hasAired
+                                ? appColors.mutedText
+                                : appColors.warning,
                           ),
                         ),
                       ],
@@ -159,7 +165,8 @@ class EpisodeListItem extends ConsumerWidget {
                   ),
 
                   // Overview
-                  if (episode.overview != null && episode.overview!.isNotEmpty) ...[
+                  if (episode.overview != null &&
+                      episode.overview!.isNotEmpty) ...[
                     const SizedBox(height: AppSpacing.sm),
                     Text(
                       episode.overview!,
@@ -227,7 +234,11 @@ class EpisodeListItem extends ConsumerWidget {
     );
   }
 
-  Widget _buildActionButtons(BuildContext context, bool hasAired, LocalMediaFile? localFile) {
+  Widget _buildActionButtons(
+    BuildContext context,
+    bool hasAired,
+    LocalMediaFile? localFile,
+  ) {
     final appColors = context.appColors;
 
     // If file is available locally, show play button
@@ -381,9 +392,7 @@ class CompactEpisodeItem extends StatelessWidget {
       ),
       title: Text(
         episode.name,
-        style: TextStyle(
-          color: hasAired ? null : appColors.mutedText,
-        ),
+        style: TextStyle(color: hasAired ? null : appColors.mutedText),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),

@@ -104,7 +104,8 @@ class WatchProgress {
       posterPath: json['poster_path'] as String?,
       position: Duration(milliseconds: json['position_ms'] as int? ?? 0),
       duration: Duration(milliseconds: json['duration_ms'] as int? ?? 0),
-      lastWatched: DateTime.tryParse(json['last_watched'] as String? ?? '') ??
+      lastWatched:
+          DateTime.tryParse(json['last_watched'] as String? ?? '') ??
           DateTime.now(),
       isCompleted: json['is_completed'] as bool? ?? false,
     );

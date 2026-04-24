@@ -103,6 +103,5 @@ class Episode {
   int get hashCode => id.hashCode;
 
   @override
-  String toString() =>
-      'Episode(id: $id, $episodeCode, name: $name)';
+  String toString() => 'Episode(id: $id, $episodeCode, name: $name)';
 }

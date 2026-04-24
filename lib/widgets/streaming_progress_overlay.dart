@@ -48,7 +48,8 @@ class StreamingProgressOverlay extends StatefulWidget {
   });
 
   @override
-  State<StreamingProgressOverlay> createState() => _StreamingProgressOverlayState();
+  State<StreamingProgressOverlay> createState() =>
+      _StreamingProgressOverlayState();
 }
 
 class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
@@ -64,23 +65,15 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
       duration: const Duration(milliseconds: 250),
       vsync: this,
     );
-    
-    _scaleAnimation = Tween<double>(
-      begin: 0.8,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeOutCubic,
-    ));
-    
-    _opacityAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeOut,
-    ));
-    
+
+    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeOutCubic),
+    );
+
+    _opacityAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
+    );
+
     _animationController.forward();
   }
 
@@ -107,7 +100,8 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
       content = ValueListenableBuilder<StreamingOverlayData>(
         valueListenable: widget.dataNotifier!,
         builder: (context, data, _) => _buildContent(
-          theme, accentColor,
+          theme,
+          accentColor,
           title: data.title,
           subtitle: data.subtitle,
           progress: data.progress,
@@ -116,7 +110,8 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
       );
     } else {
       content = _buildContent(
-        theme, accentColor,
+        theme,
+        accentColor,
         title: widget.title,
         subtitle: widget.subtitle,
         progress: widget.progress,
@@ -232,12 +227,16 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
                   child: isIndeterminate
                       ? LinearProgressIndicator(
                           backgroundColor: accentColor.withOpacity(0.15),
-                          valueColor: AlwaysStoppedAnimation<Color>(accentColor),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            accentColor,
+                          ),
                         )
                       : LinearProgressIndicator(
                           value: progress ?? 0,
                           backgroundColor: accentColor.withOpacity(0.15),
-                          valueColor: AlwaysStoppedAnimation<Color>(accentColor),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            accentColor,
+                          ),
                         ),
                 ),
               ),
@@ -273,9 +272,7 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
               onPressed: widget.onViewDownloads,
               icon: const Icon(Icons.download_rounded, size: 18),
               label: const Text('View Downloads'),
-              style: TextButton.styleFrom(
-                foregroundColor: accentColor,
-              ),
+              style: TextButton.styleFrom(foregroundColor: accentColor),
             ),
           ),
       ],
@@ -301,11 +298,7 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
               valueColor: AlwaysStoppedAnimation<Color>(accentColor),
             ),
           ),
-          Icon(
-            Icons.stream_rounded,
-            size: 18,
-            color: accentColor,
-          ),
+          Icon(Icons.stream_rounded, size: 18, color: accentColor),
         ],
       ),
     );
@@ -326,7 +319,7 @@ OverlayEntry? showStreamingOverlay(
 }) {
   final overlay = Overlay.of(context);
   OverlayEntry? entry;
-  
+
   entry = OverlayEntry(
     builder: (context) => Material(
       color: Colors.black.withOpacity(0.3),
@@ -345,7 +338,7 @@ OverlayEntry? showStreamingOverlay(
       ),
     ),
   );
-  
+
   overlay.insert(entry);
   return entry;
 }
@@ -356,7 +349,7 @@ OverlayEntry? showStreamingOverlay(
 /// title/subtitle/progress without recreating the widget (avoids animation
 /// flicker).
 ({OverlayEntry entry, ValueNotifier<StreamingOverlayData> data})
-    showUpdatableStreamingOverlay(
+showUpdatableStreamingOverlay(
   BuildContext context, {
   required String title,
   String? subtitle,
@@ -433,15 +426,15 @@ class _StreamingToastState extends State<StreamingToast>
       duration: const Duration(milliseconds: 300),
       vsync: this,
     );
-    
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 1),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeOutCubic,
-    ));
-    
+
+    _slideAnimation = Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
+        .animate(
+          CurvedAnimation(
+            parent: _animationController,
+            curve: Curves.easeOutCubic,
+          ),
+        );
+
     _animationController.forward();
     _startDismissTimer();
   }
@@ -467,7 +460,7 @@ class _StreamingToastState extends State<StreamingToast>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final bgColor = widget.backgroundColor ?? theme.colorScheme.inverseSurface;
-    
+
     return SlideTransition(
       position: _slideAnimation,
       child: SafeArea(

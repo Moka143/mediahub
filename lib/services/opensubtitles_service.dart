@@ -4,14 +4,17 @@ import 'package:flutter/foundation.dart';
 /// Service for fetching subtitles from OpenSubtitles v3 Stremio addon
 class OpenSubtitlesService {
   static const String _baseUrl = 'https://opensubtitles-v3.strem.io';
-  
+
   final Dio _dio;
 
-  OpenSubtitlesService() : _dio = Dio(BaseOptions(
-    baseUrl: _baseUrl,
-    connectTimeout: const Duration(seconds: 10),
-    receiveTimeout: const Duration(seconds: 15),
-  ));
+  OpenSubtitlesService()
+    : _dio = Dio(
+        BaseOptions(
+          baseUrl: _baseUrl,
+          connectTimeout: const Duration(seconds: 10),
+          receiveTimeout: const Duration(seconds: 15),
+        ),
+      );
 
   /// Fetch subtitles for a movie by IMDB ID
   Future<List<Subtitle>> getMovieSubtitles(String imdbId) async {
@@ -34,7 +37,7 @@ class OpenSubtitlesService {
       if (response.statusCode == 200 && response.data != null) {
         final data = response.data as Map<String, dynamic>;
         final subtitles = data['subtitles'] as List<dynamic>?;
-        
+
         if (subtitles == null || subtitles.isEmpty) {
           return [];
         }
@@ -57,27 +60,28 @@ class OpenSubtitlesService {
     required List<String> languages,
   }) async {
     final allSubtitles = await _getSubtitles(type, id);
-    
+
     if (languages.isEmpty) return allSubtitles;
-    
+
     // Sort by preferred languages (first in list = highest priority)
     final filtered = <Subtitle>[];
     for (final lang in languages) {
       filtered.addAll(
-        allSubtitles.where((s) => 
-          s.lang.toLowerCase() == lang.toLowerCase() ||
-          s.lang.toLowerCase().startsWith(lang.toLowerCase())
+        allSubtitles.where(
+          (s) =>
+              s.lang.toLowerCase() == lang.toLowerCase() ||
+              s.lang.toLowerCase().startsWith(lang.toLowerCase()),
         ),
       );
     }
-    
+
     // Add remaining subtitles at the end
     for (final sub in allSubtitles) {
       if (!filtered.contains(sub)) {
         filtered.add(sub);
       }
     }
-    
+
     return filtered;
   }
 
@@ -105,7 +109,7 @@ class Subtitle {
     // "url" contains the subtitle file URL
     // "id" is a unique identifier
     final lang = json['lang'] as String? ?? 'Unknown';
-    
+
     return Subtitle(
       id: json['id']?.toString() ?? '',
       url: json['url'] as String? ?? '',
@@ -180,7 +184,7 @@ class Subtitle {
       'uk': 'Ukrainian',
       'ukr': 'Ukrainian',
     };
-    
+
     return languageNames[code.toLowerCase()] ?? code.toUpperCase();
   }
 
@@ -250,19 +254,17 @@ class Subtitle {
       'uk': '🇺🇦',
       'ukr': '🇺🇦',
     };
-    
+
     return langToCountry[lang.toLowerCase()] ?? '🏳️';
   }
 
   @override
   String toString() => '$langName ($lang)';
-  
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is Subtitle &&
-          runtimeType == other.runtimeType &&
-          id == other.id;
+      other is Subtitle && runtimeType == other.runtimeType && id == other.id;
 
   @override
   int get hashCode => id.hashCode;

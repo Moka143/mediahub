@@ -17,13 +17,7 @@ import 'video_player_screen.dart';
 // Library Section Enum
 // ============================================================================
 
-enum LibrarySection {
-  all,
-  continueWatching,
-  recent,
-  movies,
-  shows,
-}
+enum LibrarySection { all, continueWatching, recent, movies, shows }
 
 // ============================================================================
 // Main Screen
@@ -87,7 +81,8 @@ class _WatchScreenState extends ConsumerState<WatchScreen> {
       allFiles: localFilesAsync.value ?? [],
     );
 
-    final hasFilteredResults = filteredData.continueWatching.isNotEmpty ||
+    final hasFilteredResults =
+        filteredData.continueWatching.isNotEmpty ||
         filteredData.recentDownloads.isNotEmpty ||
         filteredData.movies.isNotEmpty ||
         filteredData.shows.isNotEmpty;
@@ -226,9 +221,7 @@ class _WatchScreenState extends ConsumerState<WatchScreen> {
 
   void _playFile(LocalMediaFile file) {
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => VideoPlayerScreen(file: file),
-      ),
+      MaterialPageRoute(builder: (context) => VideoPlayerScreen(file: file)),
     );
   }
 
@@ -251,10 +244,8 @@ class _WatchScreenState extends ConsumerState<WatchScreen> {
 
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => VideoPlayerScreen(
-          file: file,
-          startPosition: progress.position,
-        ),
+        builder: (context) =>
+            VideoPlayerScreen(file: file, startPosition: progress.position),
       ),
     );
   }
@@ -344,8 +335,9 @@ class _LibrarySearchBar extends StatelessWidget {
                 )
               : null,
           filled: true,
-          fillColor:
-              theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+          fillColor: theme.colorScheme.surfaceContainerHighest.withValues(
+            alpha: 0.5,
+          ),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(AppRadius.md),
             borderSide: BorderSide.none,
@@ -356,10 +348,7 @@ class _LibrarySearchBar extends StatelessWidget {
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(AppRadius.md),
-            borderSide: BorderSide(
-              color: theme.colorScheme.primary,
-              width: 2,
-            ),
+            borderSide: BorderSide(color: theme.colorScheme.primary, width: 2),
           ),
           contentPadding: const EdgeInsets.symmetric(
             horizontal: AppSpacing.lg,
@@ -402,8 +391,9 @@ class _WatchScreenEmptyState extends StatelessWidget {
                 gradient: LinearGradient(
                   colors: [
                     theme.colorScheme.primaryContainer,
-                    theme.colorScheme.primaryContainer
-                        .withAlpha(AppOpacity.medium),
+                    theme.colorScheme.primaryContainer.withAlpha(
+                      AppOpacity.medium,
+                    ),
                   ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
@@ -491,7 +481,9 @@ class _LibraryHub extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final subtitle = allCount == 0
-        ? (hasQuery ? 'No matches in your library' : 'Your library is still empty')
+        ? (hasQuery
+              ? 'No matches in your library'
+              : 'Your library is still empty')
         : '$allCount items • Tap a tag to focus a section';
 
     return Padding(
@@ -555,10 +547,7 @@ class _LibraryHeader extends StatelessWidget {
           padding: const EdgeInsets.all(AppSpacing.sm),
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [
-                theme.colorScheme.primary,
-                theme.colorScheme.tertiary,
-              ],
+              colors: [theme.colorScheme.primary, theme.colorScheme.tertiary],
             ),
             borderRadius: BorderRadius.circular(AppRadius.sm),
           ),
@@ -723,10 +712,7 @@ class _LibraryChip extends StatelessWidget {
           decoration: BoxDecoration(
             color: background,
             borderRadius: BorderRadius.circular(AppRadius.full),
-            border: Border.all(
-              color: borderColor,
-              width: AppBorderWidth.thin,
-            ),
+            border: Border.all(color: borderColor, width: AppBorderWidth.thin),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -741,7 +727,11 @@ class _LibraryChip extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: AppSpacing.xs),
-              _CountPill(count: count, accent: foreground, isSelected: isSelected),
+              _CountPill(
+                count: count,
+                accent: foreground,
+                isSelected: isSelected,
+              ),
             ],
           ),
         ),
@@ -834,8 +824,9 @@ class _LibrarySectionContent extends StatelessWidget {
           emptyTitle: hasQuery
               ? 'No matches in Continue Watching'
               : 'Nothing to continue yet',
-          emptySubtitle:
-              hasQuery ? 'Try another title' : 'Resume watching to see items here',
+          emptySubtitle: hasQuery
+              ? 'Try another title'
+              : 'Resume watching to see items here',
           body: _ContinueWatchingStrip(
             items: continueWatching,
             onTap: onPlayProgress,
@@ -852,12 +843,10 @@ class _LibrarySectionContent extends StatelessWidget {
           isEmpty: recentDownloads.isEmpty,
           emptyIcon: Icons.download_for_offline_outlined,
           emptyTitle: hasQuery ? 'No recent matches' : 'No recent downloads',
-          emptySubtitle:
-              hasQuery ? 'Try another search' : 'New downloads will appear here',
-          body: _RecentDownloadsList(
-            files: recentDownloads,
-            onTap: onPlayFile,
-          ),
+          emptySubtitle: hasQuery
+              ? 'Try another search'
+              : 'New downloads will appear here',
+          body: _RecentDownloadsList(files: recentDownloads, onTap: onPlayFile),
         );
 
       case LibrarySection.movies:
@@ -1023,12 +1012,7 @@ class _FocusedSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionTag(
-          label: label,
-          icon: icon,
-          count: count,
-          accent: accent,
-        ),
+        _SectionTag(label: label, icon: icon, count: count, accent: accent),
         const SizedBox(height: AppSpacing.sm),
         body,
       ],
@@ -1076,10 +1060,7 @@ class _RecentDownloadsList extends StatelessWidget {
   final List<LocalMediaFile> files;
   final void Function(LocalMediaFile) onTap;
 
-  const _RecentDownloadsList({
-    required this.files,
-    required this.onTap,
-  });
+  const _RecentDownloadsList({required this.files, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -1090,10 +1071,7 @@ class _RecentDownloadsList extends StatelessWidget {
       separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
       itemBuilder: (context, index) {
         final file = files[index];
-        return LocalMediaListItem(
-          file: file,
-          onTap: () => onTap(file),
-        );
+        return LocalMediaListItem(file: file, onTap: () => onTap(file));
       },
     );
   }
@@ -1103,10 +1081,7 @@ class _MoviesList extends StatelessWidget {
   final List<LocalMediaFile> movies;
   final void Function(LocalMediaFile) onFileTap;
 
-  const _MoviesList({
-    required this.movies,
-    required this.onFileTap,
-  });
+  const _MoviesList({required this.movies, required this.onFileTap});
 
   @override
   Widget build(BuildContext context) {
@@ -1117,10 +1092,7 @@ class _MoviesList extends StatelessWidget {
       separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.sm),
       itemBuilder: (context, index) {
         final file = movies[index];
-        return LocalMediaListItem(
-          file: file,
-          onTap: () => onFileTap(file),
-        );
+        return LocalMediaListItem(file: file, onTap: () => onFileTap(file));
       },
     );
   }
@@ -1130,10 +1102,7 @@ class _ShowsList extends StatelessWidget {
   final List<ShowWithSeasons> shows;
   final void Function(LocalMediaFile) onFileTap;
 
-  const _ShowsList({
-    required this.shows,
-    required this.onFileTap,
-  });
+  const _ShowsList({required this.shows, required this.onFileTap});
 
   @override
   Widget build(BuildContext context) {
@@ -1144,10 +1113,7 @@ class _ShowsList extends StatelessWidget {
       separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
       itemBuilder: (context, index) {
         final showData = shows[index];
-        return ShowExpansionTile(
-          showData: showData,
-          onFileTap: onFileTap,
-        );
+        return ShowExpansionTile(showData: showData, onFileTap: onFileTap);
       },
     );
   }
@@ -1214,8 +1180,9 @@ class _AllSectionsView extends StatelessWidget {
           icon: Icons.download_done_rounded,
           count: recentDownloads.length,
           accent: appColors.success,
-          actionLabel:
-              recentDownloads.length > recentPreview.length ? 'View all' : null,
+          actionLabel: recentDownloads.length > recentPreview.length
+              ? 'View all'
+              : null,
           onAction: recentDownloads.length > recentPreview.length
               ? () => onSectionChanged(LibrarySection.recent)
               : null,
@@ -1266,7 +1233,9 @@ class _AllSectionsView extends StatelessWidget {
       return EmptyState(
         icon: Icons.movie_filter_outlined,
         title: hasQuery ? 'No matches found' : 'Nothing in your library yet',
-        subtitle: hasQuery ? 'Try a different search' : 'Download something to get started',
+        subtitle: hasQuery
+            ? 'Try a different search'
+            : 'Download something to get started',
         compact: true,
       );
     }

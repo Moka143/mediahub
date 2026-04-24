@@ -5,11 +5,7 @@ import '../../design/app_tokens.dart';
 
 /// A shimmer loading effect widget
 class ShimmerLoading extends StatefulWidget {
-  const ShimmerLoading({
-    super.key,
-    required this.child,
-    this.isLoading = true,
-  });
+  const ShimmerLoading({super.key, required this.child, this.isLoading = true});
 
   final Widget child;
   final bool isLoading;
@@ -53,21 +49,9 @@ class _ShimmerLoadingState extends State<ShimmerLoading>
               begin: Alignment.centerLeft,
               end: Alignment.centerRight,
               colors: isDark
-                  ? [
-                      Colors.grey[800]!,
-                      Colors.grey[700]!,
-                      Colors.grey[800]!,
-                    ]
-                  : [
-                      Colors.grey[300]!,
-                      Colors.grey[100]!,
-                      Colors.grey[300]!,
-                    ],
-              stops: [
-                0.0,
-                _controller.value,
-                1.0,
-              ],
+                  ? [Colors.grey[800]!, Colors.grey[700]!, Colors.grey[800]!]
+                  : [Colors.grey[300]!, Colors.grey[100]!, Colors.grey[300]!],
+              stops: [0.0, _controller.value, 1.0],
             ).createShader(bounds);
           },
           blendMode: BlendMode.srcATop,
@@ -194,17 +178,10 @@ class SkeletonCard extends StatelessWidget {
     );
 
     if (aspectRatio != null) {
-      return AspectRatio(
-        aspectRatio: aspectRatio!,
-        child: content,
-      );
+      return AspectRatio(aspectRatio: aspectRatio!, child: content);
     }
 
-    return SizedBox(
-      width: width,
-      height: height,
-      child: content,
-    );
+    return SizedBox(width: width, height: height, child: content);
   }
 }
 
@@ -234,9 +211,7 @@ class LoadingIndicator extends StatelessWidget {
           SizedBox(
             width: size,
             height: size,
-            child: CircularProgressIndicator(
-              strokeWidth: strokeWidth,
-            ),
+            child: CircularProgressIndicator(strokeWidth: strokeWidth),
           ),
           if (message != null) ...[
             const SizedBox(height: AppSpacing.lg),
@@ -273,10 +248,8 @@ class LoadingList extends StatelessWidget {
       child: ListView.builder(
         physics: const NeverScrollableScrollPhysics(),
         itemCount: itemCount,
-        itemBuilder: (context, index) => SkeletonListItem(
-          hasLeading: hasLeading,
-          hasSubtitle: hasSubtitle,
-        ),
+        itemBuilder: (context, index) =>
+            SkeletonListItem(hasLeading: hasLeading, hasSubtitle: hasSubtitle),
       ),
     );
   }
@@ -290,7 +263,7 @@ class SkeletonTorrentItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    
+
     return Container(
       margin: const EdgeInsets.symmetric(
         horizontal: AppSpacing.screenPadding,
@@ -327,14 +300,14 @@ class SkeletonTorrentItem extends StatelessWidget {
             ],
           ),
           const SizedBox(height: AppSpacing.lg),
-          
+
           // Progress bar
           SkeletonBox(
             height: 6,
             borderRadius: BorderRadius.circular(AppRadius.full),
           ),
           const SizedBox(height: AppSpacing.md),
-          
+
           // Stats row
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -352,10 +325,7 @@ class SkeletonTorrentItem extends StatelessWidget {
 
 /// Skeleton loading list for torrents
 class TorrentSkeletonList extends StatelessWidget {
-  const TorrentSkeletonList({
-    super.key,
-    this.itemCount = 5,
-  });
+  const TorrentSkeletonList({super.key, this.itemCount = 5});
 
   final int itemCount;
 
@@ -373,11 +343,7 @@ class TorrentSkeletonList extends StatelessWidget {
 
 /// Skeleton placeholder for a show card
 class SkeletonShowCard extends StatelessWidget {
-  const SkeletonShowCard({
-    super.key,
-    this.width = 140,
-    this.height = 210,
-  });
+  const SkeletonShowCard({super.key, this.width = 140, this.height = 210});
 
   final double width;
   final double height;
@@ -386,7 +352,7 @@ class SkeletonShowCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    
+
     return Container(
       width: width,
       height: height,
@@ -435,11 +401,7 @@ class SkeletonShowCard extends StatelessWidget {
 
 /// Horizontal skeleton list for shows
 class ShowCardSkeletonRow extends StatelessWidget {
-  const ShowCardSkeletonRow({
-    super.key,
-    this.title,
-    this.itemCount = 6,
-  });
+  const ShowCardSkeletonRow({super.key, this.title, this.itemCount = 6});
 
   final String? title;
   final int itemCount;
@@ -467,7 +429,9 @@ class ShowCardSkeletonRow extends StatelessWidget {
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               physics: const NeverScrollableScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.screenPadding),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.screenPadding,
+              ),
               itemCount: itemCount,
               itemBuilder: (context, index) => Padding(
                 padding: const EdgeInsets.only(right: AppSpacing.md),

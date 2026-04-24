@@ -83,9 +83,7 @@ class Tracker {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is Tracker &&
-          runtimeType == other.runtimeType &&
-          url == other.url;
+      other is Tracker && runtimeType == other.runtimeType && url == other.url;
 
   @override
   int get hashCode => url.hashCode;

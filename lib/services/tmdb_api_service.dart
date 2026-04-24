@@ -17,20 +17,22 @@ class TmdbApiService {
   final String apiKey;
 
   TmdbApiService({required this.apiKey})
-      : _dio = Dio(BaseOptions(
+    : _dio = Dio(
+        BaseOptions(
           baseUrl: _baseUrl,
           connectTimeout: const Duration(seconds: 10),
           receiveTimeout: const Duration(seconds: 10),
-        ));
+        ),
+      );
 
   /// True when a non-empty API key is configured.
   bool get isConfigured => apiKey.isNotEmpty;
 
   /// Get common query parameters
   Map<String, dynamic> get _defaultParams => {
-        'api_key': apiKey,
-        'language': 'en-US',
-      };
+    'api_key': apiKey,
+    'language': 'en-US',
+  };
 
   /// Search for TV shows by query
   Future<List<Show>> searchShows(String query, {int page = 1}) async {
@@ -57,10 +59,7 @@ class TmdbApiService {
     try {
       final response = await _dio.get(
         '/tv/popular',
-        queryParameters: {
-          ..._defaultParams,
-          'page': page,
-        },
+        queryParameters: {..._defaultParams, 'page': page},
       );
 
       final results = response.data['results'] as List<dynamic>;
@@ -78,10 +77,7 @@ class TmdbApiService {
     try {
       final response = await _dio.get(
         '/trending/tv/$timeWindow',
-        queryParameters: {
-          ..._defaultParams,
-          'page': page,
-        },
+        queryParameters: {..._defaultParams, 'page': page},
       );
 
       final results = response.data['results'] as List<dynamic>;
@@ -96,10 +92,7 @@ class TmdbApiService {
     try {
       final response = await _dio.get(
         '/tv/top_rated',
-        queryParameters: {
-          ..._defaultParams,
-          'page': page,
-        },
+        queryParameters: {..._defaultParams, 'page': page},
       );
 
       final results = response.data['results'] as List<dynamic>;
@@ -114,10 +107,7 @@ class TmdbApiService {
     try {
       final response = await _dio.get(
         '/tv/on_the_air',
-        queryParameters: {
-          ..._defaultParams,
-          'page': page,
-        },
+        queryParameters: {..._defaultParams, 'page': page},
       );
 
       final results = response.data['results'] as List<dynamic>;
@@ -237,10 +227,7 @@ class TmdbApiService {
     try {
       final response = await _dio.get(
         '/tv/$showId/similar',
-        queryParameters: {
-          ..._defaultParams,
-          'page': page,
-        },
+        queryParameters: {..._defaultParams, 'page': page},
       );
 
       final results = response.data['results'] as List<dynamic>;
@@ -255,10 +242,7 @@ class TmdbApiService {
     try {
       final response = await _dio.get(
         '/tv/$showId/recommendations',
-        queryParameters: {
-          ..._defaultParams,
-          'page': page,
-        },
+        queryParameters: {..._defaultParams, 'page': page},
       );
 
       final results = response.data['results'] as List<dynamic>;
@@ -304,9 +288,7 @@ class TmdbApiService {
       );
 
       final genres = response.data['genres'] as List<dynamic>;
-      return {
-        for (var g in genres) g['id'] as int: g['name'] as String,
-      };
+      return {for (var g in genres) g['id'] as int: g['name'] as String};
     } catch (e) {
       throw TmdbApiException('Failed to get genres: $e');
     }
@@ -318,7 +300,10 @@ class TmdbApiService {
     return '$_imageBaseUrl/$size$posterPath';
   }
 
-  static String getBackdropUrl(String? backdropPath, {String size = 'original'}) {
+  static String getBackdropUrl(
+    String? backdropPath, {
+    String size = 'original',
+  }) {
     if (backdropPath == null) return '';
     return '$_imageBaseUrl/$size$backdropPath';
   }
@@ -355,10 +340,7 @@ class TmdbApiService {
     try {
       final response = await _dio.get(
         '/movie/popular',
-        queryParameters: {
-          ..._defaultParams,
-          'page': page,
-        },
+        queryParameters: {..._defaultParams, 'page': page},
       );
 
       final results = response.data['results'] as List<dynamic>;
@@ -376,10 +358,7 @@ class TmdbApiService {
     try {
       final response = await _dio.get(
         '/trending/movie/$timeWindow',
-        queryParameters: {
-          ..._defaultParams,
-          'page': page,
-        },
+        queryParameters: {..._defaultParams, 'page': page},
       );
 
       final results = response.data['results'] as List<dynamic>;
@@ -394,10 +373,7 @@ class TmdbApiService {
     try {
       final response = await _dio.get(
         '/movie/top_rated',
-        queryParameters: {
-          ..._defaultParams,
-          'page': page,
-        },
+        queryParameters: {..._defaultParams, 'page': page},
       );
 
       final results = response.data['results'] as List<dynamic>;
@@ -412,10 +388,7 @@ class TmdbApiService {
     try {
       final response = await _dio.get(
         '/movie/upcoming',
-        queryParameters: {
-          ..._defaultParams,
-          'page': page,
-        },
+        queryParameters: {..._defaultParams, 'page': page},
       );
 
       final results = response.data['results'] as List<dynamic>;
@@ -430,10 +403,7 @@ class TmdbApiService {
     try {
       final response = await _dio.get(
         '/movie/now_playing',
-        queryParameters: {
-          ..._defaultParams,
-          'page': page,
-        },
+        queryParameters: {..._defaultParams, 'page': page},
       );
 
       final results = response.data['results'] as List<dynamic>;
@@ -499,10 +469,7 @@ class TmdbApiService {
     try {
       final response = await _dio.get(
         '/movie/$movieId/similar',
-        queryParameters: {
-          ..._defaultParams,
-          'page': page,
-        },
+        queryParameters: {..._defaultParams, 'page': page},
       );
 
       final results = response.data['results'] as List<dynamic>;
@@ -517,10 +484,7 @@ class TmdbApiService {
     try {
       final response = await _dio.get(
         '/movie/$movieId/recommendations',
-        queryParameters: {
-          ..._defaultParams,
-          'page': page,
-        },
+        queryParameters: {..._defaultParams, 'page': page},
       );
 
       final results = response.data['results'] as List<dynamic>;
@@ -552,7 +516,10 @@ class TmdbApiService {
         if (runtimeLte != null) 'with_runtime.lte': runtimeLte,
       };
 
-      final response = await _dio.get('/discover/movie', queryParameters: params);
+      final response = await _dio.get(
+        '/discover/movie',
+        queryParameters: params,
+      );
 
       final results = response.data['results'] as List<dynamic>;
       return results.map((json) => Movie.fromJson(json)).toList();
@@ -570,9 +537,7 @@ class TmdbApiService {
       );
 
       final genres = response.data['genres'] as List<dynamic>;
-      return {
-        for (var g in genres) g['id'] as int: g['name'] as String,
-      };
+      return {for (var g in genres) g['id'] as int: g['name'] as String};
     } catch (e) {
       throw TmdbApiException('Failed to get movie genres: $e');
     }
