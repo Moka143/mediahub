@@ -24,7 +24,6 @@ void main() async {
       AppConstants.minWindowHeight,
     ),
     center: true,
-    titleBarStyle: TitleBarStyle.normal,
     title: AppConstants.appName,
   );
 
