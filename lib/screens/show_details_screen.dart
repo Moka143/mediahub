@@ -439,6 +439,8 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
                   file: session.videoFile!,
                   showImdbId: show.imdbId,
                   isStreaming: true,
+                  streamingTorrentHash: session.torrentHash,
+                  streamingFileIndex: session.selectedFileIndex,
                 ),
               ),
             );

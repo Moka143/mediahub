@@ -140,24 +140,26 @@ class PlayerService {
     // switcher shows something more useful than "MediaHub".
     unawaited(windowManager.setTitle(_windowTitleFor(file)));
 
-    // For streaming (partially downloaded files), enable mpv cache so it
-    // can pause/resume when it reaches the edge of available data.
+    // For streaming (partially downloaded files), configure mpv so it stays
+    // close to known-good data instead of reading deep into sparse regions
+    // (qBittorrent allocates the file at full size, and unwritten bytes read
+    // back as zeros — mpv would otherwise treat that as garbage video data
+    // and silently freeze video while audio keeps playing).
     if (isStreaming) {
       final nativePlayer = _player.platform as NativePlayer;
       await nativePlayer.setProperty('cache', 'yes');
       await nativePlayer.setProperty('cache-pause', 'yes');
-      // Resume after 1 s of cached data. With the improved initial buffer
-      // (contiguous pieces verified) this is a safe threshold that avoids
-      // micro-stalls without requiring aggressive download speed.
-      await nativePlayer.setProperty('cache-pause-wait', '1');
-      // Start playback immediately — don't wait for initial cache fill
+      await nativePlayer.setProperty('cache-pause-wait', '2');
       await nativePlayer.setProperty('cache-pause-initial', 'no');
-      await nativePlayer.setProperty(
-        'demuxer-max-bytes',
-        '150000000',
-      ); // 150 MB
-      // Moderate read-ahead so the demuxer stays within downloaded data
-      await nativePlayer.setProperty('demuxer-readahead-secs', '30');
+      // Smaller demuxer cache — keeps mpv from speculatively reading ~150 MB
+      // ahead into possibly-sparse regions. The PlaybackHealthMonitor in
+      // VideoPlayerScreen pauses the player before it overruns the download
+      // edge, so a smaller window is safe.
+      await nativePlayer.setProperty('demuxer-max-bytes', '50000000'); // 50 MB
+      await nativePlayer.setProperty('demuxer-readahead-secs', '8');
+      // Force seekability so a back-seek during stall recovery actually works
+      // even when the underlying file doesn't look fully complete to mpv.
+      await nativePlayer.setProperty('force-seekable', 'yes');
     }
 
     // Open the media file

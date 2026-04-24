@@ -266,6 +266,8 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
                   file: session.videoFile!,
                   movieImdbId: movie.imdbId,
                   isStreaming: true,
+                  streamingTorrentHash: session.torrentHash,
+                  streamingFileIndex: session.selectedFileIndex,
                 ),
               ),
             );

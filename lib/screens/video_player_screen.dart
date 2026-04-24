@@ -40,6 +40,16 @@ class VideoPlayerScreen extends ConsumerStatefulWidget {
   /// Configures the player to tolerate incomplete data.
   final bool isStreaming;
 
+  /// qBittorrent info-hash for the torrent backing this stream, used by the
+  /// PlaybackHealthMonitor to track download edge and prevent over-read into
+  /// sparse (zero-filled) regions. Only meaningful when [isStreaming] is true.
+  final String? streamingTorrentHash;
+
+  /// Index of the target file within the torrent (matches qBittorrent's file
+  /// list order). Used alongside [streamingTorrentHash]. Only meaningful when
+  /// [isStreaming] is true.
+  final int? streamingFileIndex;
+
   const VideoPlayerScreen({
     super.key,
     required this.file,
@@ -47,6 +57,8 @@ class VideoPlayerScreen extends ConsumerStatefulWidget {
     this.movieImdbId,
     this.showImdbId,
     this.isStreaming = false,
+    this.streamingTorrentHash,
+    this.streamingFileIndex,
   });
 
   @override
@@ -102,6 +114,23 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   bool _streamBufferingGrace = false; // suppress indicator right after open
   Timer? _bufferingDebounceTimer;
   StreamSubscription<bool>? _bufferingSubscription;
+
+  // Playback health monitor — only active during streaming.
+  // Watches the player position vs. download edge and intervenes:
+  //   • Pre-emptively pauses when playback approaches the download edge
+  //     (so mpv doesn't read into sparse/zero regions and freeze).
+  //   • Detects stalls (position frozen while supposedly playing) and
+  //     recovers via pause + back-seek + resume to flush mpv's demuxer.
+  Timer? _healthMonitorTimer;
+  StreamSubscription<Duration>? _healthPositionSub;
+  Duration _lastObservedPosition = Duration.zero;
+  DateTime _lastPositionAdvanceAt = DateTime.now();
+  bool _autoBufferPaused = false;
+  bool _recoveryInFlight = false;
+  bool _healthCheckInFlight = false;
+  // Latest 0.0–1.0 download progress for the streaming target file.
+  // Drives the seek-bar's buffered-track in streaming mode.
+  double? _streamingDownloadedRatio;
 
   @override
   void initState() {
@@ -169,6 +198,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         startPosition: widget.startPosition,
         isStreaming: widget.isStreaming,
       );
+      if (widget.isStreaming) _startPlaybackHealthMonitor();
     }
 
     _startHideControlsTimer();
@@ -178,6 +208,216 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   static const _bufferingHideDelay = Duration(seconds: 1);
   static const _firstPlayTimeout = Duration(seconds: 15);
   static const _postPlayGrace = Duration(seconds: 1);
+
+  // PlaybackHealthMonitor tunables.
+  static const _healthPollInterval = Duration(seconds: 2);
+  // Pause when fewer than this many seconds of *download* are buffered ahead
+  // of the player position.
+  static const _pauseBelowSecondsAhead = 8.0;
+  // Resume only after the buffer ahead has grown to this much — prevents
+  // immediate re-pause flapping at the boundary.
+  static const _resumeAboveSecondsAhead = 25.0;
+  // Stall detector: position frozen for at least this long while playing
+  // triggers the pause+back-seek+resume recovery.
+  static const _stallThreshold = Duration(seconds: 4);
+  // How far back to seek when recovering from a stall — far enough that mpv
+  // re-reads from a region that's definitely already on disk.
+  static const _stallBackSeek = Duration(seconds: 3);
+
+  /// Start monitoring the player vs. the torrent's download edge.
+  ///
+  /// Two jobs:
+  /// 1. **Edge tracking** — pause player when close to download edge so mpv
+  ///    doesn't read into sparse/zero regions. Resume when buffer recovers.
+  /// 2. **Stall recovery** — if the player position stops advancing while
+  ///    supposedly playing (mpv hit zeros and froze its video decoder),
+  ///    pause + small back-seek + resume to flush the demuxer.
+  void _startPlaybackHealthMonitor() {
+    if (widget.streamingTorrentHash == null) {
+      // Without a hash we can't query torrent state — only the stall detector
+      // is useful, but it'd fire on legitimate user pauses too. Skip.
+      return;
+    }
+
+    _healthMonitorTimer?.cancel();
+    _healthPositionSub?.cancel();
+
+    _lastObservedPosition = Duration.zero;
+    _lastPositionAdvanceAt = DateTime.now();
+
+    final player = ref.read(playerProvider);
+
+    // Track when the player position last moved (stall detection input).
+    _healthPositionSub = player.stream.position.listen((pos) {
+      final delta = (pos - _lastObservedPosition).inMilliseconds.abs();
+      if (delta > 250) {
+        _lastObservedPosition = pos;
+        _lastPositionAdvanceAt = DateTime.now();
+      }
+    });
+
+    _healthMonitorTimer = Timer.periodic(_healthPollInterval, (_) {
+      _runHealthCheck();
+    });
+    // Fire once immediately so the seek-bar's buffered region populates
+    // without waiting for the first poll interval.
+    _runHealthCheck();
+  }
+
+  Future<void> _runHealthCheck() async {
+    if (!mounted || _recoveryInFlight || _healthCheckInFlight) return;
+    _healthCheckInFlight = true;
+    try {
+      await _runHealthCheckInner();
+    } finally {
+      _healthCheckInFlight = false;
+    }
+  }
+
+  Future<void> _runHealthCheckInner() async {
+    final hash = widget.streamingTorrentHash;
+    final fileIdx = widget.streamingFileIndex;
+    if (hash == null) return;
+
+    final player = ref.read(playerProvider);
+    final isPlaying = player.state.playing;
+    final position = player.state.position;
+    final duration = player.state.duration;
+    if (duration.inMilliseconds <= 0) return;
+
+    // 1) Stall detection — only meaningful while we believe we're playing
+    // and we haven't already paused the player ourselves for buffering.
+    if (isPlaying && !_autoBufferPaused) {
+      final timeSinceAdvance = DateTime.now().difference(
+        _lastPositionAdvanceAt,
+      );
+      if (timeSinceAdvance >= _stallThreshold) {
+        debugPrint(
+          '[HealthMonitor] Stall detected — position frozen for '
+          '${timeSinceAdvance.inSeconds}s. Recovering.',
+        );
+        await _recoverFromStall();
+        return;
+      }
+    }
+
+    // 2) Edge tracking — pause/resume based on how far ahead we have data.
+    try {
+      final qbt = ref.read(qbApiServiceProvider);
+      final files = await qbt.getTorrentFiles(hash);
+      if (fileIdx == null || fileIdx < 0 || fileIdx >= files.length) {
+        return;
+      }
+
+      final file = files[fileIdx];
+      final fileSize = file.size;
+      final fileProgress = file.progress;
+      if (fileSize <= 0) return;
+
+      // Push the latest download progress into the seek-bar's buffered track.
+      if (mounted &&
+          (_streamingDownloadedRatio == null ||
+              (fileProgress - _streamingDownloadedRatio!).abs() > 0.001)) {
+        setState(() => _streamingDownloadedRatio = fileProgress);
+      }
+
+      // Approximate where playback is in bytes, and where the download edge is.
+      // Assumes uniform bitrate, which is good enough for the buffer-margin
+      // calculation. (Even with VBR, the error is ±20%, well inside the
+      // 8s/25s hysteresis band.)
+      final ratio = position.inMilliseconds / duration.inMilliseconds;
+      final bytesAtPosition = (fileSize * ratio).round();
+      final bytesAvailable = (fileSize * fileProgress).round();
+      final bytesAhead = bytesAvailable - bytesAtPosition;
+
+      final avgBytesPerSecond = fileSize / duration.inSeconds;
+      final secondsAhead = avgBytesPerSecond > 0
+          ? bytesAhead / avgBytesPerSecond
+          : 0.0;
+
+      // Special case: file fully (or nearly) downloaded — disable edge
+      // tracking entirely. Nothing useful to pause for.
+      if (fileProgress >= 0.995) {
+        if (_autoBufferPaused) {
+          _autoBufferPaused = false;
+          _dismissStreamingStatus();
+          await player.play();
+        }
+        return;
+      }
+
+      if (!_autoBufferPaused &&
+          isPlaying &&
+          secondsAhead < _pauseBelowSecondsAhead) {
+        debugPrint(
+          '[HealthMonitor] Pre-empt pause — only '
+          '${secondsAhead.toStringAsFixed(1)}s buffered ahead.',
+        );
+        _autoBufferPaused = true;
+        await player.pause();
+        _showStreamingStatus(
+          status: StreamingStatus.buffering,
+          message: 'Buffering — waiting for download…',
+          progress: fileProgress,
+        );
+      } else if (_autoBufferPaused &&
+          secondsAhead >= _resumeAboveSecondsAhead) {
+        debugPrint(
+          '[HealthMonitor] Resume — '
+          '${secondsAhead.toStringAsFixed(1)}s buffered ahead.',
+        );
+        _autoBufferPaused = false;
+        _dismissStreamingStatus();
+        // Reset the stall timer so the position-advance check doesn't fire
+        // immediately after resume (it takes mpv a moment to start ticking).
+        _lastPositionAdvanceAt = DateTime.now();
+        await player.play();
+      } else if (_autoBufferPaused) {
+        // While paused, keep the indicator updated with progress so the user
+        // sees movement instead of a stuck "Buffering" forever.
+        final secs = secondsAhead.clamp(0.0, _resumeAboveSecondsAhead).round();
+        _showStreamingStatus(
+          status: StreamingStatus.buffering,
+          message:
+              'Buffering — $secs/${_resumeAboveSecondsAhead.round()}s ahead',
+          progress: fileProgress,
+        );
+      }
+    } catch (e) {
+      debugPrint('[HealthMonitor] Health check error: $e');
+    }
+  }
+
+  Future<void> _recoverFromStall() async {
+    _recoveryInFlight = true;
+    try {
+      final player = ref.read(playerProvider);
+      final pos = player.state.position;
+
+      // Pause first so mpv stops trying to decode garbage.
+      await player.pause();
+
+      // Back-seek a few seconds into known-good (already played) territory.
+      // This forces mpv to flush its demuxer cache and re-read fresh data,
+      // which often unblocks the video decoder when it had been stuck on
+      // zero-filled frames at the download edge.
+      final target = pos - _stallBackSeek;
+      final clamped = target.isNegative ? Duration.zero : target;
+      await player.seek(clamped);
+
+      // Give mpv a moment to re-prime the demuxer before resuming.
+      await Future.delayed(const Duration(milliseconds: 800));
+      if (!mounted) return;
+
+      _lastObservedPosition = clamped;
+      _lastPositionAdvanceAt = DateTime.now();
+      await player.play();
+    } catch (e) {
+      debugPrint('[HealthMonitor] Stall recovery failed: $e');
+    } finally {
+      _recoveryInFlight = false;
+    }
+  }
 
   /// Smooth out mpv's rapid buffering signal during streaming.
   ///
@@ -668,6 +908,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       startPosition: resume ? _resumePosition : null,
       isStreaming: widget.isStreaming,
     );
+    if (widget.isStreaming) _startPlaybackHealthMonitor();
   }
 
   Future<void> _exitPlayer() async {
@@ -774,6 +1015,8 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     _autoDownloadSubscription?.cancel();
     _bufferingDebounceTimer?.cancel();
     _bufferingSubscription?.cancel();
+    _healthMonitorTimer?.cancel();
+    _healthPositionSub?.cancel();
     // Note: Don't use ref.read() in dispose - providers will clean up themselves
     // Exit fullscreen and restore the native title bar on dispose (in case
     // we're still in fullscreen when the route is popped some other way).
@@ -879,6 +1122,9 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
                             onToggleFullscreen: _toggleFullscreen,
                             onClose: _exitPlayer,
                             onShowShortcuts: _showShortcutsDialog,
+                            streamingDownloadedRatio: widget.isStreaming
+                                ? _streamingDownloadedRatio
+                                : null,
                           ),
                         ),
                       ),

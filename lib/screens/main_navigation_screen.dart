@@ -86,6 +86,9 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
               file: next.videoFile!,
               showImdbId: next.showImdbId,
               movieImdbId: next.movieImdbId,
+              isStreaming: true,
+              streamingTorrentHash: next.torrentHash,
+              streamingFileIndex: next.selectedFileIndex,
             ),
           ),
         );

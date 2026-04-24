@@ -21,6 +21,13 @@ class VideoControlsOverlay extends ConsumerWidget {
   final VoidCallback onClose;
   final VoidCallback onShowShortcuts;
 
+  /// When set (streaming mode), this overrides mpv's demuxer-cache reading
+  /// for the "buffered" seek-bar track. mpv's cache reflects what the demuxer
+  /// has read, which from a sparse torrent file may include zero-region
+  /// over-reads — useless as a seek hint. The actual file-download fraction
+  /// (0.0–1.0) is what tells the user how far they can safely seek.
+  final double? streamingDownloadedRatio;
+
   const VideoControlsOverlay({
     super.key,
     required this.file,
@@ -32,6 +39,7 @@ class VideoControlsOverlay extends ConsumerWidget {
     required this.onToggleFullscreen,
     required this.onClose,
     required this.onShowShortcuts,
+    this.streamingDownloadedRatio,
   });
 
   @override
@@ -139,10 +147,7 @@ class VideoControlsOverlay extends ConsumerWidget {
 
           // Keyboard shortcuts help
           IconButton(
-            icon: const Icon(
-              Icons.keyboard_rounded,
-              color: Colors.white,
-            ),
+            icon: const Icon(Icons.keyboard_rounded, color: Colors.white),
             tooltip: 'Keyboard shortcuts (?)',
             onPressed: onShowShortcuts,
           ),
@@ -240,9 +245,16 @@ class VideoControlsOverlay extends ConsumerWidget {
     final playerService = ref.read(playerServiceProvider);
     final theme = Theme.of(context);
     final hasDuration = duration.inMilliseconds > 0;
-    final bufferedRatio = hasDuration
-        ? (buffered.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0)
-        : 0.0;
+    // Streaming mode: prefer the actual download-on-disk ratio over mpv's
+    // demuxer cache, which can over-report when reading from sparse regions.
+    final bufferedRatio = streamingDownloadedRatio != null
+        ? streamingDownloadedRatio!.clamp(0.0, 1.0)
+        : (hasDuration
+              ? (buffered.inMilliseconds / duration.inMilliseconds).clamp(
+                  0.0,
+                  1.0,
+                )
+              : 0.0);
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
