@@ -59,13 +59,25 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Download MSIX
+        uses: actions/download-artifact@v4
         with:
           name: mediahub-msix
           path: release-assets
 
+      - name: Download unpacked Release
+        uses: actions/download-artifact@v4
+        with:
+          name: mediahub-windows-unpacked
+          path: unpacked
+
+      - name: Zip portable build
+        run: |
+          cd unpacked
+          zip -rq "../release-assets/mediahub-${GITHUB_REF_NAME}-windows-portable.zip" .
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: release-assets/*.msix
+          files: release-assets/*
           generate_release_notes: true
