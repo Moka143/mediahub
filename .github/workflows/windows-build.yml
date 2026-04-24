@@ -36,7 +36,7 @@ jobs:
         run: flutter build windows --release
 
       - name: Package MSIX installer
-        run: dart run msix:create
+        run: dart run msix:create --sign-msix false --install-certificate false
 
       - name: Upload unpacked Release build
         uses: actions/upload-artifact@v4
