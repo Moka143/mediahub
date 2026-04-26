@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -5,6 +7,7 @@ import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
 import '../models/show.dart';
 import '../providers/shows_provider.dart';
+import '../widgets/common/browse_search_pill.dart';
 import '../widgets/common/empty_state.dart';
 import '../widgets/common/mediahub_chip.dart';
 import '../widgets/mediahub_spotlight.dart';
@@ -59,10 +62,16 @@ class _ShowsScreenState extends ConsumerState<ShowsScreen> {
   };
   List<String> get _genres => _genreMap.keys.toList();
 
+  late final TextEditingController _searchController;
+  Timer? _searchDebounce;
+
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
+    _searchController = TextEditingController(
+      text: ref.read(showSearchQueryProvider),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) => _resetAndLoad());
   }
 
@@ -70,7 +79,17 @@ class _ShowsScreenState extends ConsumerState<ShowsScreen> {
   void dispose() {
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
+    _searchDebounce?.cancel();
+    _searchController.dispose();
     super.dispose();
+  }
+
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(
+      const Duration(milliseconds: 280),
+      () => ref.read(showSearchQueryProvider.notifier).set(value),
+    );
   }
 
   /// Trigger pagination ~600px before the bottom — gives us a buffer
@@ -155,6 +174,8 @@ class _ShowsScreenState extends ConsumerState<ShowsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final searchQuery = ref.watch(showSearchQueryProvider);
+    final isSearching = searchQuery.isNotEmpty;
     return RefreshIndicator(
       onRefresh: () async => _resetAndLoad(),
       child: Align(
@@ -168,7 +189,9 @@ class _ShowsScreenState extends ConsumerState<ShowsScreen> {
             controller: _scrollController,
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
-              if (_items.isNotEmpty)
+              // Spotlight is suppressed during search — the user is hunting
+              // a specific title, not browsing the trending feed.
+              if (!isSearching && _items.isNotEmpty)
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(
                     AppSpacing.xxl,
@@ -208,70 +231,149 @@ class _ShowsScreenState extends ConsumerState<ShowsScreen> {
                     setState(() => _feed = f);
                     _resetAndLoad();
                   },
+                  searchController: _searchController,
+                  onSearchChanged: _onSearchChanged,
+                  searchActive: isSearching,
                 ),
               ),
-              if (_items.isEmpty && _loading)
-                const SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: Center(child: CircularProgressIndicator()),
-                )
-              else if (_error != null && _items.isEmpty)
-                SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: EmptyState.error(
-                    message: _error.toString(),
-                    onRetry: _resetAndLoad,
-                  ),
-                )
-              else if (_items.isEmpty)
-                const SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(AppSpacing.huge),
-                      child: Text(
-                        'No shows match this filter.',
-                        style: TextStyle(color: Color(0xFF7A7A92)),
-                      ),
-                    ),
-                  ),
-                )
+              if (isSearching)
+                ..._buildSearchSlivers(searchQuery)
               else
-                SliverPadding(
-                  padding: const EdgeInsets.all(AppSpacing.xxl),
-                  sliver: SliverGrid(
-                    gridDelegate:
-                        const SliverGridDelegateWithMaxCrossAxisExtent(
-                          // 170px max cap keeps cards from looking oversized
-                          // on wide windows. Aspect 2:3.2 reserves space for
-                          // the title + meta lines below the poster.
-                          maxCrossAxisExtent: 170,
-                          mainAxisSpacing: AppSpacing.md,
-                          crossAxisSpacing: AppSpacing.md,
-                          childAspectRatio: 2 / 3.2,
-                        ),
-                    delegate: SliverChildBuilderDelegate(
-                      (context, i) => ShowCard(
-                        show: _items[i],
-                        onTap: () => _navigateToShowDetails(_items[i]),
-                      ),
-                      childCount: _items.length,
-                    ),
+                ..._buildFeedSlivers(),
+              if (!isSearching)
+                SliverToBoxAdapter(
+                  child: _PaginationFooter(
+                    loading: _loading,
+                    exhausted: _exhausted && _items.isNotEmpty,
+                    hasItems: _items.isNotEmpty,
                   ),
                 ),
-              // Lazy-load footer — keeps a thin loader visible while the
-              // next page comes in. Empty when we've reached the end.
-              SliverToBoxAdapter(
-                child: _PaginationFooter(
-                  loading: _loading,
-                  exhausted: _exhausted && _items.isNotEmpty,
-                  hasItems: _items.isNotEmpty,
-                ),
-              ),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  /// Slivers for the trending / popular / genre feed (no active search).
+  List<Widget> _buildFeedSlivers() {
+    if (_items.isEmpty && _loading) {
+      return const [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      ];
+    }
+    if (_error != null && _items.isEmpty) {
+      return [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: EmptyState.error(
+            message: _error.toString(),
+            onRetry: _resetAndLoad,
+          ),
+        ),
+      ];
+    }
+    if (_items.isEmpty) {
+      return const [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(
+            child: Padding(
+              padding: EdgeInsets.all(AppSpacing.huge),
+              child: Text(
+                'No shows match this filter.',
+                style: TextStyle(color: Color(0xFF7A7A92)),
+              ),
+            ),
+          ),
+        ),
+      ];
+    }
+    return [
+      SliverPadding(
+        padding: const EdgeInsets.all(AppSpacing.xxl),
+        sliver: SliverGrid(
+          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 170,
+            mainAxisSpacing: AppSpacing.md,
+            crossAxisSpacing: AppSpacing.md,
+            childAspectRatio: 2 / 3.2,
+          ),
+          delegate: SliverChildBuilderDelegate(
+            (context, i) => ShowCard(
+              show: _items[i],
+              onTap: () => _navigateToShowDetails(_items[i]),
+            ),
+            childCount: _items.length,
+          ),
+        ),
+      ),
+    ];
+  }
+
+  /// Slivers for the search-results path. TMDB's `/search/tv` returns one
+  /// page of results — enough for the typical "I'm hunting one title"
+  /// case. No pagination here.
+  List<Widget> _buildSearchSlivers(String query) {
+    final async = ref.watch(showSearchResultsProvider);
+    return async.when(
+      loading: () => const [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      ],
+      error: (e, _) => [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: EmptyState.error(
+            message: e.toString(),
+            onRetry: () =>
+                ref.read(showSearchQueryProvider.notifier).set(query),
+          ),
+        ),
+      ],
+      data: (results) {
+        if (results.isEmpty) {
+          return [
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.huge),
+                  child: Text(
+                    'No shows match "$query".',
+                    style: const TextStyle(color: Color(0xFF7A7A92)),
+                  ),
+                ),
+              ),
+            ),
+          ];
+        }
+        return [
+          SliverPadding(
+            padding: const EdgeInsets.all(AppSpacing.xxl),
+            sliver: SliverGrid(
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 170,
+                mainAxisSpacing: AppSpacing.md,
+                crossAxisSpacing: AppSpacing.md,
+                childAspectRatio: 2 / 3.2,
+              ),
+              delegate: SliverChildBuilderDelegate(
+                (context, i) => ShowCard(
+                  show: results[i],
+                  onTap: () => _navigateToShowDetails(results[i]),
+                ),
+                childCount: results.length,
+              ),
+            ),
+          ),
+        ];
+      },
     );
   }
 }
@@ -320,6 +422,9 @@ class _ShowsFilterBar extends StatelessWidget {
     required this.onGenreSelected,
     required this.feed,
     required this.onFeedSelected,
+    required this.searchController,
+    required this.onSearchChanged,
+    required this.searchActive,
   });
 
   final List<String> genres;
@@ -327,6 +432,9 @@ class _ShowsFilterBar extends StatelessWidget {
   final ValueChanged<String> onGenreSelected;
   final _ShowsFeed feed;
   final ValueChanged<_ShowsFeed> onFeedSelected;
+  final TextEditingController searchController;
+  final ValueChanged<String> onSearchChanged;
+  final bool searchActive;
 
   @override
   Widget build(BuildContext context) {
@@ -342,24 +450,38 @@ class _ShowsFilterBar extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  for (final g in genres) ...[
-                    MediaHubFilterChip(
-                      label: g,
-                      selected: g == selectedGenre,
-                      onTap: () => onGenreSelected(g),
-                    ),
-                    const SizedBox(width: AppSpacing.xs),
+            child: AnimatedOpacity(
+              duration: AppDuration.fast,
+              opacity: searchActive ? 0.4 : 1.0,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (final g in genres) ...[
+                      MediaHubFilterChip(
+                        label: g,
+                        selected: g == selectedGenre,
+                        onTap: searchActive ? () {} : () => onGenreSelected(g),
+                      ),
+                      const SizedBox(width: AppSpacing.xs),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),
           const SizedBox(width: AppSpacing.md),
-          _FeedSortPicker(value: feed, onChanged: onFeedSelected),
+          AnimatedOpacity(
+            duration: AppDuration.fast,
+            opacity: searchActive ? 0.4 : 1.0,
+            child: _FeedSortPicker(value: feed, onChanged: onFeedSelected),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          BrowseSearchPill(
+            controller: searchController,
+            onChanged: onSearchChanged,
+            hint: 'Search shows…',
+          ),
         ],
       ),
     );

@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
 import '../models/movie.dart';
+import '../providers/movies_provider.dart';
 import '../providers/shows_provider.dart' show tmdbApiServiceProvider;
+import '../widgets/common/browse_search_pill.dart';
 import '../widgets/common/empty_state.dart';
 import '../widgets/common/mediahub_chip.dart';
 import '../widgets/mediahub_spotlight.dart';
@@ -44,6 +48,11 @@ class _MoviesScreenState extends ConsumerState<MoviesScreen> {
   String _genre = 'All';
   _MoviesFeed _feed = _MoviesFeed.trending;
 
+  /// Local controller for the search field — debounced so we don't fire a
+  /// TMDB search on every keystroke. Empty query falls back to the feed.
+  late final TextEditingController _searchController;
+  Timer? _searchDebounce;
+
   static const _genreMap = <String, List<int>>{
     'All': <int>[],
     'Sci-Fi': [878],
@@ -59,6 +68,9 @@ class _MoviesScreenState extends ConsumerState<MoviesScreen> {
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
+    _searchController = TextEditingController(
+      text: ref.read(movieSearchQueryProvider),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) => _resetAndLoad());
   }
 
@@ -66,7 +78,19 @@ class _MoviesScreenState extends ConsumerState<MoviesScreen> {
   void dispose() {
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
+    _searchDebounce?.cancel();
+    _searchController.dispose();
     super.dispose();
+  }
+
+  /// Update the search query provider with a 280 ms debounce — covers
+  /// typical typing cadence without flooding TMDB.
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(
+      const Duration(milliseconds: 280),
+      () => ref.read(movieSearchQueryProvider.notifier).set(value),
+    );
   }
 
   void _onScroll() {
@@ -142,6 +166,8 @@ class _MoviesScreenState extends ConsumerState<MoviesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final searchQuery = ref.watch(movieSearchQueryProvider);
+    final isSearching = searchQuery.isNotEmpty;
     return RefreshIndicator(
       onRefresh: () async => _resetAndLoad(),
       child: Align(
@@ -153,7 +179,9 @@ class _MoviesScreenState extends ConsumerState<MoviesScreen> {
             controller: _scrollController,
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
-              if (_items.isNotEmpty)
+              // Spotlight is suppressed during search — the user is hunting
+              // a specific title, not browsing the trending feed.
+              if (!isSearching && _items.isNotEmpty)
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(
                     AppSpacing.xxl,
@@ -195,68 +223,153 @@ class _MoviesScreenState extends ConsumerState<MoviesScreen> {
                     setState(() => _feed = f);
                     _resetAndLoad();
                   },
+                  searchController: _searchController,
+                  onSearchChanged: _onSearchChanged,
+                  searchActive: isSearching,
                 ),
               ),
-              if (_items.isEmpty && _loading)
-                const SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: Center(child: CircularProgressIndicator()),
-                )
-              else if (_error != null && _items.isEmpty)
-                SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: EmptyState.error(
-                    message: _error.toString(),
-                    onRetry: _resetAndLoad,
-                  ),
-                )
-              else if (_items.isEmpty)
-                const SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(AppSpacing.huge),
-                      child: Text(
-                        'No movies match this filter.',
-                        style: TextStyle(color: Color(0xFF7A7A92)),
-                      ),
-                    ),
-                  ),
-                )
+              if (isSearching)
+                ..._buildSearchSlivers(searchQuery)
               else
-                SliverPadding(
-                  padding: const EdgeInsets.all(AppSpacing.xxl),
-                  sliver: SliverGrid(
-                    gridDelegate:
-                        const SliverGridDelegateWithMaxCrossAxisExtent(
-                          // 170px max cap keeps cards from looking oversized
-                          // on wide windows. Aspect 2:3.2 reserves space for
-                          // the title + meta lines below the poster.
-                          maxCrossAxisExtent: 170,
-                          mainAxisSpacing: AppSpacing.md,
-                          crossAxisSpacing: AppSpacing.md,
-                          childAspectRatio: 2 / 3.2,
-                        ),
-                    delegate: SliverChildBuilderDelegate(
-                      (context, i) => MovieCard(
-                        movie: _items[i],
-                        onTap: () => _navigateToMovieDetails(_items[i]),
-                      ),
-                      childCount: _items.length,
-                    ),
+                ..._buildFeedSlivers(),
+              if (!isSearching)
+                SliverToBoxAdapter(
+                  child: _MoviesPaginationFooter(
+                    loading: _loading,
+                    exhausted: _exhausted && _items.isNotEmpty,
+                    hasItems: _items.isNotEmpty,
                   ),
                 ),
-              SliverToBoxAdapter(
-                child: _MoviesPaginationFooter(
-                  loading: _loading,
-                  exhausted: _exhausted && _items.isNotEmpty,
-                  hasItems: _items.isNotEmpty,
-                ),
-              ),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  /// Slivers rendered when the user is browsing the trending / popular /
+  /// genre feed (i.e. no search query). Mirrors the pre-search behaviour.
+  List<Widget> _buildFeedSlivers() {
+    if (_items.isEmpty && _loading) {
+      return const [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      ];
+    }
+    if (_error != null && _items.isEmpty) {
+      return [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: EmptyState.error(
+            message: _error.toString(),
+            onRetry: _resetAndLoad,
+          ),
+        ),
+      ];
+    }
+    if (_items.isEmpty) {
+      return const [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(
+            child: Padding(
+              padding: EdgeInsets.all(AppSpacing.huge),
+              child: Text(
+                'No movies match this filter.',
+                style: TextStyle(color: Color(0xFF7A7A92)),
+              ),
+            ),
+          ),
+        ),
+      ];
+    }
+    return [
+      SliverPadding(
+        padding: const EdgeInsets.all(AppSpacing.xxl),
+        sliver: SliverGrid(
+          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+            // 170px max cap keeps cards from looking oversized on wide
+            // windows. Aspect 2:3.2 reserves space for the title + meta
+            // lines below the poster.
+            maxCrossAxisExtent: 170,
+            mainAxisSpacing: AppSpacing.md,
+            crossAxisSpacing: AppSpacing.md,
+            childAspectRatio: 2 / 3.2,
+          ),
+          delegate: SliverChildBuilderDelegate(
+            (context, i) => MovieCard(
+              movie: _items[i],
+              onTap: () => _navigateToMovieDetails(_items[i]),
+            ),
+            childCount: _items.length,
+          ),
+        ),
+      ),
+    ];
+  }
+
+  /// Slivers for the search-results path. Watches `movieSearchResultsProvider`
+  /// directly — TMDB's search endpoint is not paginated here (single page is
+  /// already plenty for the typical "I'm hunting one title" use case).
+  List<Widget> _buildSearchSlivers(String query) {
+    final async = ref.watch(movieSearchResultsProvider);
+    return async.when(
+      loading: () => const [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      ],
+      error: (e, _) => [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: EmptyState.error(
+            message: e.toString(),
+            onRetry: () =>
+                ref.read(movieSearchQueryProvider.notifier).set(query),
+          ),
+        ),
+      ],
+      data: (results) {
+        if (results.isEmpty) {
+          return [
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.huge),
+                  child: Text(
+                    'No movies match "$query".',
+                    style: const TextStyle(color: Color(0xFF7A7A92)),
+                  ),
+                ),
+              ),
+            ),
+          ];
+        }
+        return [
+          SliverPadding(
+            padding: const EdgeInsets.all(AppSpacing.xxl),
+            sliver: SliverGrid(
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 170,
+                mainAxisSpacing: AppSpacing.md,
+                crossAxisSpacing: AppSpacing.md,
+                childAspectRatio: 2 / 3.2,
+              ),
+              delegate: SliverChildBuilderDelegate(
+                (context, i) => MovieCard(
+                  movie: results[i],
+                  onTap: () => _navigateToMovieDetails(results[i]),
+                ),
+                childCount: results.length,
+              ),
+            ),
+          ),
+        ];
+      },
     );
   }
 }
@@ -305,6 +418,9 @@ class _MoviesFilterBar extends StatelessWidget {
     required this.onGenreSelected,
     required this.feed,
     required this.onFeedSelected,
+    required this.searchController,
+    required this.onSearchChanged,
+    required this.searchActive,
   });
 
   final List<String> genres;
@@ -312,6 +428,13 @@ class _MoviesFilterBar extends StatelessWidget {
   final ValueChanged<String> onGenreSelected;
   final _MoviesFeed feed;
   final ValueChanged<_MoviesFeed> onFeedSelected;
+  final TextEditingController searchController;
+  final ValueChanged<String> onSearchChanged;
+
+  /// When true the genre chips + feed sort are visually de-emphasised —
+  /// they don't apply during a search and we don't want them to look
+  /// interactive.
+  final bool searchActive;
 
   @override
   Widget build(BuildContext context) {
@@ -327,24 +450,41 @@ class _MoviesFilterBar extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  for (final g in genres) ...[
-                    MediaHubFilterChip(
-                      label: g,
-                      selected: g == selectedGenre,
-                      onTap: () => onGenreSelected(g),
-                    ),
-                    const SizedBox(width: AppSpacing.xs),
+            child: AnimatedOpacity(
+              duration: AppDuration.fast,
+              opacity: searchActive ? 0.4 : 1.0,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (final g in genres) ...[
+                      MediaHubFilterChip(
+                        label: g,
+                        selected: g == selectedGenre,
+                        onTap: searchActive ? () {} : () => onGenreSelected(g),
+                      ),
+                      const SizedBox(width: AppSpacing.xs),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),
           const SizedBox(width: AppSpacing.md),
-          _MoviesFeedSortPicker(value: feed, onChanged: onFeedSelected),
+          AnimatedOpacity(
+            duration: AppDuration.fast,
+            opacity: searchActive ? 0.4 : 1.0,
+            child: _MoviesFeedSortPicker(
+              value: feed,
+              onChanged: onFeedSelected,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          BrowseSearchPill(
+            controller: searchController,
+            onChanged: onSearchChanged,
+            hint: 'Search movies…',
+          ),
         ],
       ),
     );
