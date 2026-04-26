@@ -36,10 +36,12 @@ class MediaHubSpotlight extends StatelessWidget {
   final String metaSuffix; // e.g. "2 SEASONS" or "2H 26M"
   final VoidCallback onPrimaryTap;
   final VoidCallback onSecondaryTap;
+
   /// TMDB backdrop URL (`/t/p/original/<path>`). Renders full-bleed
   /// behind the gradient overlays. If null we fall back to the
   /// hue-tinted procedural gradient.
   final String? backdropUrl;
+
   /// TMDB poster URL (`/t/p/w500/<path>`). Renders as a single tall
   /// hero poster on the right of the card (replaces the procedural
   /// mini-posters when supplied).
@@ -312,8 +314,7 @@ class _HeroPoster extends StatelessWidget {
                   fit: BoxFit.cover,
                   loadingBuilder: (_, child, p) =>
                       p == null ? child : _MiniPoster(hue: fallbackHue),
-                  errorBuilder: (_, __, ___) =>
-                      _MiniPoster(hue: fallbackHue),
+                  errorBuilder: (_, __, ___) => _MiniPoster(hue: fallbackHue),
                 ),
               ),
             ),

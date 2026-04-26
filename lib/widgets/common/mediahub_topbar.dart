@@ -47,9 +47,7 @@ class MediaHubTopBar extends StatelessWidget implements PreferredSizeWidget {
       ),
       decoration: const BoxDecoration(
         color: AppColors.bgPage,
-        border: Border(
-          bottom: BorderSide(color: Color(0x0FFFFFFF), width: 1),
-        ),
+        border: Border(bottom: BorderSide(color: Color(0x0FFFFFFF), width: 1)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
@@ -273,7 +271,10 @@ class _MediaHubIconButtonState extends State<MediaHubIconButton> {
                         color: dotColor,
                         shape: BoxShape.circle,
                         boxShadow: [
-                          BoxShadow(color: dotColor.withAlpha(120), blurRadius: 6),
+                          BoxShadow(
+                            color: dotColor.withAlpha(120),
+                            blurRadius: 6,
+                          ),
                         ],
                       ),
                     ),
@@ -286,4 +287,3 @@ class _MediaHubIconButtonState extends State<MediaHubIconButton> {
     );
   }
 }
-

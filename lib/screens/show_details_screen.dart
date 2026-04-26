@@ -96,8 +96,10 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
   /// inline list used.
   Future<void> _openEpisodesDrawer(Show show, List<Season> seasons) async {
     if (seasons.isEmpty) return;
-    final firstAired =
-        seasons.firstWhere((s) => s.seasonNumber > 0, orElse: () => seasons.first);
+    final firstAired = seasons.firstWhere(
+      (s) => s.seasonNumber > 0,
+      orElse: () => seasons.first,
+    );
     await MediaHubEpisodesDrawer.open(
       context: context,
       show: show,
@@ -708,7 +710,8 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 1080),
             child: Padding(
-              padding: padding ??
+              padding:
+                  padding ??
                   const EdgeInsets.fromLTRB(
                     AppSpacing.screenPadding,
                     AppSpacing.xl,
@@ -728,10 +731,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
         _buildSliverAppBar(show, isFavorite),
 
         // Next-episode card (renders only when nextEpisodeToAir set).
-        contentSliver(
-          _buildShowInfo(show),
-          padding: EdgeInsets.zero,
-        ),
+        contentSliver(_buildShowInfo(show), padding: EdgeInsets.zero),
 
         // Browse Episodes CTA — opens the right-side drawer.
         contentSliver(
@@ -739,8 +739,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
             show: show,
             seasons: seasons,
             loadingTorrents: _isLoadingTorrents,
-            onOpen: (seasonList) =>
-                _openEpisodesDrawer(show, seasonList),
+            onOpen: (seasonList) => _openEpisodesDrawer(show, seasonList),
           ),
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.screenPadding,
@@ -766,8 +765,8 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
                 child: LayoutBuilder(
                   builder: (context, c) {
                     final twoCol = c.maxWidth >= 800;
-                    final storyline = show.overview != null &&
-                            show.overview!.isNotEmpty
+                    final storyline =
+                        show.overview != null && show.overview!.isNotEmpty
                         ? _InfoSection(
                             title: 'Storyline',
                             child: Text(
@@ -814,9 +813,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
         ),
 
         // Bottom padding
-        const SliverToBoxAdapter(
-          child: SizedBox(height: AppSpacing.huge),
-        ),
+        const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.huge)),
       ],
     );
   }
@@ -858,7 +855,9 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
                   label: '★ ${show.voteAverage.toStringAsFixed(1)}',
                   color: getRatingColor(show.voteAverage),
                 ),
-              ...show.genres.take(2).map(
+              ...show.genres
+                  .take(2)
+                  .map(
                     (g) => MediaHubMetaPill(
                       label: g,
                       color: AppColors.accentPrimary,
@@ -869,10 +868,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
               onPressed: () {
                 // Scroll down to the seasons list — user can pick an
                 // episode there. Quick CTA from the hero.
-                Scrollable.ensureVisible(
-                  context,
-                  duration: AppDuration.normal,
-                );
+                Scrollable.ensureVisible(context, duration: AppDuration.normal);
               },
               icon: const Icon(Icons.play_arrow_rounded),
               label: const Text('Browse episodes'),
@@ -1076,10 +1072,7 @@ class _BrowseEpisodesCta extends StatelessWidget {
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [
-                AppColors.seedColor.withAlpha(36),
-                AppColors.bgSurface,
-              ],
+              colors: [AppColors.seedColor.withAlpha(36), AppColors.bgSurface],
             ),
             border: Border.all(color: AppColors.seedColor.withAlpha(0x40)),
             borderRadius: BorderRadius.circular(AppRadius.lg),
@@ -1191,11 +1184,9 @@ class _QuickFactsGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final facts = <(String, String)>[
-      if (show.firstAirDate != null)
-        ('First aired', show.firstAirDate!),
+      if (show.firstAirDate != null) ('First aired', show.firstAirDate!),
       if (show.status != null) ('Status', show.status!),
-      if (show.numberOfSeasons != null)
-        ('Seasons', '${show.numberOfSeasons}'),
+      if (show.numberOfSeasons != null) ('Seasons', '${show.numberOfSeasons}'),
       if (show.numberOfEpisodes != null)
         ('Episodes', '${show.numberOfEpisodes}'),
       if (show.episodeRunTime != null && show.episodeRunTime!.isNotEmpty)
@@ -1215,8 +1206,7 @@ class _QuickFactsGrid extends StatelessWidget {
       child: Column(
         children: [
           for (var i = 0; i < facts.length; i++) ...[
-            if (i > 0)
-              const Divider(height: 1, color: Color(0x0FFFFFFF)),
+            if (i > 0) const Divider(height: 1, color: Color(0x0FFFFFFF)),
             Padding(
               padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
               child: Row(

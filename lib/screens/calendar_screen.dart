@@ -220,8 +220,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   Widget build(BuildContext context) {
     final calendarAsync = ref.watch(calendarEpisodesProvider);
     return calendarAsync.when(
-      loading: () =>
-          const LoadingIndicator(message: 'Loading calendar...'),
+      loading: () => const LoadingIndicator(message: 'Loading calendar...'),
       error: (e, _) => EmptyState.error(
         message: 'Failed to load calendar',
         onRetry: () => ref.invalidate(calendarEpisodesProvider),
@@ -591,10 +590,7 @@ class _WeekColumn extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.md),
           for (final e in episodes.take(3)) ...[
-            _DayEpisodeChip(
-              episode: e,
-              onTap: () => onEpisodeTap(e),
-            ),
+            _DayEpisodeChip(episode: e, onTap: () => onEpisodeTap(e)),
             const SizedBox(height: AppSpacing.xs),
           ],
           if (episodes.length > 3)
@@ -635,8 +631,12 @@ class _DayEpisodeChip extends StatelessWidget {
             end: Alignment.bottomRight,
             colors: [
               HSLColor.fromAHSL(0.6, hue.toDouble(), 0.6, 0.3).toColor(),
-              HSLColor.fromAHSL(0.6, hue.toDouble() + 30 % 360, 0.5, 0.18)
-                  .toColor(),
+              HSLColor.fromAHSL(
+                0.6,
+                hue.toDouble() + 30 % 360,
+                0.5,
+                0.18,
+              ).toColor(),
             ],
           ),
           border: Border.all(
@@ -724,16 +724,14 @@ class _AiringRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hue =
-        episode.showName.codeUnits.fold<int>(0, (a, b) => a + b) % 360;
+    final hue = episode.showName.codeUnits.fold<int>(0, (a, b) => a + b) % 360;
     final airDate = DateTime(
       episode.airDate.year,
       episode.airDate.month,
       episode.airDate.day,
     );
     final isToday = airDate == today;
-    final inHours =
-        episode.airDate.difference(DateTime.now()).inHours;
+    final inHours = episode.airDate.difference(DateTime.now()).inHours;
     final isLive = isToday && inHours >= 0 && inHours < 8;
 
     return GestureDetector(
@@ -788,8 +786,8 @@ class _AiringRow extends StatelessWidget {
               child: SizedBox(
                 width: 40,
                 height: 60,
-                child: episode.posterPath != null &&
-                        episode.posterPath!.isNotEmpty
+                child:
+                    episode.posterPath != null && episode.posterPath!.isNotEmpty
                     ? CachedNetworkImage(
                         imageUrl:
                             'https://image.tmdb.org/t/p/w185${episode.posterPath}',

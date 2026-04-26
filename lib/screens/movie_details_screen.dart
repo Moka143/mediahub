@@ -435,8 +435,8 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
                 fallbackHue: (movie.id * 53 % 360).toDouble(),
                 description:
                     (movie.tagline != null && movie.tagline!.isNotEmpty)
-                        ? movie.tagline
-                        : movie.overview,
+                    ? movie.tagline
+                    : movie.overview,
                 metaPills: [
                   if (movie.runtimeFormatted != null)
                     MediaHubMetaPill(
@@ -448,7 +448,9 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
                       label: '★ ${movie.voteAverage.toStringAsFixed(1)}',
                       color: getRatingColor(movie.voteAverage),
                     ),
-                  ...movie.genres.take(3).map(
+                  ...movie.genres
+                      .take(3)
+                      .map(
                         (g) => MediaHubMetaPill(
                           label: g,
                           color: AppColors.accentPrimary,
@@ -653,4 +655,3 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
     );
   }
 }
-

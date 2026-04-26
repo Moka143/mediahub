@@ -89,10 +89,8 @@ void _resumePlayback(
   );
   Navigator.of(context).push(
     MaterialPageRoute(
-      builder: (_) => VideoPlayerScreen(
-        file: file,
-        startPosition: progress.position,
-      ),
+      builder: (_) =>
+          VideoPlayerScreen(file: file, startPosition: progress.position),
     ),
   );
 }
@@ -155,7 +153,8 @@ class MediaHubHomeScreen extends ConsumerWidget {
       for (final p in progressMap.values) {
         if (p.posterPath == null || p.posterPath!.isEmpty) continue;
         final showName = p.showName?.toLowerCase();
-        if (showName != null && showName.length > 2 &&
+        if (showName != null &&
+            showName.length > 2 &&
             lower.contains(showName)) {
           return p.posterPath;
         }
@@ -255,9 +254,8 @@ class MediaHubHomeScreen extends ConsumerWidget {
                           icon: Icons.local_fire_department_rounded,
                           accent: AppColors.accentTertiary,
                           // Jump to the TV Shows tab.
-                          onSeeAll: () => ref
-                              .read(currentTabIndexProvider.notifier)
-                              .set(2),
+                          onSeeAll: () =>
+                              ref.read(currentTabIndexProvider.notifier).set(2),
                         ),
                         const SizedBox(height: AppSpacing.md),
                         SizedBox(
@@ -301,9 +299,8 @@ class MediaHubHomeScreen extends ConsumerWidget {
                           icon: Icons.movie_rounded,
                           accent: AppColors.accentPrimary,
                           // Jump to the Movies tab.
-                          onSeeAll: () => ref
-                              .read(currentTabIndexProvider.notifier)
-                              .set(3),
+                          onSeeAll: () =>
+                              ref.read(currentTabIndexProvider.notifier).set(3),
                         ),
                         const SizedBox(height: AppSpacing.md),
                         SizedBox(
@@ -404,12 +401,10 @@ class MediaHubHomeScreen extends ConsumerWidget {
 }
 
 class _HeroCard extends StatelessWidget {
-  const _HeroCard({
-    required this.continueWatching,
-    this.fallbackShow,
-  });
+  const _HeroCard({required this.continueWatching, this.fallbackShow});
 
   final List<WatchProgress> continueWatching;
+
   /// When the user has no continue-watching items yet, the hero
   /// pulls art + title from this trending show so the page never
   /// shows an empty gradient on first run.
@@ -423,10 +418,8 @@ class _HeroCard extends StatelessWidget {
         ? (hero.showName?.codeUnits.fold<int>(0, (a, b) => a + b) ?? 220) % 360
         : (fb != null ? (fb.id * 37) % 360 : 220);
 
-    final backdropUrl = _tmdbPoster(
-          hero?.posterPath,
-          size: 'original',
-        ) ??
+    final backdropUrl =
+        _tmdbPoster(hero?.posterPath, size: 'original') ??
         // Fallback: backdrop from the trending show, if any.
         fb?.backdropUrl ??
         fb?.posterUrl;
@@ -526,9 +519,9 @@ class _HeroCard extends StatelessWidget {
                           ? 'Pick up where you left off — '
                                 '${_progressLabel(hero)} remaining.'
                           : (fb?.overview != null && fb!.overview!.isNotEmpty
-                              ? fb.overview!
-                              : 'Browse Shows or Movies, queue a torrent, '
-                                  'and start watching the moment it\'s ready.'),
+                                ? fb.overview!
+                                : 'Browse Shows or Movies, queue a torrent, '
+                                      'and start watching the moment it\'s ready.'),
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -543,7 +536,8 @@ class _HeroCard extends StatelessWidget {
                     SizedBox(
                       width: 320,
                       child: _ProgressBar(
-                        progress: hero.position.inSeconds /
+                        progress:
+                            hero.position.inSeconds /
                             (hero.duration.inSeconds == 0
                                 ? 1
                                 : hero.duration.inSeconds),
@@ -646,6 +640,7 @@ class _SectionHeader extends StatelessWidget {
   final String title;
   final IconData icon;
   final Color accent;
+
   /// Tap handler for the "See all" button — when null, the button is
   /// hidden so we don't render a no-op control.
   final VoidCallback? onSeeAll;
@@ -696,8 +691,10 @@ class _ContinueCard extends ConsumerWidget {
   const _ContinueCard({required this.p, this.posterFallback, this.onTap});
 
   final WatchProgress p;
+
   /// Optional poster path used when `p.posterPath` is missing.
   final String? posterFallback;
+
   /// Tapping anywhere on the card resumes playback at the saved
   /// position. Wired up by the home screen.
   final VoidCallback? onTap;
@@ -719,8 +716,7 @@ class _ContinueCard extends ConsumerWidget {
     // older watch-progress entries were created before posters were
     // captured, so we resolve them on demand here.
     if (url == null) {
-      final fileName =
-          p.filePath.split('/').last.split('\\').last;
+      final fileName = p.filePath.split('/').last.split('\\').last;
       final query = (p.showName != null && p.showName!.isNotEmpty)
           ? p.showName!
           : _searchTitleFromTorrentName(fileName);
@@ -745,117 +741,117 @@ class _ContinueCard extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-          Stack(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(AppRadius.md),
-                child: SizedBox(
-                  width: 280,
-                  height: 158,
-                  child: url != null
-                      ? CachedNetworkImage(
-                          imageUrl: url,
-                          fit: BoxFit.cover,
-                          errorWidget: (_, _, _) => _hueBackdrop(hue),
-                          placeholder: (_, _) => _hueBackdrop(hue),
-                        )
-                      : _hueBackdrop(hue),
-                ),
-              ),
-              // Subtle bottom darkening so the title overlay reads.
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                height: 80,
-                child: ClipRRect(
-                  borderRadius: const BorderRadius.only(
-                    bottomLeft: Radius.circular(AppRadius.md),
-                    bottomRight: Radius.circular(AppRadius.md),
+              Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                    child: SizedBox(
+                      width: 280,
+                      height: 158,
+                      child: url != null
+                          ? CachedNetworkImage(
+                              imageUrl: url,
+                              fit: BoxFit.cover,
+                              errorWidget: (_, _, _) => _hueBackdrop(hue),
+                              placeholder: (_, _) => _hueBackdrop(hue),
+                            )
+                          : _hueBackdrop(hue),
+                    ),
                   ),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.transparent,
-                          Colors.black.withAlpha(160),
+                  // Subtle bottom darkening so the title overlay reads.
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    height: 80,
+                    child: ClipRRect(
+                      borderRadius: const BorderRadius.only(
+                        bottomLeft: Radius.circular(AppRadius.md),
+                        bottomRight: Radius.circular(AppRadius.md),
+                      ),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.transparent,
+                              Colors.black.withAlpha(160),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Resume play badge — solid white pill so it reads as
+                  // an actionable control, not a faint overlay.
+                  Positioned(
+                    top: AppSpacing.sm,
+                    right: AppSpacing.sm,
+                    child: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withAlpha(80),
+                            blurRadius: 10,
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.play_arrow_rounded,
+                        size: 22,
+                        color: Colors.black,
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: SizedBox(
+                      height: 3,
+                      child: Stack(
+                        children: [
+                          Container(color: Colors.white.withAlpha(38)),
+                          FractionallySizedBox(
+                            widthFactor: progressFraction.clamp(0.0, 1.0),
+                            child: Container(color: AppColors.seedColor),
+                          ),
                         ],
                       ),
                     ),
                   ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                p.showName ?? p.episodeTitle ?? 'Untitled',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xFFF4F4F8),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-              // Resume play badge — solid white pill so it reads as
-              // an actionable control, not a faint overlay.
-              Positioned(
-                top: AppSpacing.sm,
-                right: AppSpacing.sm,
-                child: Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withAlpha(80),
-                        blurRadius: 10,
-                      ),
-                    ],
-                  ),
-                  child: const Icon(
-                    Icons.play_arrow_rounded,
-                    size: 22,
-                    color: Colors.black,
-                  ),
+              const SizedBox(height: 2),
+              Text(
+                [
+                  if (p.episodeCode != null) p.episodeCode!,
+                  if (p.episodeTitle != null) p.episodeTitle!,
+                ].join(' — '),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Color(0xFF7A7A92),
+                  fontSize: 11,
+                  fontFamily: 'monospace',
                 ),
               ),
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: SizedBox(
-                  height: 3,
-                  child: Stack(
-                    children: [
-                      Container(color: Colors.white.withAlpha(38)),
-                      FractionallySizedBox(
-                        widthFactor: progressFraction.clamp(0.0, 1.0),
-                        child: Container(color: AppColors.seedColor),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            p.showName ?? p.episodeTitle ?? 'Untitled',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Color(0xFFF4F4F8),
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            [
-              if (p.episodeCode != null) p.episodeCode!,
-              if (p.episodeTitle != null) p.episodeTitle!,
-            ].join(' — '),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Color(0xFF7A7A92),
-              fontSize: 11,
-              fontFamily: 'monospace',
-            ),
-          ),
             ],
           ),
         ),
@@ -902,8 +898,7 @@ class _PosterTileState extends State<_PosterTile> {
         onTap: widget.onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
-          transform: Matrix4.identity()
-            ..translate(0.0, _hover ? -4.0 : 0.0),
+          transform: Matrix4.identity()..translate(0.0, _hover ? -4.0 : 0.0),
           width: 180,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -916,7 +911,8 @@ class _PosterTileState extends State<_PosterTile> {
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      if (widget.imageUrl != null && widget.imageUrl!.isNotEmpty)
+                      if (widget.imageUrl != null &&
+                          widget.imageUrl!.isNotEmpty)
                         CachedNetworkImage(
                           imageUrl: widget.imageUrl!,
                           fit: BoxFit.cover,
@@ -975,6 +971,7 @@ class _FreshTile extends ConsumerWidget {
   const _FreshTile({required this.t, this.posterPath});
 
   final Torrent t;
+
   /// Resolved TMDB poster path (e.g. `/abc.jpg`) — comes from joining
   /// the torrent name against watch progress + local media library.
   /// Falls back to a hue gradient when null.
@@ -982,8 +979,7 @@ class _FreshTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final hue =
-        t.name.codeUnits.fold<int>(0, (a, b) => a + b) % 360;
+    final hue = t.name.codeUnits.fold<int>(0, (a, b) => a + b) % 360;
     final quality = _qualityFromName(t.name);
     String? url = _tmdbPoster(posterPath, size: 'w500');
 

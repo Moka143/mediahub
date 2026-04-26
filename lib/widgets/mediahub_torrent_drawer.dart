@@ -101,12 +101,9 @@ class _MediaHubTorrentDrawerState extends State<MediaHubTorrentDrawer> {
         onSortChange: (b) => setState(() => _sortBySize = b),
         onPick: (stream, isStreaming) {
           widget.onSelect(stream, isStreaming);
-          Navigator.of(context).pop(
-            StreamPickerResult(
-              stream: stream,
-              isStreaming: isStreaming,
-            ),
-          );
+          Navigator.of(
+            context,
+          ).pop(StreamPickerResult(stream: stream, isStreaming: isStreaming));
         },
         onCancel: () => Navigator.of(context).pop(),
       ),
@@ -159,10 +156,7 @@ class _DrawerPanel extends StatelessWidget {
                     style: TextStyle(color: Color(0xFF7A7A92)),
                   ),
                 )
-              : _GroupedSourceList(
-                  filtered: filtered,
-                  onPick: onPick,
-                ),
+              : _GroupedSourceList(filtered: filtered, onPick: onPick),
         ),
         _Footer(
           count: filtered.length,
@@ -226,7 +220,10 @@ class _GroupedSourceList extends StatelessWidget {
       itemBuilder: (_, i) {
         final item = items[i];
         if (item.isHeader) {
-          return _TierHeader(label: item.headerLabel!, count: item.headerCount!);
+          return _TierHeader(
+            label: item.headerLabel!,
+            count: item.headerCount!,
+          );
         }
         return _SourceRow(
           stream: item.stream!,
@@ -342,9 +339,7 @@ class _Header extends StatelessWidget {
         AppSpacing.lg,
       ),
       decoration: const BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: Color(0x0FFFFFFF), width: 1),
-        ),
+        border: Border(bottom: BorderSide(color: Color(0x0FFFFFFF), width: 1)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -472,16 +467,18 @@ class _FilterBar extends StatelessWidget {
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w600,
-              color: selected
-                  ? AppColors.seedColor
-                  : const Color(0xFFB4B4C8),
+              color: selected ? AppColors.seedColor : const Color(0xFFB4B4C8),
             ),
           ),
         ),
       );
     }
 
-    Widget seg({required String label, required bool selected, required VoidCallback onTap}) {
+    Widget seg({
+      required String label,
+      required bool selected,
+      required VoidCallback onTap,
+    }) {
       return GestureDetector(
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
@@ -514,9 +511,7 @@ class _FilterBar extends StatelessWidget {
         vertical: AppSpacing.md,
       ),
       decoration: const BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: Color(0x0FFFFFFF), width: 1),
-        ),
+        border: Border(bottom: BorderSide(color: Color(0x0FFFFFFF), width: 1)),
       ),
       child: Row(
         children: [
@@ -753,7 +748,9 @@ class _SourceRowState extends State<_SourceRow> {
                       _StreamabilityChip(seeders: s.seeders),
                       const SizedBox(height: 2),
                       Text(
-                        s.isSeasonPack ? 'pack' : (s.isSingleFile ? 'single' : 'multi'),
+                        s.isSeasonPack
+                            ? 'pack'
+                            : (s.isSingleFile ? 'single' : 'multi'),
                         style: const TextStyle(
                           fontSize: 10,
                           color: Color(0xFF7A7A92),
@@ -888,9 +885,7 @@ class _Footer extends StatelessWidget {
       ),
       decoration: const BoxDecoration(
         color: AppColors.bgPage,
-        border: Border(
-          top: BorderSide(color: Color(0x0FFFFFFF), width: 1),
-        ),
+        border: Border(top: BorderSide(color: Color(0x0FFFFFFF), width: 1)),
       ),
       child: Row(
         children: [

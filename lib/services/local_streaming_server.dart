@@ -98,10 +98,10 @@ class LocalStreamingServer {
     required this.torrentHash,
     required this.fileIndex,
     String? logTag,
-  })  : _qbt = qbt,
-        _logTag = logTag == null
-            ? 'LocalStreamingServer'
-            : 'LocalStreamingServer:$logTag';
+  }) : _qbt = qbt,
+       _logTag = logTag == null
+           ? 'LocalStreamingServer'
+           : 'LocalStreamingServer:$logTag';
 
   /// HTTP URL the player should open. Available only after [start].
   String get url {
@@ -281,11 +281,13 @@ class LocalStreamingServer {
     var clientGone = false;
 
     // If the client disconnects mid-wait we need to bail out promptly.
-    final doneSub = res.done.then((_) {
-      clientGone = true;
-    }).catchError((_) {
-      clientGone = true;
-    });
+    final doneSub = res.done
+        .then((_) {
+          clientGone = true;
+        })
+        .catchError((_) {
+          clientGone = true;
+        });
 
     var stallReferenceProgress = -1.0;
     var stallReferenceAt = DateTime.now();
@@ -316,10 +318,10 @@ class LocalStreamingServer {
 
         // Read up to chunk size, but never past either the requested end
         // OR the first missing piece (reading further would return zeros).
-        final chunkEnd =
-            (position + _chunkSize - 1).clamp(position, end).toInt();
-        final safeEnd =
-            (firstMissing - 1).clamp(position, chunkEnd).toInt();
+        final chunkEnd = (position + _chunkSize - 1)
+            .clamp(position, end)
+            .toInt();
+        final safeEnd = (firstMissing - 1).clamp(position, chunkEnd).toInt();
         final toRead = safeEnd - position + 1;
         if (toRead <= 0) {
           await Future<void>.delayed(_waitInterval);

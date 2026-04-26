@@ -17,11 +17,11 @@ enum _ShowsFeed { trending, popular, topRated, onAir }
 
 extension on _ShowsFeed {
   String get label => switch (this) {
-        _ShowsFeed.trending => 'Trending',
-        _ShowsFeed.popular => 'Popular',
-        _ShowsFeed.topRated => 'Top Rated',
-        _ShowsFeed.onAir => 'On The Air',
-      };
+    _ShowsFeed.trending => 'Trending',
+    _ShowsFeed.popular => 'Popular',
+    _ShowsFeed.topRated => 'Top Rated',
+    _ShowsFeed.onAir => 'On The Air',
+  };
 }
 
 /// MediaHub TV Shows browse — Stremio-style poster wall with paginated
@@ -146,9 +146,9 @@ class _ShowsScreenState extends ConsumerState<ShowsScreen> {
   }
 
   void _navigateToShowDetails(Show show) {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => ShowDetailsScreen(show: show)),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => ShowDetailsScreen(show: show)));
   }
 
   double _hueFromId(int id) => (id * 37 % 360).toDouble();
@@ -165,110 +165,111 @@ class _ShowsScreenState extends ConsumerState<ShowsScreen> {
           // so cards never feel like they're hovering in a void.
           constraints: const BoxConstraints(maxWidth: 1500),
           child: CustomScrollView(
-        controller: _scrollController,
-        physics: const AlwaysScrollableScrollPhysics(),
-        slivers: [
-          if (_items.isNotEmpty)
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.xxl,
-                AppSpacing.xl,
-                AppSpacing.xxl,
-                AppSpacing.md,
-              ),
-              sliver: SliverToBoxAdapter(
-                child: MediaHubSpotlight(
-                  title: _items.first.name,
-                  year: _items.first.year,
-                  genre: _items.first.genres.isNotEmpty
-                      ? _items.first.genres.first
-                      : 'Drama',
-                  rating: _items.first.voteAverage,
-                  quality: '4K',
-                  hue: _hueFromId(_items.first.id),
-                  backdropUrl: _items.first.backdropUrl,
-                  posterUrl: _items.first.posterUrl,
-                  metaSuffix: 'TV SERIES',
-                  onPrimaryTap: () => _navigateToShowDetails(_items.first),
-                  onSecondaryTap: () => _navigateToShowDetails(_items.first),
-                ),
-              ),
-            ),
-          SliverToBoxAdapter(
-            child: _ShowsFilterBar(
-              genres: _genres,
-              selectedGenre: _genre,
-              onGenreSelected: (g) {
-                setState(() => _genre = g);
-                _resetAndLoad();
-              },
-              feed: _feed,
-              onFeedSelected: (f) {
-                setState(() => _feed = f);
-                _resetAndLoad();
-              },
-            ),
-          ),
-          if (_items.isEmpty && _loading)
-            const SliverFillRemaining(
-              hasScrollBody: false,
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (_error != null && _items.isEmpty)
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: EmptyState.error(
-                message: _error.toString(),
-                onRetry: _resetAndLoad,
-              ),
-            )
-          else if (_items.isEmpty)
-            const SliverFillRemaining(
-              hasScrollBody: false,
-              child: Center(
-                child: Padding(
-                  padding: EdgeInsets.all(AppSpacing.huge),
-                  child: Text(
-                    'No shows match this filter.',
-                    style: TextStyle(color: Color(0xFF7A7A92)),
+            controller: _scrollController,
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              if (_items.isNotEmpty)
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.xxl,
+                    AppSpacing.xl,
+                    AppSpacing.xxl,
+                    AppSpacing.md,
+                  ),
+                  sliver: SliverToBoxAdapter(
+                    child: MediaHubSpotlight(
+                      title: _items.first.name,
+                      year: _items.first.year,
+                      genre: _items.first.genres.isNotEmpty
+                          ? _items.first.genres.first
+                          : 'Drama',
+                      rating: _items.first.voteAverage,
+                      quality: '4K',
+                      hue: _hueFromId(_items.first.id),
+                      backdropUrl: _items.first.backdropUrl,
+                      posterUrl: _items.first.posterUrl,
+                      metaSuffix: 'TV SERIES',
+                      onPrimaryTap: () => _navigateToShowDetails(_items.first),
+                      onSecondaryTap: () =>
+                          _navigateToShowDetails(_items.first),
+                    ),
                   ),
                 ),
-              ),
-            )
-          else
-            SliverPadding(
-              padding: const EdgeInsets.all(AppSpacing.xxl),
-              sliver: SliverGrid(
-                gridDelegate:
-                    const SliverGridDelegateWithMaxCrossAxisExtent(
-                  // 170px max cap keeps cards from looking oversized
-                  // on wide windows. Aspect 2:3.2 reserves space for
-                  // the title + meta lines below the poster.
-                  maxCrossAxisExtent: 170,
-                  mainAxisSpacing: AppSpacing.md,
-                  crossAxisSpacing: AppSpacing.md,
-                  childAspectRatio: 2 / 3.2,
+              SliverToBoxAdapter(
+                child: _ShowsFilterBar(
+                  genres: _genres,
+                  selectedGenre: _genre,
+                  onGenreSelected: (g) {
+                    setState(() => _genre = g);
+                    _resetAndLoad();
+                  },
+                  feed: _feed,
+                  onFeedSelected: (f) {
+                    setState(() => _feed = f);
+                    _resetAndLoad();
+                  },
                 ),
-                delegate: SliverChildBuilderDelegate(
-                  (context, i) => ShowCard(
-                    show: _items[i],
-                    onTap: () => _navigateToShowDetails(_items[i]),
+              ),
+              if (_items.isEmpty && _loading)
+                const SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (_error != null && _items.isEmpty)
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: EmptyState.error(
+                    message: _error.toString(),
+                    onRetry: _resetAndLoad,
                   ),
-                  childCount: _items.length,
+                )
+              else if (_items.isEmpty)
+                const SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(AppSpacing.huge),
+                      child: Text(
+                        'No shows match this filter.',
+                        style: TextStyle(color: Color(0xFF7A7A92)),
+                      ),
+                    ),
+                  ),
+                )
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.all(AppSpacing.xxl),
+                  sliver: SliverGrid(
+                    gridDelegate:
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                          // 170px max cap keeps cards from looking oversized
+                          // on wide windows. Aspect 2:3.2 reserves space for
+                          // the title + meta lines below the poster.
+                          maxCrossAxisExtent: 170,
+                          mainAxisSpacing: AppSpacing.md,
+                          crossAxisSpacing: AppSpacing.md,
+                          childAspectRatio: 2 / 3.2,
+                        ),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, i) => ShowCard(
+                        show: _items[i],
+                        onTap: () => _navigateToShowDetails(_items[i]),
+                      ),
+                      childCount: _items.length,
+                    ),
+                  ),
+                ),
+              // Lazy-load footer — keeps a thin loader visible while the
+              // next page comes in. Empty when we've reached the end.
+              SliverToBoxAdapter(
+                child: _PaginationFooter(
+                  loading: _loading,
+                  exhausted: _exhausted && _items.isNotEmpty,
+                  hasItems: _items.isNotEmpty,
                 ),
               ),
-            ),
-          // Lazy-load footer — keeps a thin loader visible while the
-          // next page comes in. Empty when we've reached the end.
-          SliverToBoxAdapter(
-            child: _PaginationFooter(
-              loading: _loading,
-              exhausted: _exhausted && _items.isNotEmpty,
-              hasItems: _items.isNotEmpty,
-            ),
+            ],
           ),
-        ],
-      ),
         ),
       ),
     );
@@ -302,14 +303,11 @@ class _PaginationFooter extends StatelessWidget {
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
             : exhausted
-                ? const Text(
-                    'You\'ve reached the end.',
-                    style: TextStyle(
-                      color: Color(0xFF54546A),
-                      fontSize: 12,
-                    ),
-                  )
-                : const SizedBox.shrink(),
+            ? const Text(
+                'You\'ve reached the end.',
+                style: TextStyle(color: Color(0xFF54546A), fontSize: 12),
+              )
+            : const SizedBox.shrink(),
       ),
     );
   }
@@ -335,9 +333,7 @@ class _ShowsFilterBar extends StatelessWidget {
     return Container(
       decoration: const BoxDecoration(
         color: AppColors.bgPage,
-        border: Border(
-          bottom: BorderSide(color: Color(0x0FFFFFFF), width: 1),
-        ),
+        border: Border(bottom: BorderSide(color: Color(0x0FFFFFFF), width: 1)),
       ),
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.xxl,
@@ -407,11 +403,7 @@ class _FeedSortPicker extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.sort_rounded,
-              size: 12,
-              color: Color(0xFF7A7A92),
-            ),
+            const Icon(Icons.sort_rounded, size: 12, color: Color(0xFF7A7A92)),
             const SizedBox(width: 6),
             Text(
               value.label,

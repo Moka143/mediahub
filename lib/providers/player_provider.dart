@@ -201,10 +201,7 @@ class PlayerService {
         // not yet downloaded — qBittorrent has it as zero-padded sparse
         // bytes. Without these flags mpv blocks on the proxy waiting for
         // the tail to land, which manifests as the spinner-forever bug.
-        await nativePlayer.setProperty(
-          'demuxer-mkv-probe-start-time',
-          'no',
-        );
+        await nativePlayer.setProperty('demuxer-mkv-probe-start-time', 'no');
         await nativePlayer.setProperty(
           'demuxer-mkv-probe-video-duration',
           'no',

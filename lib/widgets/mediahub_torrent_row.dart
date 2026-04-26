@@ -54,9 +54,7 @@ class MediaHubTorrentHeader extends StatelessWidget {
     return Container(
       decoration: const BoxDecoration(
         color: AppColors.bgPage,
-        border: Border(
-          bottom: BorderSide(color: Color(0x0FFFFFFF), width: 1),
-        ),
+        border: Border(bottom: BorderSide(color: Color(0x0FFFFFFF), width: 1)),
       ),
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.xxl,
@@ -80,8 +78,9 @@ class MediaHubTorrentHeader extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       onTap: col.key == null ? null : () => onSortKeyTap(col.key!),
       child: Row(
-        mainAxisAlignment:
-            col.alignRight ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment: col.alignRight
+            ? MainAxisAlignment.end
+            : MainAxisAlignment.start,
         children: [
           Text(
             col.label.toUpperCase(),
@@ -207,8 +206,8 @@ class _MediaHubTorrentRowState extends State<MediaHubTorrentRow>
                 color: widget.selected
                     ? accent.withAlpha(0x24)
                     : (_hover
-                        ? Colors.white.withAlpha(10)
-                        : Colors.transparent),
+                          ? Colors.white.withAlpha(10)
+                          : Colors.transparent),
                 border: const Border(
                   bottom: BorderSide(color: Color(0x0FFFFFFF), width: 1),
                 ),
@@ -234,7 +233,9 @@ class _MediaHubTorrentRowState extends State<MediaHubTorrentRow>
                               width: 8,
                               height: 8,
                               decoration: BoxDecoration(
-                                color: stateColor.withAlpha((255 * pulse).round()),
+                                color: stateColor.withAlpha(
+                                  (255 * pulse).round(),
+                                ),
                                 shape: BoxShape.circle,
                                 boxShadow: t.isDownloading
                                     ? [
@@ -467,9 +468,7 @@ class _RowIconButtonState extends State<_RowIconButton> {
             width: 26,
             height: 26,
             decoration: BoxDecoration(
-              color: _hover
-                  ? Colors.white.withAlpha(10)
-                  : Colors.transparent,
+              color: _hover ? Colors.white.withAlpha(10) : Colors.transparent,
               borderRadius: BorderRadius.circular(AppRadius.sm),
             ),
             child: Center(

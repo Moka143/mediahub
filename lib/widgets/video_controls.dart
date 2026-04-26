@@ -366,8 +366,8 @@ class VideoControlsOverlay extends ConsumerWidget {
 
               _BottomTrackControls(
                 showId: showId,
-                isCompact: MediaQuery.of(context).size.width <
-                    AppBreakpoints.mobile,
+                isCompact:
+                    MediaQuery.of(context).size.width < AppBreakpoints.mobile,
                 onContinueWatchingActivated: onContinueWatchingActivated,
               ),
 
@@ -1183,8 +1183,8 @@ class _ContinueWatchingToggle extends ConsumerWidget {
           final next = override == null
               ? true
               : override == true
-                  ? false
-                  : null;
+              ? false
+              : null;
           debugPrint(
             '[ContinueWatching] tapped: showId=$showId override=$override → ${next ?? "auto"}',
           );
@@ -1207,10 +1207,7 @@ class _ContinueWatchingToggle extends ConsumerWidget {
           decoration: BoxDecoration(
             color: bgColor,
             borderRadius: BorderRadius.circular(AppRadius.full),
-            border: Border.all(
-              color: borderColor,
-              width: AppBorderWidth.thin,
-            ),
+            border: Border.all(color: borderColor, width: AppBorderWidth.thin),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,

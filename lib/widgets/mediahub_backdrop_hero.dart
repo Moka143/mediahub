@@ -70,12 +70,14 @@ class MediaHubBackdropHero extends StatelessWidget {
               },
             )
           else ...[
-            Builder(builder: (_) {
-              debugPrint(
-                '[Hero] no backdrop URL for "$title" (TMDB had no backdrop_path)',
-              );
-              return _backdropFallback();
-            }),
+            Builder(
+              builder: (_) {
+                debugPrint(
+                  '[Hero] no backdrop URL for "$title" (TMDB had no backdrop_path)',
+                );
+                return _backdropFallback();
+              },
+            ),
           ],
 
           // Top → bottom fade so the page content reads cleanly under
@@ -102,10 +104,7 @@ class MediaHubBackdropHero extends StatelessWidget {
                 begin: Alignment.centerLeft,
                 end: Alignment.centerRight,
                 stops: const [0.0, 0.6],
-                colors: [
-                  AppColors.bgPage.withAlpha(178),
-                  Colors.transparent,
-                ],
+                colors: [AppColors.bgPage.withAlpha(178), Colors.transparent],
               ),
             ),
           ),
@@ -138,12 +137,14 @@ class MediaHubBackdropHero extends StatelessWidget {
                     ),
                   )
                 else ...[
-                  Builder(builder: (_) {
-                    debugPrint(
-                      '[Hero] no poster URL for "$title" (TMDB had no poster_path)',
-                    );
-                    return _posterFallback();
-                  }),
+                  Builder(
+                    builder: (_) {
+                      debugPrint(
+                        '[Hero] no poster URL for "$title" (TMDB had no poster_path)',
+                      );
+                      return _posterFallback();
+                    },
+                  ),
                 ],
                 const SizedBox(width: AppSpacing.xxl),
 

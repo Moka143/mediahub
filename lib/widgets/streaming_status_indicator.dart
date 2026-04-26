@@ -123,9 +123,7 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(
-                  alpha: AppOpacity.semi / 255.0,
-                ),
+                color: Colors.black.withValues(alpha: AppOpacity.semi / 255.0),
                 blurRadius: AppElevation.lg,
                 offset: const Offset(0, 4),
               ),
@@ -248,9 +246,7 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
           width: AppIconSize.xxl,
           height: AppIconSize.xxl,
           decoration: BoxDecoration(
-            color: scheme.primary.withValues(
-              alpha: AppOpacity.medium / 255.0,
-            ),
+            color: scheme.primary.withValues(alpha: AppOpacity.medium / 255.0),
             shape: BoxShape.circle,
           ),
           child: Icon(
@@ -287,9 +283,7 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
           width: AppIconSize.xxl,
           height: AppIconSize.xxl,
           decoration: BoxDecoration(
-            color: scheme.tertiary.withValues(
-              alpha: AppOpacity.medium / 255.0,
-            ),
+            color: scheme.tertiary.withValues(alpha: AppOpacity.medium / 255.0),
             shape: BoxShape.circle,
           ),
           child: Icon(
@@ -399,9 +393,7 @@ class StreamingStatusPill extends StatelessWidget {
           height: AppIconSize.xxs,
           child: CircularProgressIndicator(
             strokeWidth: 1.5,
-            valueColor: AlwaysStoppedAnimation<Color>(
-              scheme.onSurfaceVariant,
-            ),
+            valueColor: AlwaysStoppedAnimation<Color>(scheme.onSurfaceVariant),
           ),
         );
       case StreamingStatus.found:

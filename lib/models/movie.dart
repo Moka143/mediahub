@@ -13,6 +13,7 @@ class Movie {
   final int? runtime;
   final String? imdbId;
   final List<String> genres;
+
   /// TMDB genre IDs from list endpoints (`genre_ids`). Detail
   /// endpoints return the full `genres` array instead.
   final List<int> genreIds;
@@ -64,8 +65,7 @@ class Movie {
               ?.map((g) => g['name'] as String)
               .toList() ??
           [],
-      genreIds:
-          (json['genre_ids'] as List<dynamic>?)?.cast<int>() ?? const [],
+      genreIds: (json['genre_ids'] as List<dynamic>?)?.cast<int>() ?? const [],
       budget: json['budget'] as int?,
       revenue: json['revenue'] as int?,
       tagline: json['tagline'] as String?,

@@ -201,13 +201,14 @@ class _MediaHubDrawerScaffoldState extends State<_MediaHubDrawerScaffold> {
                             }),
                             onHorizontalDragUpdate: (d) {
                               setState(() {
-                                _dragOffset = (_dragOffset + d.delta.dx)
-                                    .clamp(0.0, width);
+                                _dragOffset = (_dragOffset + d.delta.dx).clamp(
+                                  0.0,
+                                  width,
+                                );
                               });
                             },
                             onHorizontalDragEnd: (d) {
-                              final flick =
-                                  (d.primaryVelocity ?? 0) > 800;
+                              final flick = (d.primaryVelocity ?? 0) > 800;
                               final past = _dragOffset > width * 0.3;
                               if (flick || past) {
                                 Navigator.of(context).pop();

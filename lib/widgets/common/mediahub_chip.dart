@@ -36,15 +36,13 @@ class _MediaHubFilterChipState extends State<MediaHubFilterChip> {
 
   @override
   Widget build(BuildContext context) {
-    final accent =
-        widget.accentColor ?? widget.dotColor ?? AppColors.seedColor;
+    final accent = widget.accentColor ?? widget.dotColor ?? AppColors.seedColor;
     final isSel = widget.selected;
     final bg = isSel
         ? accent.withAlpha(0x24)
         : (_hover ? Colors.white.withAlpha(10) : Colors.transparent);
     final fg = isSel ? accent : const Color(0xFFB4B4C8);
-    final borderColor =
-        isSel ? accent.withAlpha(0x66) : Colors.transparent;
+    final borderColor = isSel ? accent.withAlpha(0x66) : Colors.transparent;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
@@ -88,8 +86,10 @@ class _MediaHubFilterChipState extends State<MediaHubFilterChip> {
               if (widget.count != null) ...[
                 const SizedBox(width: 6),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 5,
+                    vertical: 1,
+                  ),
                   decoration: BoxDecoration(
                     color: isSel
                         ? accent.withAlpha(0x40)

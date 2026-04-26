@@ -322,10 +322,8 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
         // Aggregate dl/ul speeds — surfaced in the TopBar speed pill,
         // matching the design's `↓ 27.5 MB/s   ↑ 12.2 MB/s` widget.
         final torrents = ref.watch(torrentListProvider).torrents;
-        final totalDl =
-            torrents.fold<int>(0, (s, t) => s + t.dlspeed.toInt());
-        final totalUl =
-            torrents.fold<int>(0, (s, t) => s + t.upspeed.toInt());
+        final totalDl = torrents.fold<int>(0, (s, t) => s + t.dlspeed.toInt());
+        final totalUl = torrents.fold<int>(0, (s, t) => s + t.upspeed.toInt());
         actions.addAll([
           _TransfersSpeedPill(totalDl: totalDl, totalUl: totalUl),
           const ConnectionStatusWidget(),
@@ -386,9 +384,9 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
       MediaHubIconButton(
         icon: Icons.settings_outlined,
         tooltip: 'Settings',
-        onPressed: () => Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const SettingsScreen()),
-        ),
+        onPressed: () => Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const SettingsScreen())),
       ),
     );
 
@@ -806,7 +804,9 @@ class _TransfersSpeedPill extends StatelessWidget {
             decoration: BoxDecoration(
               color: color,
               shape: BoxShape.circle,
-              boxShadow: [BoxShadow(color: color.withAlpha(120), blurRadius: 6)],
+              boxShadow: [
+                BoxShadow(color: color.withAlpha(120), blurRadius: 6),
+              ],
             ),
           ),
           const SizedBox(width: 4),
@@ -845,22 +845,14 @@ class _TransfersSpeedPill extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          speedRow(
-            color: AppColors.downloading,
-            arrow: '↓',
-            bytes: totalDl,
-          ),
+          speedRow(color: AppColors.downloading, arrow: '↓', bytes: totalDl),
           Container(
             width: 1,
             height: 14,
             margin: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
             color: const Color(0x0FFFFFFF),
           ),
-          speedRow(
-            color: AppColors.seeding,
-            arrow: '↑',
-            bytes: totalUl,
-          ),
+          speedRow(color: AppColors.seeding, arrow: '↑', bytes: totalUl),
         ],
       ),
     );
@@ -870,7 +862,10 @@ class _TransfersSpeedPill extends StatelessWidget {
 /// Compact search pill used in the Transfers filter row — matches
 /// the design's right-side 220px search field on the Transfers screen.
 class _TransfersSearchPill extends StatelessWidget {
-  const _TransfersSearchPill({required this.controller, required this.onChanged});
+  const _TransfersSearchPill({
+    required this.controller,
+    required this.onChanged,
+  });
 
   final TextEditingController controller;
   final ValueChanged<String> onChanged;
@@ -879,7 +874,10 @@ class _TransfersSearchPill extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: 220,
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 4),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: 4,
+      ),
       decoration: BoxDecoration(
         color: AppColors.bgSurface,
         border: Border.all(color: const Color(0x0FFFFFFF)),

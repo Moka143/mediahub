@@ -367,9 +367,7 @@ class _NavRowState extends State<_NavRow> {
             decoration: BoxDecoration(
               color: widget.active
                   ? activeBg
-                  : (_hover
-                      ? Colors.white.withAlpha(10)
-                      : Colors.transparent),
+                  : (_hover ? Colors.white.withAlpha(10) : Colors.transparent),
               borderRadius: BorderRadius.circular(AppRadius.md),
             ),
             padding: EdgeInsets.symmetric(
@@ -410,7 +408,9 @@ class _NavRowState extends State<_NavRow> {
                       clipBehavior: Clip.none,
                       children: [
                         Icon(
-                          widget.active ? widget.item.selectedIcon : widget.item.icon,
+                          widget.active
+                              ? widget.item.selectedIcon
+                              : widget.item.icon,
                           size: 18,
                           color: widget.active ? accent : secondaryText,
                         ),
@@ -432,7 +432,9 @@ class _NavRowState extends State<_NavRow> {
                           widget.item.label,
                           style: TextStyle(
                             fontSize: 13,
-                            fontWeight: widget.active ? FontWeight.w600 : FontWeight.w500,
+                            fontWeight: widget.active
+                                ? FontWeight.w600
+                                : FontWeight.w500,
                             color: widget.active ? accent : secondaryText,
                           ),
                         ),

@@ -115,6 +115,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
 
   // Auto-download tracking
   bool _autoDownloadTriggered = false;
+
   /// One-shot guard for the "Continue Watching ON → seamless auto-play"
   /// path. When the user explicitly opted in for this show we skip the
   /// next-episode overlay and just hand off to `_onPlayNextEpisode` once
@@ -125,6 +126,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   Episode? _downloadingEpisode; // The episode we're downloading
   String? _nextEpisodeStreamingTorrentHash;
   int? _nextEpisodeStreamingFileIndex;
+
   /// HTTP proxy URL for the next-episode stream, when one has been set up.
   /// Mirrors `widget.streamingProxyUrl` for the current episode but for the
   /// auto-next-episode handoff in [_onPlayNextEpisode]. Without this the
@@ -160,20 +162,24 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   bool _autoBufferPaused = false;
   bool _recoveryInFlight = false;
   bool _healthCheckInFlight = false;
+
   /// Set true the first time mpv's position actually advances past zero.
   /// Gates stall detection so we don't trigger the recovery seek during
   /// the initial open window where position is legitimately frozen at 0
   /// while mpv loads the file over the HTTP proxy.
   bool _hasStartedPlayback = false;
+
   /// Last time the recovery seek ran — rate-limits subsequent recoveries
   /// so mpv has time to actually settle before we intervene again.
   DateTime _lastRecoveryAt = DateTime.fromMillisecondsSinceEpoch(0);
   // Latest 0.0–1.0 download progress for the streaming target file.
   // Drives the seek-bar's buffered-track in streaming mode.
   double? _streamingDownloadedRatio;
+
   /// True while the proxy-mode seek-past-head indicator is on screen, so we
   /// know to dismiss it once the buffer catches up.
   bool _seekPastHeadActive = false;
+
   /// We disable qBittorrent's sequential-download mode the first time the
   /// user seeks past the download edge — sequential mode means "always pull
   /// pieces from the front", which would force the user to wait for the
@@ -737,8 +743,8 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       final cwOverride = _currentShowId == null
           ? null
           : ref
-              .read(autoDownloadProvider)
-              .showAutoDownloadOverrides[_currentShowId];
+                .read(autoDownloadProvider)
+                .showAutoDownloadOverrides[_currentShowId];
       final continueWatchingOn = cwOverride == true;
       if (continueWatchingOn) {
         if (!_autoNextEpisodeFired && _nextEpisode != null) {
@@ -2133,9 +2139,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
               'url=$proxyUrl',
             );
           } catch (e) {
-            debugPrint(
-              '[NextEpisodeProxy] failed to start: $e',
-            );
+            debugPrint('[NextEpisodeProxy] failed to start: $e');
           }
 
           setState(() {
@@ -2441,10 +2445,7 @@ class _BufferingIndicator extends StatelessWidget {
           // 0.94 → 1.0 scale + 0 → 1 fade
           return Opacity(
             opacity: t,
-            child: Transform.scale(
-              scale: 0.94 + (0.06 * t),
-              child: child,
-            ),
+            child: Transform.scale(scale: 0.94 + (0.06 * t), child: child),
           );
         },
         child: Column(
