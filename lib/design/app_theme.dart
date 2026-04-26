@@ -86,32 +86,34 @@ class AppColorsExtension extends ThemeExtension<AppColorsExtension> {
     shimmerHighlight: Color(0xFFF9FAFB),
   );
 
-  /// Dark theme colors - deep, rich
+  /// Dark theme colors — MediaHub deep, violet-tinted near-black surfaces
   static const dark = AppColorsExtension(
     downloading: AppColors.downloading,
-    downloadingBackground: Color(0xFF1E293B), // Slate 800
+    // Subtle indigo-tinted background to match the new state palette
+    downloadingBackground: Color(0x22818CF8),
     seeding: AppColors.seeding,
-    seedingBackground: Color(0xFF14532D), // Green 900
+    seedingBackground: Color(0x2234D399),
     paused: AppColors.paused,
-    pausedBackground: Color(0xFF374151), // Gray 700
+    pausedBackground: AppColors.bgSurfaceHi,
     queued: AppColors.queued,
-    queuedBackground: Color(0xFF451A03), // Amber 950
+    queuedBackground: Color(0x22FBBF24),
     checking: AppColors.checking,
-    checkingBackground: Color(0xFF2E1065), // Violet 950
+    checkingBackground: Color(0x22A78BFA),
     errorState: AppColors.errorState,
-    errorStateBackground: Color(0xFF450A0A), // Red 950
+    errorStateBackground: Color(0x22FB7185),
     success: AppColors.success,
-    successBackground: Color(0xFF14532D),
+    successBackground: Color(0x2234D399),
     warning: AppColors.warning,
-    warningBackground: Color(0xFF451A03),
+    warningBackground: Color(0x22FBBF24),
     info: AppColors.info,
-    infoBackground: Color(0xFF1E3A5F),
-    subtleText: Color(0xFF9CA3AF), // Gray 400
-    mutedText: Color(0xFF6B7280), // Gray 500
-    cardBackground: Color(0xFF1F2937), // Gray 800
-    cardBackgroundElevated: Color(0xFF374151), // Gray 700
-    shimmerBase: Color(0xFF374151),
-    shimmerHighlight: Color(0xFF4B5563),
+    infoBackground: Color(0x22818CF8),
+    // MediaHub text scale — primary, secondary, tertiary, quaternary
+    subtleText: Color(0xFFB4B4C8), // secondary
+    mutedText: Color(0xFF7A7A92), // tertiary
+    cardBackground: AppColors.bgSurface,
+    cardBackgroundElevated: AppColors.bgSurfaceHi,
+    shimmerBase: AppColors.bgSurfaceHi,
+    shimmerHighlight: AppColors.bgSurfaceHigher,
   );
 
   @override
@@ -600,19 +602,25 @@ ThemeData buildLightTheme() {
   );
 }
 
-/// Build the dark theme - Rich, deep colors
+/// Build the dark theme — MediaHub: deep violet-tinted near-black cinematic
 ThemeData buildDarkTheme() {
   final colorScheme =
       ColorScheme.fromSeed(
         seedColor: AppColors.seedColor,
         brightness: Brightness.dark,
       ).copyWith(
-        surface: const Color(0xFF121212),
-        surfaceContainerLowest: const Color(0xFF0A0A0A),
-        surfaceContainerLow: const Color(0xFF1A1A1A),
-        surfaceContainer: const Color(0xFF1F1F1F),
-        surfaceContainerHigh: const Color(0xFF2A2A2A),
-        surfaceContainerHighest: const Color(0xFF333333),
+        // MediaHub surface stack — see `app_colors.dart` for the design source
+        surface: AppColors.bgPage,
+        surfaceContainerLowest: AppColors.bgPage,
+        surfaceContainerLow: AppColors.bgPageAlt,
+        surfaceContainer: AppColors.bgSurface,
+        surfaceContainerHigh: AppColors.bgSurfaceHi,
+        surfaceContainerHighest: AppColors.bgSurfaceHigher,
+        primary: AppColors.seedColor,
+        secondary: AppColors.accentPrimary,
+        tertiary: AppColors.accentTertiary,
+        outline: const Color(0x1AFFFFFF), // BG.lineStrong
+        outlineVariant: const Color(0x0FFFFFFF), // BG.line
       );
 
   return ThemeData(

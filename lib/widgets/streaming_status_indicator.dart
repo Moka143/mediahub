@@ -7,7 +7,13 @@ import '../design/app_tokens.dart';
 /// Status types for the streaming indicator
 enum StreamingStatus { searching, found, buffering, ready, error }
 
-/// Modern, integrated streaming status indicator for the video player
+/// Modern, integrated streaming status indicator for the video player.
+///
+/// All visual values come from `app_tokens.dart` and the M3 theme — no
+/// hard-coded colors or durations. Background containers map to
+/// `errorContainer` / `tertiaryContainer` / `surfaceContainerHighest`
+/// for the error / success / default tones; success uses the theme's
+/// **tertiary** accent (the violet palette has no green).
 class StreamingStatusIndicator extends StatefulWidget {
   final StreamingStatus status;
   final String message;
@@ -42,7 +48,7 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
   void initState() {
     super.initState();
     _animationController = AnimationController(
-      duration: const Duration(milliseconds: 300),
+      duration: AppDuration.normal,
       vsync: this,
     );
 
@@ -95,6 +101,7 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
 
     return SlideTransition(
       position: _slideAnimation,
@@ -106,38 +113,50 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
             vertical: AppSpacing.md,
           ),
           decoration: BoxDecoration(
-            color: _getBackgroundColor(theme),
-            borderRadius: BorderRadius.circular(AppRadius.md),
+            color: _getBackgroundColor(scheme),
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            border: Border.all(
+              color: scheme.outlineVariant.withValues(
+                alpha: AppOpacity.light / 255.0,
+              ),
+              width: AppBorderWidth.thin,
+            ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.3),
-                blurRadius: 12,
+                color: Colors.black.withValues(
+                  alpha: AppOpacity.semi / 255.0,
+                ),
+                blurRadius: AppElevation.lg,
                 offset: const Offset(0, 4),
               ),
             ],
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(AppRadius.md),
+            borderRadius: BorderRadius.circular(AppRadius.lg),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Progress bar for buffering
+                // Progress bar for buffering / searching
                 if (widget.status == StreamingStatus.buffering &&
                     widget.progress != null)
                   LinearProgressIndicator(
                     value: widget.progress,
-                    backgroundColor: Colors.white.withOpacity(0.1),
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      theme.colorScheme.primary,
+                    backgroundColor: scheme.primary.withValues(
+                      alpha: AppOpacity.light / 255.0,
                     ),
+                    valueColor: AlwaysStoppedAnimation<Color>(scheme.primary),
                     minHeight: 3,
                   )
                 else if (widget.status == StreamingStatus.searching ||
                     widget.status == StreamingStatus.buffering)
                   LinearProgressIndicator(
-                    backgroundColor: Colors.white.withOpacity(0.1),
+                    backgroundColor: scheme.primary.withValues(
+                      alpha: AppOpacity.light / 255.0,
+                    ),
                     valueColor: AlwaysStoppedAnimation<Color>(
-                      theme.colorScheme.primary.withOpacity(0.7),
+                      scheme.primary.withValues(
+                        alpha: AppOpacity.heavy / 255.0,
+                      ),
                     ),
                     minHeight: 3,
                   ),
@@ -147,11 +166,8 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
                   padding: const EdgeInsets.all(AppSpacing.md),
                   child: Row(
                     children: [
-                      // Status icon
-                      _buildStatusIcon(theme),
+                      _buildStatusIcon(scheme),
                       const SizedBox(width: AppSpacing.sm),
-
-                      // Message content
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -161,14 +177,14 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
                               Text(
                                 widget.episodeCode!,
                                 style: theme.textTheme.labelSmall?.copyWith(
-                                  color: Colors.white70,
+                                  color: scheme.onSurfaceVariant,
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
                             Text(
                               widget.message,
                               style: theme.textTheme.bodyMedium?.copyWith(
-                                color: Colors.white,
+                                color: scheme.onSurface,
                                 fontWeight: FontWeight.w500,
                               ),
                               maxLines: 2,
@@ -181,15 +197,13 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
                                 child: Text(
                                   '${(widget.progress! * 100).toStringAsFixed(1)}% buffered',
                                   style: theme.textTheme.labelSmall?.copyWith(
-                                    color: Colors.white60,
+                                    color: scheme.onSurfaceVariant,
                                   ),
                                 ),
                               ),
                           ],
                         ),
                       ),
-
-                      // Dismiss button for errors or ready state
                       if (widget.status == StreamingStatus.error ||
                           widget.status == StreamingStatus.ready)
                         IconButton(
@@ -199,8 +213,8 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
                             });
                           },
                           icon: const Icon(Icons.close_rounded),
-                          iconSize: 20,
-                          color: Colors.white60,
+                          iconSize: AppIconSize.md,
+                          color: scheme.onSurfaceVariant,
                           constraints: const BoxConstraints(
                             minWidth: 32,
                             minHeight: 32,
@@ -218,31 +232,31 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
     );
   }
 
-  Widget _buildStatusIcon(ThemeData theme) {
+  Widget _buildStatusIcon(ColorScheme scheme) {
     switch (widget.status) {
       case StreamingStatus.searching:
         return SizedBox(
-          width: 24,
-          height: 24,
+          width: AppIconSize.lg,
+          height: AppIconSize.lg,
           child: CircularProgressIndicator(
             strokeWidth: 2.5,
-            valueColor: AlwaysStoppedAnimation<Color>(
-              theme.colorScheme.primary,
-            ),
+            valueColor: AlwaysStoppedAnimation<Color>(scheme.primary),
           ),
         );
       case StreamingStatus.found:
         return Container(
-          width: 32,
-          height: 32,
+          width: AppIconSize.xxl,
+          height: AppIconSize.xxl,
           decoration: BoxDecoration(
-            color: theme.colorScheme.primary.withOpacity(0.2),
+            color: scheme.primary.withValues(
+              alpha: AppOpacity.medium / 255.0,
+            ),
             shape: BoxShape.circle,
           ),
           child: Icon(
             Icons.check_rounded,
-            color: theme.colorScheme.primary,
-            size: 20,
+            color: scheme.primary,
+            size: AppIconSize.md,
           ),
         );
       case StreamingStatus.buffering:
@@ -250,64 +264,76 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
           alignment: Alignment.center,
           children: [
             SizedBox(
-              width: 28,
-              height: 28,
+              width: AppIconSize.xl,
+              height: AppIconSize.xl,
               child: CircularProgressIndicator(
                 strokeWidth: 2.5,
                 value: widget.progress,
-                backgroundColor: Colors.white.withOpacity(0.2),
-                valueColor: AlwaysStoppedAnimation<Color>(
-                  theme.colorScheme.primary,
+                backgroundColor: scheme.primary.withValues(
+                  alpha: AppOpacity.medium / 255.0,
                 ),
+                valueColor: AlwaysStoppedAnimation<Color>(scheme.primary),
               ),
             ),
-            Icon(Icons.download_rounded, color: Colors.white70, size: 14),
+            Icon(
+              Icons.download_rounded,
+              color: scheme.onSurfaceVariant,
+              size: AppIconSize.xs,
+            ),
           ],
         );
       case StreamingStatus.ready:
         return Container(
-          width: 32,
-          height: 32,
+          width: AppIconSize.xxl,
+          height: AppIconSize.xxl,
           decoration: BoxDecoration(
-            color: Colors.green.withOpacity(0.2),
+            color: scheme.tertiary.withValues(
+              alpha: AppOpacity.medium / 255.0,
+            ),
             shape: BoxShape.circle,
           ),
-          child: const Icon(
+          child: Icon(
             Icons.play_arrow_rounded,
-            color: Colors.green,
-            size: 20,
+            color: scheme.tertiary,
+            size: AppIconSize.md,
           ),
         );
       case StreamingStatus.error:
         return Container(
-          width: 32,
-          height: 32,
+          width: AppIconSize.xxl,
+          height: AppIconSize.xxl,
           decoration: BoxDecoration(
-            color: theme.colorScheme.error.withOpacity(0.2),
+            color: scheme.error.withValues(alpha: AppOpacity.medium / 255.0),
             shape: BoxShape.circle,
           ),
           child: Icon(
             Icons.error_outline_rounded,
-            color: theme.colorScheme.error,
-            size: 20,
+            color: scheme.error,
+            size: AppIconSize.md,
           ),
         );
     }
   }
 
-  Color _getBackgroundColor(ThemeData theme) {
+  Color _getBackgroundColor(ColorScheme scheme) {
     switch (widget.status) {
       case StreamingStatus.error:
-        return const Color(0xFF2D1B1B); // Dark red
+        return scheme.errorContainer.withValues(
+          alpha: AppOpacity.almostOpaque / 255.0,
+        );
       case StreamingStatus.ready:
-        return const Color(0xFF1B2D1B); // Dark green
+        return scheme.tertiaryContainer.withValues(
+          alpha: AppOpacity.almostOpaque / 255.0,
+        );
       default:
-        return const Color(0xFF1E1E2E); // Dark purple/blue
+        return scheme.surfaceContainerHighest.withValues(
+          alpha: AppOpacity.almostOpaque / 255.0,
+        );
     }
   }
 }
 
-/// Compact pill-style status for inline display
+/// Compact pill-style status for inline display.
 class StreamingStatusPill extends StatelessWidget {
   final StreamingStatus status;
   final String label;
@@ -323,6 +349,7 @@ class StreamingStatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
 
     return Container(
       padding: const EdgeInsets.symmetric(
@@ -330,19 +357,22 @@ class StreamingStatusPill extends StatelessWidget {
         vertical: AppSpacing.xs,
       ),
       decoration: BoxDecoration(
-        color: _getBackgroundColor(theme),
+        color: _getBackgroundColor(scheme),
         borderRadius: BorderRadius.circular(AppRadius.full),
-        border: Border.all(color: _getBorderColor(theme), width: 1),
+        border: Border.all(
+          color: _getBorderColor(scheme),
+          width: AppBorderWidth.thin,
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildIcon(theme),
+          _buildIcon(scheme),
           const SizedBox(width: 6),
           Text(
             label,
             style: theme.textTheme.labelSmall?.copyWith(
-              color: Colors.white,
+              color: scheme.onSurface,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -351,7 +381,7 @@ class StreamingStatusPill extends StatelessWidget {
             Text(
               '${(progress! * 100).toStringAsFixed(0)}%',
               style: theme.textTheme.labelSmall?.copyWith(
-                color: Colors.white70,
+                color: scheme.onSurfaceVariant,
               ),
             ),
           ],
@@ -360,54 +390,66 @@ class StreamingStatusPill extends StatelessWidget {
     );
   }
 
-  Widget _buildIcon(ThemeData theme) {
+  Widget _buildIcon(ColorScheme scheme) {
     switch (status) {
       case StreamingStatus.searching:
       case StreamingStatus.buffering:
         return SizedBox(
-          width: 12,
-          height: 12,
+          width: AppIconSize.xxs,
+          height: AppIconSize.xxs,
           child: CircularProgressIndicator(
             strokeWidth: 1.5,
-            valueColor: const AlwaysStoppedAnimation<Color>(Colors.white70),
+            valueColor: AlwaysStoppedAnimation<Color>(
+              scheme.onSurfaceVariant,
+            ),
           ),
         );
       case StreamingStatus.found:
-        return const Icon(Icons.check_rounded, size: 14, color: Colors.green);
+        return Icon(
+          Icons.check_rounded,
+          size: AppIconSize.xs,
+          color: scheme.tertiary,
+        );
       case StreamingStatus.ready:
-        return const Icon(
+        return Icon(
           Icons.play_arrow_rounded,
-          size: 14,
-          color: Colors.green,
+          size: AppIconSize.xs,
+          color: scheme.tertiary,
         );
       case StreamingStatus.error:
         return Icon(
           Icons.error_outline_rounded,
-          size: 14,
-          color: theme.colorScheme.error,
+          size: AppIconSize.xs,
+          color: scheme.error,
         );
     }
   }
 
-  Color _getBackgroundColor(ThemeData theme) {
+  Color _getBackgroundColor(ColorScheme scheme) {
     switch (status) {
       case StreamingStatus.error:
-        return theme.colorScheme.error.withOpacity(0.15);
+        return scheme.errorContainer.withValues(
+          alpha: AppOpacity.medium / 255.0,
+        );
       case StreamingStatus.ready:
-        return Colors.green.withOpacity(0.15);
+        return scheme.tertiaryContainer.withValues(
+          alpha: AppOpacity.medium / 255.0,
+        );
       default:
-        return theme.colorScheme.primary.withOpacity(0.15);
+        return scheme.primaryContainer.withValues(
+          alpha: AppOpacity.medium / 255.0,
+        );
     }
   }
 
-  Color _getBorderColor(ThemeData theme) {
+  Color _getBorderColor(ColorScheme scheme) {
     switch (status) {
       case StreamingStatus.error:
-        return theme.colorScheme.error.withOpacity(0.3);
+        return scheme.error.withValues(alpha: AppOpacity.semi / 255.0);
       case StreamingStatus.ready:
-        return Colors.green.withOpacity(0.3);
+        return scheme.tertiary.withValues(alpha: AppOpacity.semi / 255.0);
       default:
-        return theme.colorScheme.primary.withOpacity(0.3);
+        return scheme.primary.withValues(alpha: AppOpacity.semi / 255.0);
     }
   }
 }

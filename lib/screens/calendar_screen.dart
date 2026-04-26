@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -11,11 +12,8 @@ import '../providers/favorites_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/shows_provider.dart';
 import '../services/auto_download_service.dart';
-import '../services/tmdb_api_service.dart';
-import '../widgets/auto_download_status_card.dart';
 import '../widgets/common/empty_state.dart';
 import '../widgets/common/loading_state.dart';
-import '../widgets/common/status_badge.dart';
 import 'show_details_screen.dart';
 
 /// Model for calendar episode with additional date information
@@ -211,7 +209,6 @@ class CalendarScreen extends ConsumerStatefulWidget {
 
 class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   final ScrollController _scrollController = ScrollController();
-  DateTime _selectedDate = DateTime.now();
 
   @override
   void dispose() {
@@ -222,639 +219,92 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   @override
   Widget build(BuildContext context) {
     final calendarAsync = ref.watch(calendarEpisodesProvider);
-    final theme = Theme.of(context);
+    return calendarAsync.when(
+      loading: () =>
+          const LoadingIndicator(message: 'Loading calendar...'),
+      error: (e, _) => EmptyState.error(
+        message: 'Failed to load calendar',
+        onRetry: () => ref.invalidate(calendarEpisodesProvider),
+      ),
+      data: (calendar) {
+        if (calendar.isEmpty) {
+          return const EmptyState(
+            icon: Icons.calendar_month_outlined,
+            title: 'No upcoming episodes',
+            subtitle:
+                'Add shows to your favorites to see upcoming episodes here',
+          );
+        }
 
-    return Scaffold(
-      body: calendarAsync.when(
-        loading: () => const LoadingIndicator(message: 'Loading calendar...'),
-        error: (error, stack) => Center(
+        final now = DateTime.now();
+        final today = DateTime(now.year, now.month, now.day);
+        // Anchor the strip on yesterday + today + the next 5 days. The
+        // calendar's job is to surface UPCOMING episodes, so dedicating
+        // most of the columns to forward-dates is more useful than the
+        // ISO-week strip we used before — which on Sunday hid the entire
+        // following week behind a "next week" jump.
+        const lookback = 1;
+        final weekStart = today.subtract(const Duration(days: lookback));
+        final weekDays = List.generate(
+          7,
+          (i) => weekStart.add(Duration(days: i)),
+        );
+
+        final airingThisWeek = <CalendarEpisode>[];
+        for (final d in weekDays) {
+          airingThisWeek.addAll(calendar[d] ?? const []);
+        }
+        airingThisWeek.sort((a, b) => a.airDate.compareTo(b.airDate));
+
+        return SingleChildScrollView(
+          controller: _scrollController,
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(AppSpacing.xxl),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(
-                Icons.error_outline_rounded,
-                size: 48,
-                color: theme.colorScheme.error,
+              _CalendarWeekHeader(
+                weekStart: weekStart,
+                airingCount: airingThisWeek.length,
               ),
+              const SizedBox(height: AppSpacing.lg),
+              _WeekStrip(
+                weekDays: weekDays,
+                today: today,
+                calendar: calendar,
+                onEpisodeTap: (e) => _navigateToShow(context, e),
+              ),
+              const SizedBox(height: AppSpacing.xxl),
+              const _AiringHeader(),
               const SizedBox(height: AppSpacing.md),
-              Text(
-                'Failed to load calendar',
-                style: theme.textTheme.titleMedium,
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              TextButton(
-                onPressed: () => ref.invalidate(calendarEpisodesProvider),
-                child: const Text('Retry'),
-              ),
-            ],
-          ),
-        ),
-        data: (calendar) {
-          if (calendar.isEmpty) {
-            return const EmptyState(
-              icon: Icons.calendar_month_outlined,
-              title: 'No upcoming episodes',
-              subtitle:
-                  'Add shows to your favorites to see upcoming episodes here',
-            );
-          }
-
-          return _buildCalendarView(context, calendar);
-        },
-      ),
-    );
-  }
-
-  Widget _buildCalendarView(
-    BuildContext context,
-    Map<DateTime, List<CalendarEpisode>> calendar,
-  ) {
-    final theme = Theme.of(context);
-
-    // Get sorted dates
-    final sortedDates = calendar.keys.toList()..sort();
-
-    // Build date sections
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-
-    return CustomScrollView(
-      controller: _scrollController,
-      slivers: [
-        // Auto-download status card
-        const SliverToBoxAdapter(child: AutoDownloadStatusCard()),
-
-        // Date navigation header
-        SliverToBoxAdapter(
-          child: _buildDateNavigator(context, sortedDates, today),
-        ),
-
-        // Calendar content
-        SliverList(
-          delegate: SliverChildBuilderDelegate((context, index) {
-            final date = sortedDates[index];
-            final episodes = calendar[date]!;
-
-            return _buildDaySection(context, date, episodes, today);
-          }, childCount: sortedDates.length),
-        ),
-
-        // Activity log section
-        SliverToBoxAdapter(child: _buildActivityLogSection(context)),
-
-        // Bottom padding
-        const SliverPadding(padding: EdgeInsets.only(bottom: AppSpacing.xl)),
-      ],
-    );
-  }
-
-  Widget _buildDateNavigator(
-    BuildContext context,
-    List<DateTime> dates,
-    DateTime today,
-  ) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.screenPadding,
-        vertical: AppSpacing.md,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Month/Year header
-          Text(
-            DateFormat.yMMMM().format(_selectedDate),
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-
-          // Week day chips
-          SizedBox(
-            height: 80,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              itemCount: 14, // Show 2 weeks
-              itemBuilder: (context, index) {
-                final date = today.add(Duration(days: index - 3));
-                final hasEpisodes = dates.contains(date);
-                final isSelected =
-                    date.year == _selectedDate.year &&
-                    date.month == _selectedDate.month &&
-                    date.day == _selectedDate.day;
-                final isToday = date == today;
-
-                return Padding(
-                  padding: const EdgeInsets.only(right: AppSpacing.sm),
-                  child: _buildDateChip(
-                    context,
-                    date: date,
-                    hasEpisodes: hasEpisodes,
-                    isSelected: isSelected,
-                    isToday: isToday,
-                    onTap: () {
-                      setState(() => _selectedDate = date);
-                      // Scroll to date if exists
-                      final dateIndex = dates.indexOf(date);
-                      if (dateIndex >= 0) {
-                        _scrollController.animateTo(
-                          dateIndex * 200.0, // Approximate card height
-                          duration: const Duration(milliseconds: 300),
-                          curve: Curves.easeInOut,
-                        );
-                      }
-                    },
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDateChip(
-    BuildContext context, {
-    required DateTime date,
-    required bool hasEpisodes,
-    required bool isSelected,
-    required bool isToday,
-    required VoidCallback onTap,
-  }) {
-    final theme = Theme.of(context);
-
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 52,
-        decoration: BoxDecoration(
-          color: isSelected
-              ? theme.colorScheme.primary
-              : isToday
-              ? theme.colorScheme.primaryContainer
-              : theme.colorScheme.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(AppRadius.lg),
-          border: isToday && !isSelected
-              ? Border.all(color: theme.colorScheme.primary, width: 2)
-              : null,
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              DateFormat.E().format(date).substring(0, 3),
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: isSelected
-                    ? theme.colorScheme.onPrimary
-                    : theme.colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              date.day.toString(),
-              style: theme.textTheme.titleMedium?.copyWith(
-                color: isSelected
-                    ? theme.colorScheme.onPrimary
-                    : theme.colorScheme.onSurface,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 4),
-            if (hasEpisodes)
-              Container(
-                width: 6,
-                height: 6,
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? theme.colorScheme.onPrimary
-                      : theme.colorScheme.primary,
-                  shape: BoxShape.circle,
-                ),
-              )
-            else
-              const SizedBox(height: 6),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDaySection(
-    BuildContext context,
-    DateTime date,
-    List<CalendarEpisode> episodes,
-    DateTime today,
-  ) {
-    final theme = Theme.of(context);
-    final isToday = date == today;
-    final isPast = date.isBefore(today);
-
-    String dateLabel;
-    if (isToday) {
-      dateLabel = 'Today';
-    } else if (date == today.add(const Duration(days: 1))) {
-      dateLabel = 'Tomorrow';
-    } else if (date == today.subtract(const Duration(days: 1))) {
-      dateLabel = 'Yesterday';
-    } else {
-      dateLabel = DateFormat.MMMEd().format(date);
-    }
-
-    return Container(
-      margin: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.screenPadding,
-        vertical: AppSpacing.sm,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Date header
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.md,
-                  vertical: AppSpacing.xs,
-                ),
-                decoration: BoxDecoration(
-                  color: isToday
-                      ? theme.colorScheme.primary
-                      : isPast
-                      ? theme.colorScheme.surfaceContainerHighest
-                      : theme.colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(AppRadius.full),
-                ),
-                child: Text(
-                  dateLabel,
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: isToday
-                        ? theme.colorScheme.onPrimary
-                        : isPast
-                        ? theme.colorScheme.onSurfaceVariant
-                        : theme.colorScheme.onPrimaryContainer,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Text(
-                '${episodes.length} episode${episodes.length == 1 ? '' : 's'}',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.sm),
-
-          // Episode cards
-          ...episodes.map(
-            (episode) => _buildEpisodeCard(context, episode, isPast),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActivityLogSection(BuildContext context) {
-    final events = ref.watch(autoDownloadEventsProvider);
-    if (events.isEmpty) return const SizedBox.shrink();
-
-    final theme = Theme.of(context);
-    final displayEvents = events.take(20).toList();
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.screenPadding,
-        vertical: AppSpacing.md,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Divider(height: 1),
-          const SizedBox(height: AppSpacing.md),
-          Row(
-            children: [
-              Icon(
-                Icons.history_rounded,
-                size: AppIconSize.sm,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: Text(
-                  'Auto-Download Activity',
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              TextButton(
-                onPressed: () {
-                  ref.read(autoDownloadEventsProvider.notifier).clearEvents();
-                },
-                child: const Text('Clear'),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          ...displayEvents.map((event) {
-            final (icon, color) = _eventIcon(event.type);
-            final timeAgo = _formatTimeAgo(event.timestamp);
-
-            return Padding(
-              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(icon, size: 16, color: color),
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(
+              if (airingThisWeek.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: AppSpacing.huge),
+                  child: Center(
                     child: Text(
-                      event.message ?? '${event.showName} ${event.episodeCode}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
+                      'Nothing airing this week.',
+                      style: TextStyle(color: Color(0xFF7A7A92)),
                     ),
                   ),
-                  Text(
-                    timeAgo,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant.withOpacity(
-                        0.6,
+                )
+              else
+                Column(
+                  children: [
+                    for (final ep in airingThisWeek)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: _AiringRow(
+                          episode: ep,
+                          today: today,
+                          onTap: () => _navigateToShow(context, ep),
+                          onAutoGrab: () => _downloadEpisode(context, ep),
+                        ),
                       ),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }),
-        ],
-      ),
-    );
-  }
-
-  (IconData, Color) _eventIcon(AutoDownloadEventType type) {
-    return switch (type) {
-      AutoDownloadEventType.downloadStarted => (
-        Icons.download_rounded,
-        AppColors.info,
-      ),
-      AutoDownloadEventType.downloadCompleted => (
-        Icons.check_circle_rounded,
-        AppColors.success,
-      ),
-      AutoDownloadEventType.downloadFailed => (
-        Icons.error_rounded,
-        AppColors.error,
-      ),
-      AutoDownloadEventType.torrentNotFound => (
-        Icons.search_off_rounded,
-        AppColors.warning,
-      ),
-      AutoDownloadEventType.episodeQueued => (
-        Icons.queue_rounded,
-        AppColors.info,
-      ),
-      AutoDownloadEventType.checked => (Icons.refresh_rounded, AppColors.info),
-    };
-  }
-
-  String _formatTimeAgo(DateTime timestamp) {
-    final diff = DateTime.now().difference(timestamp);
-    if (diff.inMinutes < 1) return 'now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    return '${diff.inDays}d ago';
-  }
-
-  Widget _buildEpisodeCard(
-    BuildContext context,
-    CalendarEpisode episode,
-    bool isPast,
-  ) {
-    final theme = Theme.of(context);
-
-    return Opacity(
-      opacity: isPast ? 0.7 : 1.0,
-      child: Card(
-        margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () async {
-            // Fetch show details before navigating
-            final tmdbService = ref.read(tmdbApiServiceProvider);
-            try {
-              final show = await tmdbService.getShowDetails(episode.showId);
-              if (context.mounted) {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => ShowDetailsScreen(show: show),
-                  ),
-                );
-              }
-            } catch (e) {
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Failed to load show details')),
-                );
-              }
-            }
-          },
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            child: Row(
-              children: [
-                // Show poster
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(AppRadius.sm),
-                  child: episode.posterPath != null
-                      ? Image.network(
-                          TmdbApiService.getPosterUrl(
-                            episode.posterPath!,
-                            size: 'w92',
-                          ),
-                          width: 50,
-                          height: 75,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) =>
-                              _buildPosterPlaceholder(theme),
-                        )
-                      : _buildPosterPlaceholder(theme),
+                  ],
                 ),
-                const SizedBox(width: AppSpacing.md),
-
-                // Episode info
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Show name
-                      Text(
-                        episode.showName,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 2),
-
-                      // Episode code, download status, and name
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.primaryContainer,
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              episode.episodeCode,
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: theme.colorScheme.onPrimaryContainer,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          // Download status badge
-                          _buildDownloadStatusBadge(episode),
-                          const SizedBox(width: AppSpacing.sm),
-                          Expanded(
-                            child: Text(
-                              episode.displayTitle,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      // Overview preview
-                      if (episode.overview != null &&
-                          episode.overview!.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: AppSpacing.xs),
-                          child: Text(
-                            episode.overview!,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant
-                                  .withOpacity(0.7),
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-
-                // Actions
-                if (isPast || episode.isToday)
-                  PopupMenuButton<String>(
-                    icon: Icon(
-                      Icons.more_vert_rounded,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                    itemBuilder: (context) => [
-                      const PopupMenuItem(
-                        value: 'download',
-                        child: ListTile(
-                          leading: Icon(Icons.download_rounded),
-                          title: Text('Download Now'),
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                      ),
-                      const PopupMenuItem(
-                        value: 'details',
-                        child: ListTile(
-                          leading: Icon(Icons.info_outline_rounded),
-                          title: Text('Show Details'),
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                      ),
-                    ],
-                    onSelected: (value) {
-                      if (value == 'download') {
-                        _downloadEpisode(context, episode);
-                      } else if (value == 'details') {
-                        _navigateToShow(context, episode);
-                      }
-                    },
-                  )
-                else
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-              ],
-            ),
+            ],
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPosterPlaceholder(ThemeData theme) {
-    return Container(
-      width: 50,
-      height: 75,
-      color: theme.colorScheme.surfaceContainerHighest,
-      child: Icon(
-        Icons.tv_rounded,
-        color: theme.colorScheme.onSurfaceVariant,
-        size: 24,
-      ),
-    );
-  }
-
-  Widget _buildDownloadStatusBadge(CalendarEpisode episode) {
-    final status = ref.watch(
-      calendarEpisodeDownloadStatusProvider((
-        showId: episode.showId,
-        season: episode.seasonNumber,
-        episode: episode.episodeNumber,
-      )),
-    );
-    if (status == null) return const SizedBox.shrink();
-
-    return Padding(
-      padding: const EdgeInsets.only(left: AppSpacing.xs),
-      child: switch (status) {
-        EpisodeDownloadStatus.downloading => StatusBadge.info(
-          label: 'Downloading',
-          size: StatusBadgeSize.small,
-        ),
-        EpisodeDownloadStatus.downloaded => StatusBadge.success(
-          label: 'Downloaded',
-          size: StatusBadgeSize.small,
-        ),
-        EpisodeDownloadStatus.watched => StatusBadge.success(
-          label: 'Watched',
-          size: StatusBadgeSize.small,
-        ),
-        EpisodeDownloadStatus.awaitingTorrent => StatusBadge.warning(
-          label: 'No Torrent',
-          size: StatusBadgeSize.small,
-        ),
-        EpisodeDownloadStatus.available => StatusBadge.info(
-          label: 'Available',
-          size: StatusBadgeSize.small,
-        ),
-        _ => const SizedBox.shrink(),
+        );
       },
     );
   }
@@ -979,4 +429,503 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       }
     }
   }
+}
+
+// ============================================================================
+// MediaHub calendar layout — week header + 7-column week strip + airing feed
+// ============================================================================
+
+class _CalendarWeekHeader extends StatelessWidget {
+  const _CalendarWeekHeader({
+    required this.weekStart,
+    required this.airingCount,
+  });
+
+  final DateTime weekStart;
+  final int airingCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final end = weekStart.add(const Duration(days: 6));
+    final startMonth = DateFormat('MMMM').format(weekStart);
+    final endMonth = DateFormat('MMMM').format(end);
+    final range = startMonth == endMonth
+        ? '${DateFormat('MMMM d').format(weekStart)} – ${end.day}, ${end.year}'
+        : '${DateFormat('MMM d').format(weekStart)} – ${DateFormat('MMM d').format(end)}, ${end.year}';
+
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                range,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.44,
+                  color: Color(0xFFF4F4F8),
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                airingCount == 1
+                    ? 'NEXT 7 DAYS · 1 AIRING'
+                    : 'NEXT 7 DAYS · $airingCount AIRING',
+                style: const TextStyle(
+                  fontSize: 12,
+                  letterSpacing: 0.4,
+                  color: Color(0xFF7A7A92),
+                  fontFamily: 'monospace',
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _WeekStrip extends StatelessWidget {
+  const _WeekStrip({
+    required this.weekDays,
+    required this.today,
+    required this.calendar,
+    required this.onEpisodeTap,
+  });
+
+  final List<DateTime> weekDays;
+  final DateTime today;
+  final Map<DateTime, List<CalendarEpisode>> calendar;
+  final ValueChanged<CalendarEpisode> onEpisodeTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, c) {
+        final colWidth = (c.maxWidth - AppSpacing.sm * 6) / 7;
+        return Row(
+          children: [
+            for (var i = 0; i < weekDays.length; i++) ...[
+              if (i > 0) const SizedBox(width: AppSpacing.sm),
+              SizedBox(
+                width: colWidth,
+                child: _WeekColumn(
+                  date: weekDays[i],
+                  isToday: weekDays[i] == today,
+                  episodes: calendar[weekDays[i]] ?? const [],
+                  onEpisodeTap: onEpisodeTap,
+                ),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _WeekColumn extends StatelessWidget {
+  const _WeekColumn({
+    required this.date,
+    required this.isToday,
+    required this.episodes,
+    required this.onEpisodeTap,
+  });
+
+  final DateTime date;
+  final bool isToday;
+  final List<CalendarEpisode> episodes;
+  final ValueChanged<CalendarEpisode> onEpisodeTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 220),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: isToday
+            ? AppColors.seedColor.withAlpha(36)
+            : AppColors.bgSurface,
+        border: Border.all(
+          color: isToday
+              ? AppColors.seedColor.withAlpha(0x66)
+              : const Color(0x0FFFFFFF),
+        ),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                DateFormat('E').format(date).toUpperCase(),
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.66,
+                  fontFamily: 'monospace',
+                  color: isToday
+                      ? AppColors.seedColor
+                      : const Color(0xFF7A7A92),
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '${date.day}',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.44,
+                  color: isToday
+                      ? AppColors.seedColor
+                      : const Color(0xFFF4F4F8),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          for (final e in episodes.take(3)) ...[
+            _DayEpisodeChip(
+              episode: e,
+              onTap: () => onEpisodeTap(e),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+          ],
+          if (episodes.length > 3)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                '+${episodes.length - 3} more',
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontFamily: 'monospace',
+                  color: Color(0xFF7A7A92),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DayEpisodeChip extends StatelessWidget {
+  const _DayEpisodeChip({required this.episode, required this.onTap});
+
+  final CalendarEpisode episode;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final hue = episode.showName.codeUnits.fold<int>(0, (a, b) => a + b) % 360;
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.all(AppSpacing.sm),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              HSLColor.fromAHSL(0.6, hue.toDouble(), 0.6, 0.3).toColor(),
+              HSLColor.fromAHSL(0.6, hue.toDouble() + 30 % 360, 0.5, 0.18)
+                  .toColor(),
+            ],
+          ),
+          border: Border.all(
+            color: HSLColor.fromAHSL(0.4, hue.toDouble(), 0.6, 0.5).toColor(),
+          ),
+          borderRadius: BorderRadius.circular(AppRadius.xs),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              episode.showName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+                height: 1.2,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              episode.episodeCode,
+              style: TextStyle(
+                fontSize: 9,
+                fontFamily: 'monospace',
+                letterSpacing: 0.4,
+                color: Colors.white.withAlpha(178),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AiringHeader extends StatelessWidget {
+  const _AiringHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 24,
+          height: 24,
+          decoration: BoxDecoration(
+            color: AppColors.accentTertiary.withAlpha(36),
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+          ),
+          child: const Icon(
+            Icons.local_fire_department_rounded,
+            size: 14,
+            color: AppColors.accentTertiary,
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        const Text(
+          'Airing this week',
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFFF4F4F8),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AiringRow extends StatelessWidget {
+  const _AiringRow({
+    required this.episode,
+    required this.today,
+    required this.onTap,
+    required this.onAutoGrab,
+  });
+
+  final CalendarEpisode episode;
+  final DateTime today;
+  final VoidCallback onTap;
+  final VoidCallback onAutoGrab;
+
+  @override
+  Widget build(BuildContext context) {
+    final hue =
+        episode.showName.codeUnits.fold<int>(0, (a, b) => a + b) % 360;
+    final airDate = DateTime(
+      episode.airDate.year,
+      episode.airDate.month,
+      episode.airDate.day,
+    );
+    final isToday = airDate == today;
+    final inHours =
+        episode.airDate.difference(DateTime.now()).inHours;
+    final isLive = isToday && inHours >= 0 && inHours < 8;
+
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        decoration: BoxDecoration(
+          color: AppColors.bgSurface,
+          border: Border.all(
+            color: isLive
+                ? AppColors.accentTertiary.withAlpha(0x66)
+                : const Color(0x0FFFFFFF),
+          ),
+          borderRadius: BorderRadius.circular(AppRadius.md),
+        ),
+        child: Row(
+          children: [
+            // Date column
+            SizedBox(
+              width: 70,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    DateFormat('E').format(airDate).toUpperCase(),
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.66,
+                      color: Color(0xFF7A7A92),
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                  Text(
+                    DateFormat('MMM d').format(airDate).toUpperCase(),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFFF4F4F8),
+                      height: 1,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            // Poster thumbnail — real TMDB art when we have a path,
+            // hue gradient fallback otherwise.
+            ClipRRect(
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+              child: SizedBox(
+                width: 40,
+                height: 60,
+                child: episode.posterPath != null &&
+                        episode.posterPath!.isNotEmpty
+                    ? CachedNetworkImage(
+                        imageUrl:
+                            'https://image.tmdb.org/t/p/w185${episode.posterPath}',
+                        fit: BoxFit.cover,
+                        errorWidget: (_, _, _) => _gradientPoster(hue),
+                        placeholder: (_, _) => _gradientPoster(hue),
+                      )
+                    : _gradientPoster(hue),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            // Title + meta
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    episode.showName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFFF4F4F8),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${episode.episodeCode} · ${DateFormat('h:mm a').format(episode.airDate)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFF7A7A92),
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            // Status pill
+            isLive
+                ? Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.accentTertiary.withAlpha(36),
+                      borderRadius: BorderRadius.circular(AppRadius.xs),
+                    ),
+                    child: Text(
+                      '● LIVE IN ${inHours.clamp(1, 99)}H',
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.5,
+                        color: AppColors.accentTertiary,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  )
+                : Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0x14FFFFFF),
+                      borderRadius: BorderRadius.circular(AppRadius.xs),
+                    ),
+                    child: const Text(
+                      'SCHEDULED',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.5,
+                        color: Color(0xFF7A7A92),
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ),
+            const SizedBox(width: AppSpacing.sm),
+            // AUTO-GRAB button
+            GestureDetector(
+              onTap: onAutoGrab,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.seedColor,
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.download_rounded, size: 11, color: Colors.white),
+                    SizedBox(width: 4),
+                    Text(
+                      'AUTO-GRAB',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                        letterSpacing: 0.5,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Compact gradient placeholder used when an episode has no poster
+/// path (or while the network image is loading). Hue is derived
+/// from the show name so each title looks distinct.
+Widget _gradientPoster(int hue) {
+  return DecoratedBox(
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          HSLColor.fromAHSL(1, hue.toDouble(), 0.6, 0.4).toColor(),
+          HSLColor.fromAHSL(1, (hue + 30) % 360, 0.55, 0.2).toColor(),
+        ],
+      ),
+    ),
+  );
 }

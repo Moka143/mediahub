@@ -22,9 +22,11 @@ import '../providers/torrentio_provider.dart';
 import '../providers/eztv_provider.dart';
 import '../providers/streaming_provider.dart';
 import '../services/streaming_service.dart';
-import '../widgets/season_tile.dart';
+import '../widgets/mediahub_backdrop_hero.dart';
+import '../widgets/mediahub_episodes_drawer.dart';
+import '../widgets/mediahub_torrent_drawer.dart';
 import '../widgets/streaming_progress_overlay.dart';
-import '../widgets/torrentio_stream_picker_dialog.dart';
+import 'settings_screen.dart';
 import 'video_player_screen.dart';
 
 /// Screen for displaying TV show details with seasons and episodes
@@ -38,10 +40,13 @@ class ShowDetailsScreen extends ConsumerStatefulWidget {
 }
 
 class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
-  Map<int, bool> _expandedSeasons = {};
-  Map<int, List<Episode>> _loadedEpisodes = {};
-  Map<String, bool>? _torrentAvailability;
+  // Episodes are fetched on-demand by the drawer; we keep a small
+  // cache here for streaming-flow continuity.
+  final Map<int, List<Episode>> _loadedEpisodes = {};
   bool _isLoadingTorrents = false;
+  // Whether a streaming session is currently active — referenced by
+  // the streaming-progress overlay that can outlive this screen.
+  // ignore: unused_field
   bool _isStreaming = false;
   OverlayEntry? _streamingOverlay;
   ValueNotifier<StreamingOverlayData>? _streamingOverlayData;
@@ -71,20 +76,38 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
     setState(() => _isLoadingTorrents = true);
 
     try {
-      final availability = await ref.read(
+      // Probe Torrentio cache so the "Browse episodes" CTA can stop
+      // showing its loading spinner once we know what's available.
+      await ref.read(
         checkTorrentAvailabilityProvider(showDetails.imdbId!).future,
       );
       if (mounted) {
-        setState(() {
-          _torrentAvailability = availability;
-          _isLoadingTorrents = false;
-        });
+        setState(() => _isLoadingTorrents = false);
       }
     } catch (_) {
       if (mounted) {
         setState(() => _isLoadingTorrents = false);
       }
     }
+  }
+
+  /// Slide the episodes drawer in from the right. Each tap inside
+  /// the drawer fires the same `_onEpisodeTap` flow that the old
+  /// inline list used.
+  Future<void> _openEpisodesDrawer(Show show, List<Season> seasons) async {
+    if (seasons.isEmpty) return;
+    final firstAired =
+        seasons.firstWhere((s) => s.seasonNumber > 0, orElse: () => seasons.first);
+    await MediaHubEpisodesDrawer.open(
+      context: context,
+      show: show,
+      seasons: seasons,
+      initialSeason: firstAired.seasonNumber,
+      // Keep the episodes drawer open behind the torrent picker so
+      // when the user closes the picker they land back in the same
+      // season/episode list — no need to re-open from scratch.
+      onEpisodeTap: (episode) => _onEpisodeTap(episode, show),
+    );
   }
 
   Future<void> _loadEpisodes(int seasonNumber) async {
@@ -141,7 +164,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
       }
 
       if (mounted) {
-        await TorrentioStreamPickerDialog.show(
+        await MediaHubTorrentDrawer.show(
           context: context,
           title: showDetails.name,
           subtitle: episode.episodeCode,
@@ -441,6 +464,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
                   isStreaming: true,
                   streamingTorrentHash: session.torrentHash,
                   streamingFileIndex: session.selectedFileIndex,
+                  streamingProxyUrl: session.streamUrl,
                 ),
               ),
             );
@@ -676,205 +700,261 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
     AsyncValue<List<Season>> seasons,
     bool isFavorite,
   ) {
-    return CustomScrollView(
-      slivers: [
-        // App bar with backdrop
-        _buildSliverAppBar(show, isFavorite),
-
-        // Show info
-        SliverToBoxAdapter(child: _buildShowInfo(show)),
-
-        // Seasons
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.screenPadding,
-              vertical: AppSpacing.sm,
-            ),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(AppSpacing.sm),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(AppRadius.sm),
+    // Constrain main-page content to a comfortable reading width so
+    // text + cards don't sprawl the full viewport on wide windows.
+    Widget contentSliver(Widget child, {EdgeInsets? padding}) {
+      return SliverToBoxAdapter(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1080),
+            child: Padding(
+              padding: padding ??
+                  const EdgeInsets.fromLTRB(
+                    AppSpacing.screenPadding,
+                    AppSpacing.xl,
+                    AppSpacing.screenPadding,
+                    0,
                   ),
-                  child: Icon(
-                    Icons.video_library_rounded,
-                    color: Theme.of(context).colorScheme.onPrimaryContainer,
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Text(
-                  'Seasons & Episodes',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-                ),
-                if (_isLoadingTorrents) ...[
-                  const SizedBox(width: AppSpacing.md),
-                  const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                ],
-              ],
+              child: child,
             ),
           ),
         ),
+      );
+    }
 
-        // Season list
-        seasons.when(
-          data: (seasonList) => SliverList(
-            delegate: SliverChildBuilderDelegate((context, index) {
-              final season = seasonList[index];
-              final isExpanded = _expandedSeasons[season.seasonNumber] ?? false;
-              final episodes = _loadedEpisodes[season.seasonNumber] ?? [];
+    return CustomScrollView(
+      slivers: [
+        // Cinematic backdrop hero — left full-bleed.
+        _buildSliverAppBar(show, isFavorite),
 
-              return SeasonTile(
-                season: season,
-                episodes: episodes,
-                isExpanded: isExpanded,
-                isLoading: isExpanded && episodes.isEmpty,
-                showName: show.name,
-                isStreaming: _isStreaming,
-                torrentAvailability: _torrentAvailability,
-                onExpansionChanged: (expanded) {
-                  setState(() {
-                    _expandedSeasons[season.seasonNumber] = expanded;
-                  });
-                  if (expanded) {
-                    _loadEpisodes(season.seasonNumber);
-                  }
-                },
-                onEpisodeTap: (episode) => _onEpisodeTap(episode, show),
-                onDownloadTap: (episode) => _onEpisodeTap(episode, show),
-              );
-            }, childCount: seasonList.length),
+        // Next-episode card (renders only when nextEpisodeToAir set).
+        contentSliver(
+          _buildShowInfo(show),
+          padding: EdgeInsets.zero,
+        ),
+
+        // Browse Episodes CTA — opens the right-side drawer.
+        contentSliver(
+          _BrowseEpisodesCta(
+            show: show,
+            seasons: seasons,
+            loadingTorrents: _isLoadingTorrents,
+            onOpen: (seasonList) =>
+                _openEpisodesDrawer(show, seasonList),
           ),
-          loading: () => SliverToBoxAdapter(
-            child: Center(
-              child: Padding(
-                padding: EdgeInsets.all(AppSpacing.xl),
-                child: const CircularProgressIndicator(),
-              ),
-            ),
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.screenPadding,
+            AppSpacing.lg,
+            AppSpacing.screenPadding,
+            0,
           ),
-          error: (error, _) => SliverToBoxAdapter(
-            child: Center(
+        ),
+
+        // Storyline + Quick facts in a two-column layout when wide,
+        // single-column when narrow.
+        SliverToBoxAdapter(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1080),
               child: Padding(
-                padding: EdgeInsets.all(AppSpacing.xl),
-                child: Text('Error loading seasons: $error'),
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.screenPadding,
+                  AppSpacing.xl,
+                  AppSpacing.screenPadding,
+                  0,
+                ),
+                child: LayoutBuilder(
+                  builder: (context, c) {
+                    final twoCol = c.maxWidth >= 800;
+                    final storyline = show.overview != null &&
+                            show.overview!.isNotEmpty
+                        ? _InfoSection(
+                            title: 'Storyline',
+                            child: Text(
+                              show.overview!,
+                              style: const TextStyle(
+                                color: Color(0xFFB4B4C8),
+                                fontSize: 14,
+                                height: 1.6,
+                              ),
+                            ),
+                          )
+                        : null;
+                    final facts = _InfoSection(
+                      title: 'Quick facts',
+                      child: _QuickFactsGrid(show: show),
+                    );
+                    if (twoCol) {
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (storyline != null) ...[
+                            Expanded(flex: 5, child: storyline),
+                            const SizedBox(width: AppSpacing.xl),
+                          ],
+                          Expanded(flex: 4, child: facts),
+                        ],
+                      );
+                    }
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (storyline != null) ...[
+                          storyline,
+                          const SizedBox(height: AppSpacing.xl),
+                        ],
+                        facts,
+                      ],
+                    );
+                  },
+                ),
               ),
             ),
           ),
         ),
 
         // Bottom padding
-        SliverToBoxAdapter(child: SizedBox(height: AppSpacing.xl)),
+        const SliverToBoxAdapter(
+          child: SizedBox(height: AppSpacing.huge),
+        ),
       ],
     );
   }
 
   Widget _buildSliverAppBar(Show show, bool isFavorite) {
-    return SliverAppBar(
-      expandedHeight: 250,
-      pinned: true,
-      flexibleSpace: FlexibleSpaceBar(
-        background: Stack(
-          fit: StackFit.expand,
-          children: [
-            // Backdrop image
-            if (show.backdropUrl != null)
-              Image.network(
-                show.backdropUrl!,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => Container(
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+    // Cinematic MediaHub backdrop hero — full-bleed image, big
+    // display title, mono metadata pills, overlaid back/favorite
+    // controls. Replaces the old SliverAppBar.
+    return SliverToBoxAdapter(
+      child: Stack(
+        children: [
+          MediaHubBackdropHero(
+            title: show.name,
+            year: show.year,
+            posterUrl: show.posterUrl,
+            backdropUrl: show.backdropUrl,
+            fallbackHue: (show.id * 37 % 360).toDouble(),
+            description: show.overview,
+            posterPlaceholderIcon: Icons.live_tv_rounded,
+            metaPills: [
+              if (show.status != null)
+                MediaHubMetaPill(
+                  label: show.status!,
+                  color: AppColors.accentTertiary,
                 ),
-              )
-            else
-              Container(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              ),
-
-            // Gradient overlay
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.transparent,
-                    Colors.black.withValues(alpha: 0.8),
-                  ],
+              if (show.numberOfSeasons != null)
+                MediaHubMetaPill(
+                  label:
+                      '${show.numberOfSeasons} ${show.numberOfSeasons == 1 ? "SEASON" : "SEASONS"}',
+                  color: const Color(0xFFB4B4C8),
+                ),
+              if (show.numberOfEpisodes != null)
+                MediaHubMetaPill(
+                  label: '${show.numberOfEpisodes} EP',
+                  color: const Color(0xFFB4B4C8),
+                ),
+              if (show.voteAverage > 0)
+                MediaHubMetaPill(
+                  label: '★ ${show.voteAverage.toStringAsFixed(1)}',
+                  color: getRatingColor(show.voteAverage),
+                ),
+              ...show.genres.take(2).map(
+                    (g) => MediaHubMetaPill(
+                      label: g,
+                      color: AppColors.accentPrimary,
+                    ),
+                  ),
+            ],
+            primaryAction: FilledButton.icon(
+              onPressed: () {
+                // Scroll down to the seasons list — user can pick an
+                // episode there. Quick CTA from the hero.
+                Scrollable.ensureVisible(
+                  context,
+                  duration: AppDuration.normal,
+                );
+              },
+              icon: const Icon(Icons.play_arrow_rounded),
+              label: const Text('Browse episodes'),
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.xl,
+                  vertical: AppSpacing.md,
                 ),
               ),
             ),
-
-            // Show title at bottom
-            Positioned(
-              bottom: 16,
-              left: 16,
-              right: 60,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+          ),
+          // Floating top controls — back + favorite
+          Positioned(
+            top: AppSpacing.lg,
+            left: AppSpacing.xxl,
+            child: SafeArea(
+              child: Material(
+                color: Colors.white.withAlpha(20),
+                shape: const CircleBorder(),
+                child: IconButton(
+                  icon: const Icon(
+                    Icons.arrow_back_rounded,
+                    color: Colors.white,
+                  ),
+                  tooltip: 'Back',
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: AppSpacing.lg,
+            right: AppSpacing.xxl,
+            child: SafeArea(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    show.name,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      shadows: [Shadow(blurRadius: 4, color: Colors.black)],
+                  Material(
+                    color: Colors.white.withAlpha(20),
+                    shape: const CircleBorder(),
+                    child: IconButton(
+                      onPressed: () {
+                        ref
+                            .read(favoritesProvider.notifier)
+                            .toggleFavorite(show.id, show: show);
+                      },
+                      icon: Icon(
+                        isFavorite
+                            ? Icons.favorite_rounded
+                            : Icons.favorite_outline_rounded,
+                        color: isFavorite ? Colors.redAccent : Colors.white,
+                      ),
+                      tooltip: isFavorite
+                          ? 'Remove from favorites'
+                          : 'Add to favorites',
                     ),
                   ),
-                  if (show.year != null || show.status != null)
-                    Text(
-                      [
-                        if (show.year != null) show.year,
-                        if (show.status != null) show.status,
-                      ].join(' • '),
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.8),
-                        fontSize: 14,
-                        shadows: const [
-                          Shadow(blurRadius: 4, color: Colors.black),
-                        ],
+                  const SizedBox(width: AppSpacing.xs),
+                  Material(
+                    color: Colors.white.withAlpha(20),
+                    shape: const CircleBorder(),
+                    child: IconButton(
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const SettingsScreen(),
+                        ),
                       ),
+                      icon: const Icon(
+                        Icons.settings_outlined,
+                        color: Colors.white,
+                      ),
+                      tooltip: 'Settings',
                     ),
+                  ),
                 ],
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
-      actions: [
-        // Favorite button
-        Container(
-          margin: const EdgeInsets.only(right: AppSpacing.sm),
-          decoration: BoxDecoration(
-            color: Colors.black.withAlpha(AppOpacity.medium),
-            shape: BoxShape.circle,
-          ),
-          child: IconButton(
-            onPressed: () {
-              ref
-                  .read(favoritesProvider.notifier)
-                  .toggleFavorite(show.id, show: show);
-            },
-            icon: Icon(
-              isFavorite
-                  ? Icons.favorite_rounded
-                  : Icons.favorite_outline_rounded,
-              color: isFavorite ? Colors.redAccent : Colors.white,
-            ),
-            tooltip: isFavorite ? 'Remove from favorites' : 'Add to favorites',
-          ),
-        ),
-      ],
     );
   }
 
@@ -882,99 +962,23 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
     final theme = Theme.of(context);
     final appColors = context.appColors;
 
+    // The MediaHub hero already presents rating / seasons / episodes /
+    // genres / overview, so this section just shows the upcoming
+    // episode card when available.
+    if (show.nextEpisodeToAir == null) return const SizedBox.shrink();
+
     return Padding(
-      padding: const EdgeInsets.all(AppSpacing.screenPadding),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.screenPadding,
+        AppSpacing.lg,
+        AppSpacing.screenPadding,
+        AppSpacing.sm,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Rating and info row
-          Row(
-            children: [
-              // Rating
-              if (show.voteAverage > 0)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.sm,
-                    vertical: AppSpacing.xs,
-                  ),
-                  decoration: BoxDecoration(
-                    color: getRatingColor(
-                      show.voteAverage,
-                    ).withAlpha(AppOpacity.light),
-                    borderRadius: BorderRadius.circular(AppRadius.full),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.star_rounded,
-                        size: AppIconSize.sm,
-                        color: getRatingColor(show.voteAverage),
-                      ),
-                      const SizedBox(width: AppSpacing.xs),
-                      Text(
-                        show.voteAverage.toStringAsFixed(1),
-                        style: TextStyle(
-                          color: getRatingColor(show.voteAverage),
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-              const SizedBox(width: AppSpacing.md),
-
-              // Seasons count
-              if (show.numberOfSeasons != null)
-                Text(
-                  '${show.numberOfSeasons} Seasons',
-                  style: TextStyle(color: appColors.mutedText),
-                ),
-
-              const SizedBox(width: AppSpacing.md),
-
-              // Episodes count
-              if (show.numberOfEpisodes != null)
-                Text(
-                  '${show.numberOfEpisodes} Episodes',
-                  style: TextStyle(color: appColors.mutedText),
-                ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.md),
-
-          // Genres
-          if (show.genres.isNotEmpty)
-            Wrap(
-              spacing: AppSpacing.sm,
-              runSpacing: AppSpacing.sm,
-              children: show.genres
-                  .map(
-                    (genre) => Chip(
-                      label: Text(genre),
-                      labelStyle: const TextStyle(fontSize: 12),
-                      padding: EdgeInsets.zero,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                  )
-                  .toList(),
-            ),
-          SizedBox(height: AppSpacing.lg),
-
-          // Overview
-          if (show.overview != null && show.overview!.isNotEmpty)
-            Text(
-              show.overview!,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: appColors.subtleText,
-                height: 1.5,
-              ),
-            ),
-
           // Next episode info
           if (show.nextEpisodeToAir != null) ...[
-            SizedBox(height: AppSpacing.lg),
             Container(
               padding: EdgeInsets.all(AppSpacing.md),
               decoration: BoxDecoration(
@@ -1024,6 +1028,219 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
                         ),
                       ),
                     ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// "Browse episodes" CTA card — sits in place of the old inline
+/// Seasons & Episodes list. Tapping it opens the right-side
+/// `MediaHubEpisodesDrawer`.
+class _BrowseEpisodesCta extends StatelessWidget {
+  const _BrowseEpisodesCta({
+    required this.show,
+    required this.seasons,
+    required this.loadingTorrents,
+    required this.onOpen,
+  });
+
+  final Show show;
+  final AsyncValue<List<Season>> seasons;
+  final bool loadingTorrents;
+  final ValueChanged<List<Season>> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final ready = seasons.maybeWhen(
+      data: (s) => s.isNotEmpty,
+      orElse: () => false,
+    );
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        onTap: () {
+          if (!ready) return;
+          final list = seasons.value!;
+          onOpen(list);
+        },
+        child: Container(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppColors.seedColor.withAlpha(36),
+                AppColors.bgSurface,
+              ],
+            ),
+            border: Border.all(color: AppColors.seedColor.withAlpha(0x40)),
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: AppColors.seedColor.withAlpha(50),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                ),
+                child: const Icon(
+                  Icons.video_library_rounded,
+                  color: AppColors.seedColor,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Browse episodes',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFFF4F4F8),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      seasons.maybeWhen(
+                        data: (s) {
+                          final n = s.where((x) => x.seasonNumber > 0).length;
+                          return '$n ${n == 1 ? 'season' : 'seasons'} · '
+                              '${show.numberOfEpisodes ?? 0} episodes · '
+                              'pick one to grab';
+                        },
+                        loading: () => 'Loading seasons…',
+                        orElse: () => 'Episode picker',
+                      ),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF7A7A92),
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (loadingTorrents)
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: Color(0xFFB4B4C8),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Generic titled section block used for Storyline / Quick facts /
+/// other info groups on the show details page.
+class _InfoSection extends StatelessWidget {
+  const _InfoSection({required this.title, required this.child});
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title.toUpperCase(),
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF7A7A92),
+            letterSpacing: 0.88,
+            fontFamily: 'monospace',
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        child,
+      ],
+    );
+  }
+}
+
+/// Two-column quick-facts grid for the show details info section.
+class _QuickFactsGrid extends StatelessWidget {
+  const _QuickFactsGrid({required this.show});
+
+  final Show show;
+
+  @override
+  Widget build(BuildContext context) {
+    final facts = <(String, String)>[
+      if (show.firstAirDate != null)
+        ('First aired', show.firstAirDate!),
+      if (show.status != null) ('Status', show.status!),
+      if (show.numberOfSeasons != null)
+        ('Seasons', '${show.numberOfSeasons}'),
+      if (show.numberOfEpisodes != null)
+        ('Episodes', '${show.numberOfEpisodes}'),
+      if (show.episodeRunTime != null && show.episodeRunTime!.isNotEmpty)
+        ('Runtime', '${show.episodeRunTime!.first} min'),
+      if (show.genres.isNotEmpty) ('Genres', show.genres.take(3).join(', ')),
+      if (show.voteAverage > 0)
+        ('Rating', '${show.voteAverage.toStringAsFixed(1)} / 10'),
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.bgSurface,
+        border: Border.all(color: const Color(0x0FFFFFFF)),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+      ),
+      child: Column(
+        children: [
+          for (var i = 0; i < facts.length; i++) ...[
+            if (i > 0)
+              const Divider(height: 1, color: Color(0x0FFFFFFF)),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 120,
+                    child: Text(
+                      facts[i].$1.toUpperCase(),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontFamily: 'monospace',
+                        color: Color(0xFF7A7A92),
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      facts[i].$2,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFFF4F4F8),
+                      ),
+                    ),
                   ),
                 ],
               ),

@@ -12,6 +12,10 @@ class Show {
   final int? numberOfEpisodes;
   final String? imdbId;
   final List<String> genres;
+  /// TMDB genre IDs from list endpoints (`genre_ids`). Detail
+  /// endpoints return the full `genres` array instead, so this is
+  /// only populated for trending / popular / top-rated lists.
+  final List<int> genreIds;
   final List<int>? episodeRunTime;
   final String? nextEpisodeToAir;
   final bool inProduction;
@@ -29,6 +33,7 @@ class Show {
     this.numberOfEpisodes,
     this.imdbId,
     this.genres = const [],
+    this.genreIds = const [],
     this.episodeRunTime,
     this.nextEpisodeToAir,
     this.inProduction = false,
@@ -52,6 +57,9 @@ class Show {
               ?.map((g) => g['name'] as String)
               .toList() ??
           [],
+      genreIds:
+          (json['genre_ids'] as List<dynamic>?)?.cast<int>() ??
+              const [],
       episodeRunTime: (json['episode_run_time'] as List<dynamic>?)
           ?.map((e) => e as int)
           .toList(),

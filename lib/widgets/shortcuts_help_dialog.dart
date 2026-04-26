@@ -104,12 +104,7 @@ class _ShortcutRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Text(
-              entry.label,
-              style: theme.textTheme.bodyMedium,
-            ),
-          ),
+          Expanded(child: Text(entry.label, style: theme.textTheme.bodyMedium)),
         ],
       ),
     );

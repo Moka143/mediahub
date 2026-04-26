@@ -13,6 +13,7 @@ import '../widgets/torrent_files_tab.dart';
 import '../widgets/torrent_info_tab.dart';
 import '../widgets/torrent_peers_tab.dart';
 import '../widgets/torrent_trackers_tab.dart';
+import 'settings_screen.dart';
 
 /// Screen showing detailed information about a torrent
 class TorrentDetailsScreen extends ConsumerWidget {
@@ -36,7 +37,18 @@ class TorrentDetailsScreen extends ConsumerWidget {
         return const Center(child: Text('Torrent not found'));
       }
       return Scaffold(
-        appBar: AppBar(title: const Text('Torrent Details')),
+        appBar: AppBar(
+          title: const Text('Torrent Details'),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.settings_outlined),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const SettingsScreen()),
+              ),
+              tooltip: 'Settings',
+            ),
+          ],
+        ),
         body: const Center(child: Text('Torrent not found')),
       );
     }
@@ -137,6 +149,13 @@ class TorrentDetailsScreen extends ConsumerWidget {
               ref.invalidate(torrentTrackersProvider(torrentHash));
             },
             tooltip: 'Refresh',
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const SettingsScreen()),
+            ),
+            tooltip: 'Settings',
           ),
         ],
       ),

@@ -17,9 +17,11 @@ import '../providers/navigation_provider.dart';
 import '../providers/streaming_provider.dart';
 import '../providers/torrentio_provider.dart';
 import '../services/streaming_service.dart';
+import '../widgets/mediahub_backdrop_hero.dart';
+import '../widgets/mediahub_torrent_drawer.dart';
 import '../widgets/movie_card.dart';
 import '../widgets/streaming_progress_overlay.dart';
-import '../widgets/torrentio_stream_picker_dialog.dart';
+import 'settings_screen.dart';
 import 'video_player_screen.dart';
 
 /// Screen for displaying movie details
@@ -74,7 +76,7 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
       }
 
       if (mounted) {
-        await TorrentioStreamPickerDialog.show(
+        await MediaHubTorrentDrawer.show(
           context: context,
           title: movieDetails.title,
           subtitle: movieDetails.year,
@@ -268,6 +270,7 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
                   isStreaming: true,
                   streamingTorrentHash: session.torrentHash,
                   streamingFileIndex: session.selectedFileIndex,
+                  streamingProxyUrl: session.streamUrl,
                 ),
               ),
             );
@@ -417,242 +420,160 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
 
     return CustomScrollView(
       slivers: [
-        // Backdrop header
-        SliverAppBar(
-          expandedHeight: 300,
-          pinned: true,
-          stretch: true,
-          flexibleSpace: FlexibleSpaceBar(
-            background: Stack(
-              fit: StackFit.expand,
-              children: [
-                // Backdrop image
-                if (movie.backdropUrl != null)
-                  Image.network(
-                    movie.backdropUrl!,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
-                      color: theme.colorScheme.surfaceContainerHighest,
+        // Cinematic MediaHub backdrop hero — replaces the previous
+        // SliverAppBar + duplicated poster/title row. Provides full-
+        // bleed backdrop, big display title, mono metadata pills, and
+        // the primary Get-torrent CTA.
+        SliverToBoxAdapter(
+          child: Stack(
+            children: [
+              MediaHubBackdropHero(
+                title: movie.title,
+                year: movie.year,
+                posterUrl: movie.posterUrl,
+                backdropUrl: movie.backdropUrl,
+                fallbackHue: (movie.id * 53 % 360).toDouble(),
+                description:
+                    (movie.tagline != null && movie.tagline!.isNotEmpty)
+                        ? movie.tagline
+                        : movie.overview,
+                metaPills: [
+                  if (movie.runtimeFormatted != null)
+                    MediaHubMetaPill(
+                      label: movie.runtimeFormatted!,
+                      color: const Color(0xFFB4B4C8),
                     ),
-                  )
-                else
-                  Container(color: theme.colorScheme.surfaceContainerHighest),
-
-                // Gradient overlay
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.transparent,
-                        Colors.black.withAlpha(AppOpacity.strong),
-                      ],
+                  if (movie.voteAverage > 0)
+                    MediaHubMetaPill(
+                      label: '★ ${movie.voteAverage.toStringAsFixed(1)}',
+                      color: getRatingColor(movie.voteAverage),
+                    ),
+                  ...movie.genres.take(3).map(
+                        (g) => MediaHubMetaPill(
+                          label: g,
+                          color: AppColors.accentPrimary,
+                        ),
+                      ),
+                ],
+                primaryAction: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (localFile != null) ...[
+                      FilledButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (context) => VideoPlayerScreen(
+                                file: localFile,
+                                movieImdbId: movie.imdbId,
+                                startPosition: localFile.hasProgress
+                                    ? localFile.progress?.position
+                                    : null,
+                              ),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.play_arrow_rounded),
+                        label: Text(
+                          localFile.hasProgress && !localFile.isWatched
+                              ? 'Continue'
+                              : 'Resume',
+                        ),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.xl,
+                            vertical: AppSpacing.md,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                    ],
+                    FilledButton.icon(
+                      onPressed: _isLoadingStreams
+                          ? null
+                          : () => _onDownloadTap(movie),
+                      icon: _isLoadingStreams
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.download_rounded, size: 16),
+                      label: Text(_isLoadingStreams ? 'Loading…' : 'Get'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.seedColor,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.xl,
+                          vertical: AppSpacing.md,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Floating back button — overlaid in the top-left of
+              // the cinematic hero, glassmorphic styling.
+              Positioned(
+                top: AppSpacing.lg,
+                left: AppSpacing.xxl,
+                child: SafeArea(
+                  child: Material(
+                    color: Colors.white.withAlpha(20),
+                    shape: const CircleBorder(),
+                    child: IconButton(
+                      icon: const Icon(
+                        Icons.arrow_back_rounded,
+                        color: Colors.white,
+                      ),
+                      tooltip: 'Back',
+                      onPressed: () => Navigator.of(context).pop(),
                     ),
                   ),
                 ),
-              ],
-            ),
+              ),
+              // Floating settings button — top-right, mirrors the
+              // global TopBar action so the entry-point is consistent
+              // across every screen.
+              Positioned(
+                top: AppSpacing.lg,
+                right: AppSpacing.xxl,
+                child: SafeArea(
+                  child: Material(
+                    color: Colors.white.withAlpha(20),
+                    shape: const CircleBorder(),
+                    child: IconButton(
+                      icon: const Icon(
+                        Icons.settings_outlined,
+                        color: Colors.white,
+                      ),
+                      tooltip: 'Settings',
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const SettingsScreen(),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
 
-        // Movie info
+        // Movie info — content below the cinematic hero
         SliverToBoxAdapter(
           child: Padding(
             padding: EdgeInsets.all(AppSpacing.screenPadding),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Title and year
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Poster
-                    if (movie.posterUrl != null)
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(AppRadius.md),
-                        child: Image.network(
-                          movie.posterUrl!,
-                          width: 120,
-                          height: 180,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Container(
-                            width: 120,
-                            height: 180,
-                            color: theme.colorScheme.surfaceContainerHighest,
-                            child: Icon(
-                              Icons.movie_outlined,
-                              size: 48,
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ),
-                      ),
-                    SizedBox(width: AppSpacing.lg),
-
-                    // Title and metadata
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            movie.title,
-                            style: theme.textTheme.headlineSmall?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          if (movie.tagline != null &&
-                              movie.tagline!.isNotEmpty) ...[
-                            SizedBox(height: AppSpacing.xs),
-                            Text(
-                              movie.tagline!,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                                fontStyle: FontStyle.italic,
-                              ),
-                            ),
-                          ],
-                          SizedBox(height: AppSpacing.md),
-
-                          // Metadata row
-                          Wrap(
-                            spacing: AppSpacing.md,
-                            runSpacing: AppSpacing.sm,
-                            children: [
-                              if (movie.year != null)
-                                _MetadataChip(
-                                  icon: Icons.calendar_today_rounded,
-                                  label: movie.year!,
-                                ),
-                              if (movie.runtimeFormatted != null)
-                                _MetadataChip(
-                                  icon: Icons.access_time_rounded,
-                                  label: movie.runtimeFormatted!,
-                                ),
-                              if (movie.voteAverage > 0)
-                                _MetadataChip(
-                                  icon: Icons.star_rounded,
-                                  label: movie.voteAverage.toStringAsFixed(1),
-                                  iconColor: getRatingColor(movie.voteAverage),
-                                ),
-                            ],
-                          ),
-                          SizedBox(height: AppSpacing.sm),
-
-                          // Genres
-                          if (movie.genres.isNotEmpty)
-                            Wrap(
-                              spacing: AppSpacing.xs,
-                              runSpacing: AppSpacing.xs,
-                              children: movie.genres.map((genre) {
-                                return Container(
-                                  padding: EdgeInsets.symmetric(
-                                    horizontal: AppSpacing.sm,
-                                    vertical: AppSpacing.xxs,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: theme.colorScheme.primaryContainer,
-                                    borderRadius: BorderRadius.circular(
-                                      AppRadius.sm,
-                                    ),
-                                  ),
-                                  child: Text(
-                                    genre,
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color:
-                                          theme.colorScheme.onPrimaryContainer,
-                                    ),
-                                  ),
-                                );
-                              }).toList(),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-
+                // (Hero already provides Resume/Get primary actions.)
                 SizedBox(height: AppSpacing.lg),
-
-                // Download / Play button
-                if (localFile != null)
-                  SizedBox(
-                    width: double.infinity,
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: FilledButton.icon(
-                            onPressed: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (context) => VideoPlayerScreen(
-                                    file: localFile,
-                                    movieImdbId: movie.imdbId,
-                                    startPosition: localFile.hasProgress
-                                        ? localFile.progress?.position
-                                        : null,
-                                  ),
-                                ),
-                              );
-                            },
-                            icon: const Icon(Icons.play_arrow_rounded),
-                            label: Text(
-                              localFile.hasProgress && !localFile.isWatched
-                                  ? 'Continue'
-                                  : 'Play',
-                            ),
-                            style: FilledButton.styleFrom(
-                              padding: EdgeInsets.symmetric(
-                                vertical: AppSpacing.md,
-                              ),
-                              backgroundColor: AppColors.success,
-                            ),
-                          ),
-                        ),
-                        SizedBox(width: AppSpacing.sm),
-                        FilledButton.tonal(
-                          onPressed: _isLoadingStreams
-                              ? null
-                              : () => _onDownloadTap(movie),
-                          style: FilledButton.styleFrom(
-                            padding: EdgeInsets.symmetric(
-                              vertical: AppSpacing.md,
-                              horizontal: AppSpacing.md,
-                            ),
-                          ),
-                          child: const Icon(Icons.download_rounded),
-                        ),
-                      ],
-                    ),
-                  )
-                else
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: _isLoadingStreams
-                          ? null
-                          : () => _onDownloadTap(movie),
-                      icon: _isLoadingStreams
-                          ? SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: theme.colorScheme.onPrimary,
-                              ),
-                            )
-                          : const Icon(Icons.download_rounded),
-                      label: Text(
-                        _isLoadingStreams ? 'Loading streams...' : 'Download',
-                      ),
-                      style: FilledButton.styleFrom(
-                        padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
-                      ),
-                    ),
-                  ),
-
-                SizedBox(height: AppSpacing.xl),
 
                 // Overview
                 if (movie.overview != null && movie.overview!.isNotEmpty) ...[
@@ -733,37 +654,3 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
   }
 }
 
-class _MetadataChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color? iconColor;
-
-  const _MetadataChip({
-    required this.icon,
-    required this.label,
-    this.iconColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          icon,
-          size: 16,
-          color: iconColor ?? theme.colorScheme.onSurfaceVariant,
-        ),
-        SizedBox(width: 4),
-        Text(
-          label,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ],
-    );
-  }
-}

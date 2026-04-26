@@ -52,7 +52,9 @@ class _ShowCardState extends State<ShowCard>
           curve: Curves.easeOutCubic,
           width: widget.width,
           height: widget.height,
-          transform: Matrix4.identity()..scale(_isHovered ? 1.03 : 1.0),
+          // MediaHub design uses a -4px lift on hover, no scale.
+          transform: Matrix4.identity()
+            ..translate(0.0, _isHovered ? -4.0 : 0.0),
           transformAlignment: Alignment.center,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(AppRadius.lg),
@@ -110,42 +112,41 @@ class _ShowCardState extends State<ShowCard>
                   ),
                 ),
 
-                // Rating badge - glassmorphism style
+                // Rating pill — MediaHub amber pill on a frosted scrim
                 if (widget.showRating && widget.show.voteAverage > 0)
                   Positioned(
                     top: AppSpacing.sm,
                     right: AppSpacing.sm,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.sm,
-                        vertical: AppSpacing.xxs,
+                        horizontal: 7,
+                        vertical: 2,
                       ),
                       decoration: BoxDecoration(
-                        color: getRatingColor(
-                          widget.show.voteAverage,
-                        ).withAlpha(AppOpacity.almostOpaque),
-                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                        color: Colors.black.withAlpha(140),
+                        borderRadius: BorderRadius.circular(AppRadius.xs),
                         border: Border.all(
-                          color: Colors.white.withAlpha(AppOpacity.light),
-                          width: AppBorderWidth.hairline,
+                          color: Colors.white.withAlpha(0x1F),
+                          width: 1,
                         ),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(
+                          Icon(
                             Icons.star_rounded,
-                            color: Colors.white,
-                            size: AppIconSize.xs,
+                            color: getRatingColor(widget.show.voteAverage),
+                            size: 11,
                           ),
                           const SizedBox(width: 3),
                           Text(
                             widget.show.voteAverage.toStringAsFixed(1),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
+                            style: TextStyle(
+                              color: getRatingColor(widget.show.voteAverage),
+                              fontSize: 10,
                               fontWeight: FontWeight.w700,
-                              letterSpacing: -0.2,
+                              fontFamily: 'monospace',
+                              letterSpacing: 0.4,
                             ),
                           ),
                         ],
@@ -153,26 +154,32 @@ class _ShowCardState extends State<ShowCard>
                     ),
                   ),
 
-                // Year badge - minimal style
+                // Year badge — frosted dark, mono font, MediaHub xs radius
                 if (widget.show.year != null)
                   Positioned(
                     top: AppSpacing.sm,
                     left: AppSpacing.sm,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.sm,
-                        vertical: AppSpacing.xxs,
+                        horizontal: 6,
+                        vertical: 2,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.black.withAlpha(AppOpacity.medium),
-                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                        color: Colors.black.withAlpha(140),
+                        borderRadius: BorderRadius.circular(AppRadius.xs),
+                        border: Border.all(
+                          color: Colors.white.withAlpha(0x1F),
+                          width: 1,
+                        ),
                       ),
                       child: Text(
                         widget.show.year!,
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          fontFamily: 'monospace',
+                          letterSpacing: 0.6,
                         ),
                       ),
                     ),
@@ -258,16 +265,14 @@ class _ShowCardState extends State<ShowCard>
                     ),
                   ),
 
-                // Hover overlay
+                // Hover overlay — softer, design uses subtle accent ring
                 if (_isHovered)
                   Positioned.fill(
                     child: Container(
                       decoration: BoxDecoration(
                         border: Border.all(
-                          color: theme.colorScheme.primary.withAlpha(
-                            AppOpacity.strong,
-                          ),
-                          width: AppBorderWidth.thick,
+                          color: AppColors.seedColor.withAlpha(0x55),
+                          width: AppBorderWidth.medium,
                         ),
                         borderRadius: BorderRadius.circular(AppRadius.lg),
                       ),

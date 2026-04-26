@@ -46,7 +46,6 @@ class StatusBadge extends StatelessWidget {
       label: label,
       type: StatusBadgeType.torrent,
       size: size,
-      backgroundColor: status.torrentStateLightColor,
       textColor: status.torrentStateColor,
     );
   }
@@ -62,7 +61,6 @@ class StatusBadge extends StatelessWidget {
       label: quality,
       type: StatusBadgeType.quality,
       size: size,
-      backgroundColor: quality.qualityLightColor,
       textColor: quality.qualityColor,
     );
   }
@@ -78,8 +76,7 @@ class StatusBadge extends StatelessWidget {
       label: label,
       type: StatusBadgeType.status,
       size: size,
-      backgroundColor: AppColors.successLight,
-      textColor: AppColors.successDark,
+      textColor: AppColors.success,
     );
   }
 
@@ -94,8 +91,7 @@ class StatusBadge extends StatelessWidget {
       label: label,
       type: StatusBadgeType.status,
       size: size,
-      backgroundColor: AppColors.warningLight,
-      textColor: AppColors.warningDark,
+      textColor: AppColors.warning,
     );
   }
 
@@ -110,8 +106,7 @@ class StatusBadge extends StatelessWidget {
       label: label,
       type: StatusBadgeType.status,
       size: size,
-      backgroundColor: AppColors.errorLight,
-      textColor: AppColors.errorDark,
+      textColor: AppColors.errorState,
     );
   }
 
@@ -126,8 +121,7 @@ class StatusBadge extends StatelessWidget {
       label: label,
       type: StatusBadgeType.status,
       size: size,
-      backgroundColor: AppColors.infoLight,
-      textColor: AppColors.infoDark,
+      textColor: AppColors.info,
     );
   }
 
@@ -143,8 +137,8 @@ class StatusBadge extends StatelessWidget {
     final theme = Theme.of(context);
     final appColors = context.appColors;
 
-    // Determine colors
-    Color bgColor = backgroundColor ?? appColors.pausedBackground;
+    // Determine colors — soft tint will derive from `fgColor` when no
+    // explicit background is provided.
     Color fgColor = textColor ?? appColors.paused;
 
     // Determine sizing
@@ -154,29 +148,38 @@ class StatusBadge extends StatelessWidget {
     double iconSize;
     double borderRadius;
 
+    // MediaHub pills run small and tight — short rounded rectangles
+    // that read as metadata, not buttons.
     switch (size) {
       case StatusBadgeSize.small:
-        horizontalPadding = AppSpacing.sm;
-        verticalPadding = AppSpacing.xs / 2;
+        horizontalPadding = 7;
+        verticalPadding = 2;
         fontSize = 10;
-        iconSize = AppIconSize.xs;
+        iconSize = AppIconSize.xxs;
         borderRadius = AppRadius.xs;
         break;
       case StatusBadgeSize.medium:
-        horizontalPadding = AppSpacing.sm;
-        verticalPadding = AppSpacing.xs;
-        fontSize = 12;
+        horizontalPadding = 10;
+        verticalPadding = 4;
+        fontSize = 11;
         iconSize = AppIconSize.xs;
-        borderRadius = AppRadius.md;
+        borderRadius = AppRadius.xs;
         break;
       case StatusBadgeSize.large:
         horizontalPadding = AppSpacing.md;
-        verticalPadding = AppSpacing.sm;
-        fontSize = 14;
+        verticalPadding = 6;
+        fontSize = 13;
         iconSize = AppIconSize.sm;
-        borderRadius = AppRadius.md;
+        borderRadius = AppRadius.sm;
         break;
     }
+
+    // MediaHub pill styling — soft tint background derived from the
+    // foreground colour so a single token drives both. Uppercase mono
+    // typography with light letter-spacing.
+    final pillBg = (backgroundColor != null)
+        ? backgroundColor!
+        : fgColor.withAlpha(0x22);
 
     return Container(
       padding: EdgeInsets.symmetric(
@@ -184,27 +187,25 @@ class StatusBadge extends StatelessWidget {
         vertical: verticalPadding,
       ),
       decoration: BoxDecoration(
-        color: bgColor,
+        color: pillBg,
         borderRadius: BorderRadius.circular(borderRadius),
-        border: Border.all(
-          color: fgColor.withAlpha(AppOpacity.light),
-          width: AppBorderWidth.hairline,
-        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[
             Icon(icon, size: iconSize, color: fgColor),
-            SizedBox(width: AppSpacing.xs),
+            const SizedBox(width: AppSpacing.xs),
           ],
           Text(
-            label,
+            label.toUpperCase(),
             style: theme.textTheme.labelSmall?.copyWith(
               color: fgColor,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w700,
               fontSize: fontSize,
-              letterSpacing: 0.2,
+              letterSpacing: 0.5,
+              fontFamily: 'monospace',
+              height: 1.1,
             ),
           ),
         ],
@@ -236,31 +237,19 @@ class TorrentStatusBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final appColors = context.appColors;
 
-    Color backgroundColor;
     Color textColor;
-
     if (hasError) {
-      backgroundColor = appColors.errorStateBackground;
       textColor = appColors.errorState;
     } else if (isPaused) {
-      backgroundColor = appColors.pausedBackground;
       textColor = appColors.paused;
     } else if (isDownloading) {
-      backgroundColor = appColors.downloadingBackground;
       textColor = appColors.downloading;
     } else if (isSeeding) {
-      backgroundColor = appColors.seedingBackground;
       textColor = appColors.seeding;
     } else {
-      backgroundColor = appColors.queuedBackground;
       textColor = appColors.queued;
     }
 
-    return StatusBadge(
-      label: statusText,
-      size: size,
-      backgroundColor: backgroundColor,
-      textColor: textColor,
-    );
+    return StatusBadge(label: statusText, size: size, textColor: textColor);
   }
 }

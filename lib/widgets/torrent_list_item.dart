@@ -7,6 +7,16 @@ import '../utils/formatters.dart';
 import 'common/app_progress_bar.dart';
 import 'common/status_badge.dart';
 
+String _qualityFromName(String name) {
+  final lower = name.toLowerCase();
+  if (lower.contains('2160') || lower.contains('uhd') || lower.contains('4k')) {
+    return '4K';
+  }
+  if (lower.contains('1080')) return '1080p';
+  if (lower.contains('720')) return '720p';
+  return 'SD';
+}
+
 /// Modern widget to display a single torrent in a list
 class TorrentListItem extends StatefulWidget {
   final Torrent torrent;
@@ -127,11 +137,16 @@ class _TorrentListItemState extends State<TorrentListItem> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              // Torrent file name in monospace — these
+                              // are release names, mono reads better.
                               Text(
                                 widget.torrent.name,
                                 style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  height: 1.3,
+                                  fontWeight: FontWeight.w500,
+                                  fontFamily: 'monospace',
+                                  fontSize: 13,
+                                  height: 1.35,
+                                  letterSpacing: 0,
                                 ),
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
@@ -139,12 +154,20 @@ class _TorrentListItemState extends State<TorrentListItem> {
                               const SizedBox(height: AppSpacing.xs),
                               Row(
                                 children: [
+                                  StatusBadge.quality(
+                                    quality: _qualityFromName(
+                                      widget.torrent.name,
+                                    ),
+                                    size: StatusBadgeSize.small,
+                                  ),
+                                  const SizedBox(width: AppSpacing.xs),
                                   TorrentStatusBadge(
                                     isDownloading: widget.torrent.isDownloading,
                                     isSeeding: widget.torrent.isSeeding,
                                     isPaused: widget.torrent.isPaused,
                                     hasError: widget.torrent.hasError,
                                     statusText: widget.torrent.statusText,
+                                    size: StatusBadgeSize.small,
                                   ),
                                   if (widget.torrent.isStreamingMode) ...[
                                     const SizedBox(width: AppSpacing.sm),

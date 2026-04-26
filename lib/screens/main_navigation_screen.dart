@@ -14,17 +14,24 @@ import '../providers/streaming_provider.dart';
 import '../providers/torrent_provider.dart';
 import '../services/streaming_service.dart';
 import '../utils/constants.dart';
+import '../utils/formatters.dart';
 import '../utils/feedback_utils.dart';
 import '../widgets/add_torrent_dialog.dart';
 import '../widgets/common/delete_confirmation_dialog.dart';
+import '../design/app_colors.dart';
 import '../widgets/common/empty_state.dart';
 import '../widgets/common/loading_state.dart';
+import '../widgets/common/mediahub_chip.dart';
+import '../widgets/common/mediahub_sidebar.dart';
+import '../widgets/common/mediahub_topbar.dart';
 import '../widgets/common/nav_badge.dart';
 import '../widgets/common/responsive_layout.dart';
 import '../widgets/connection_status_widget.dart';
+import '../widgets/mediahub_torrent_row.dart';
 import '../widgets/torrent_list_item.dart';
 import 'calendar_screen.dart';
 import 'favorites_screen.dart';
+import 'mediahub_home_screen.dart';
 import 'movies_screen.dart';
 import 'settings_screen.dart';
 import 'shows_screen.dart';
@@ -42,8 +49,11 @@ class MainNavigationScreen extends ConsumerStatefulWidget {
 }
 
 class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
-  // Keep screens alive when switching tabs
+  // Keep screens alive when switching tabs.
+  // Index 0 is the new MediaHub Home (matches the design's primary
+  // landing page); the existing tabs shift right by one.
   final List<Widget> _screens = const [
+    MediaHubHomeScreen(),
     DownloadsScreen(),
     ShowsScreen(),
     MoviesScreen(),
@@ -51,6 +61,10 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
     CalendarScreen(),
     FavoritesScreen(),
   ];
+
+  /// Sidebar collapse state — auto-managed (expanded on wide displays
+  /// by default, but the user can toggle).
+  bool _sidebarCollapsed = false;
 
   @override
   Widget build(BuildContext context) {
@@ -89,6 +103,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
               isStreaming: true,
               streamingTorrentHash: next.torrentHash,
               streamingFileIndex: next.selectedFileIndex,
+              streamingProxyUrl: next.streamUrl,
             ),
           ),
         );
@@ -99,161 +114,66 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
       appBar: _buildAppBar(currentIndex, connectionState),
       body: Row(
         children: [
-          // Modern Navigation Rail for wider screens
+          // MediaHub-styled sidebar for wider screens
           if (isWideScreen)
-            Container(
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerLow,
-                border: Border(
-                  right: BorderSide(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.outlineVariant.withValues(alpha: 0.3),
-                    width: 1,
-                  ),
+            MediaHubSidebar(
+              currentIndex: currentIndex,
+              collapsed: _sidebarCollapsed,
+              onToggleCollapse: () =>
+                  setState(() => _sidebarCollapsed = !_sidebarCollapsed),
+              onAddTorrent: () =>
+                  _handleAddTorrentAction(context, connectionState),
+              brandSubtitle: connectionState.isConnected
+                  ? 'CONNECTED'
+                  : 'OFFLINE',
+              onDestinationSelected: (index) {
+                ref.read(currentTabIndexProvider.notifier).set(index);
+              },
+              items: [
+                const SidebarItem(
+                  icon: Icons.home_outlined,
+                  selectedIcon: Icons.home_rounded,
+                  label: 'Home',
                 ),
-              ),
-              child: NavigationRail(
-                selectedIndex: currentIndex,
-                onDestinationSelected: (index) {
-                  ref.read(currentTabIndexProvider.notifier).set(index);
-                },
-                backgroundColor: Colors.transparent,
-                extended: MediaQuery.of(context).size.width > 1100,
-                minWidth: 72,
-                minExtendedWidth: 180,
-                labelType: MediaQuery.of(context).size.width > 1100
-                    ? NavigationRailLabelType.none
-                    : NavigationRailLabelType.selected,
-                useIndicator: true,
-                indicatorColor: Theme.of(context).colorScheme.primaryContainer,
-                leading: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
-                  child: MediaQuery.of(context).size.width > 1100
-                      ? Tooltip(
-                          message: connectionState.isConnected
-                              ? 'Add torrent'
-                              : 'Connect to qBittorrent to add torrents',
-                          child: FilledButton.icon(
-                            onPressed: () => _handleAddTorrentAction(
-                              context,
-                              connectionState,
-                            ),
-                            icon: const Icon(Icons.add_rounded, size: 20),
-                            label: const Text('Add'),
-                            style: FilledButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: AppSpacing.lg,
-                                vertical: AppSpacing.md,
-                              ),
-                            ),
-                          ),
-                        )
-                      : Tooltip(
-                          message: connectionState.isConnected
-                              ? 'Add torrent'
-                              : 'Connect to qBittorrent to add torrents',
-                          child: FloatingActionButton.small(
-                            onPressed: () => _handleAddTorrentAction(
-                              context,
-                              connectionState,
-                            ),
-                            elevation: 0,
-                            child: const Icon(Icons.add_rounded),
-                          ),
-                        ),
+                SidebarItem(
+                  icon: erroredCount > 0
+                      ? Icons.warning_amber_rounded
+                      : Icons.download_outlined,
+                  selectedIcon: erroredCount > 0
+                      ? Icons.warning_amber_rounded
+                      : Icons.download_rounded,
+                  label: 'Transfers',
+                  badge: activeDownloadsCount,
+                  errorBadge: erroredCount > 0,
                 ),
-                destinations: [
-                  NavigationRailDestination(
-                    icon: NavBadge(
-                      count: activeDownloadsCount,
-                      isError: erroredCount > 0,
-                      child: Icon(
-                        erroredCount > 0
-                            ? Icons.warning_amber_rounded
-                            : Icons.download_outlined,
-                      ),
-                    ),
-                    selectedIcon: NavBadge(
-                      count: activeDownloadsCount,
-                      isError: erroredCount > 0,
-                      child: Icon(
-                        erroredCount > 0
-                            ? Icons.warning_amber_rounded
-                            : Icons.download_rounded,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                    label: const Text('Transfers'),
-                    padding: const EdgeInsets.symmetric(
-                      vertical: AppSpacing.xs,
-                    ),
-                  ),
-                  NavigationRailDestination(
-                    icon: const Icon(Icons.live_tv_outlined),
-                    selectedIcon: Icon(
-                      Icons.live_tv_rounded,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    label: const Text('TV Shows'),
-                    padding: const EdgeInsets.symmetric(
-                      vertical: AppSpacing.xs,
-                    ),
-                  ),
-                  NavigationRailDestination(
-                    icon: const Icon(Icons.movie_outlined),
-                    selectedIcon: Icon(
-                      Icons.movie_rounded,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    label: const Text('Movies'),
-                    padding: const EdgeInsets.symmetric(
-                      vertical: AppSpacing.xs,
-                    ),
-                  ),
-                  NavigationRailDestination(
-                    icon: const Icon(Icons.video_library_outlined),
-                    selectedIcon: Icon(
-                      Icons.video_library_rounded,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    label: const Text('Library'),
-                    padding: const EdgeInsets.symmetric(
-                      vertical: AppSpacing.xs,
-                    ),
-                  ),
-                  NavigationRailDestination(
-                    icon: NavDot(
-                      isVisible: showCalendarDot,
-                      pulseAnimation: calendarDotPulse,
-                      child: const Icon(Icons.calendar_month_outlined),
-                    ),
-                    selectedIcon: NavDot(
-                      isVisible: showCalendarDot,
-                      pulseAnimation: calendarDotPulse,
-                      child: Icon(
-                        Icons.calendar_month_rounded,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                    label: const Text('Calendar'),
-                    padding: const EdgeInsets.symmetric(
-                      vertical: AppSpacing.xs,
-                    ),
-                  ),
-                  NavigationRailDestination(
-                    icon: const Icon(Icons.favorite_outline_rounded),
-                    selectedIcon: Icon(
-                      Icons.favorite_rounded,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    label: const Text('Favorites'),
-                    padding: const EdgeInsets.symmetric(
-                      vertical: AppSpacing.xs,
-                    ),
-                  ),
-                ],
-              ),
+                const SidebarItem(
+                  icon: Icons.live_tv_outlined,
+                  selectedIcon: Icons.live_tv_rounded,
+                  label: 'TV Shows',
+                ),
+                const SidebarItem(
+                  icon: Icons.movie_outlined,
+                  selectedIcon: Icons.movie_rounded,
+                  label: 'Movies',
+                ),
+                const SidebarItem(
+                  icon: Icons.video_library_outlined,
+                  selectedIcon: Icons.video_library_rounded,
+                  label: 'Library',
+                ),
+                SidebarItem(
+                  icon: Icons.calendar_month_outlined,
+                  selectedIcon: Icons.calendar_month_rounded,
+                  label: 'Calendar',
+                  dot: showCalendarDot,
+                  dotPulse: calendarDotPulse,
+                ),
+                const SidebarItem(
+                  icon: Icons.favorite_outline_rounded,
+                  selectedIcon: Icons.favorite_rounded,
+                  label: 'Favorites',
+                ),
+              ],
             ),
           // Main content — fade between tabs while keeping all screens alive
           Expanded(
@@ -270,6 +190,11 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
                 ref.read(currentTabIndexProvider.notifier).set(index);
               },
               destinations: [
+                const NavigationDestination(
+                  icon: Icon(Icons.home_outlined),
+                  selectedIcon: Icon(Icons.home_rounded),
+                  label: 'Home',
+                ),
                 NavigationDestination(
                   icon: NavBadge(
                     count: activeDownloadsCount,
@@ -326,7 +251,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
                 ),
               ],
             ),
-      floatingActionButton: !isWideScreen && currentIndex == 0
+      floatingActionButton: !isWideScreen && currentIndex == 1
           ? FloatingActionButton.extended(
               onPressed: () =>
                   _handleAddTorrentAction(context, connectionState),
@@ -376,21 +301,40 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
     int currentIndex,
     connection_provider.ConnectionState connectionState,
   ) {
-    String title;
-    List<Widget> actions = [];
     final isSelectionMode = ref.watch(isSelectionModeProvider);
+    final activeDownloads = ref.watch(activeDownloadsCountProvider);
+    final totalTorrents = ref.watch(torrentListProvider).torrents.length;
+
+    String title;
+    String? subtitle;
+    final actions = <Widget>[];
 
     switch (currentIndex) {
       case 0:
+        title = 'Home';
+        subtitle = 'Ready to watch';
+        break;
+      case 1:
         title = 'Transfers';
-        actions = [
+        subtitle = totalTorrents > 0
+            ? '$totalTorrents torrents · $activeDownloads active'
+            : 'No torrents yet';
+        // Aggregate dl/ul speeds — surfaced in the TopBar speed pill,
+        // matching the design's `↓ 27.5 MB/s   ↑ 12.2 MB/s` widget.
+        final torrents = ref.watch(torrentListProvider).torrents;
+        final totalDl =
+            torrents.fold<int>(0, (s, t) => s + t.dlspeed.toInt());
+        final totalUl =
+            torrents.fold<int>(0, (s, t) => s + t.upspeed.toInt());
+        actions.addAll([
+          _TransfersSpeedPill(totalDl: totalDl, totalUl: totalUl),
           const ConnectionStatusWidget(),
-          const SizedBox(width: AppSpacing.sm),
-          IconButton(
-            icon: Icon(
-              isSelectionMode ? Icons.close_rounded : Icons.checklist_rounded,
-            ),
+          MediaHubIconButton(
+            icon: isSelectionMode
+                ? Icons.close_rounded
+                : Icons.checklist_rounded,
             tooltip: isSelectionMode ? 'Exit selection' : 'Select multiple',
+            active: isSelectionMode,
             onPressed: () {
               if (isSelectionMode) {
                 ref.read(selectedTorrentHashesProvider.notifier).clear();
@@ -400,51 +344,60 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
               }
             },
           ),
-          const SizedBox(width: AppSpacing.sm),
-        ];
-        break;
-      case 1:
-        title = 'TV Shows';
+        ]);
         break;
       case 2:
-        title = 'Movies';
+        title = 'TV Shows';
+        subtitle = 'Trending, popular, top rated';
         break;
       case 3:
-        title = 'My Library';
-        actions = [
-          IconButton(
-            icon: const Icon(Icons.refresh_rounded),
+        title = 'Movies';
+        subtitle = 'Curated for you';
+        break;
+      case 4:
+        title = 'Library';
+        subtitle = 'Your downloaded library';
+        actions.add(
+          MediaHubIconButton(
+            icon: Icons.refresh_rounded,
+            tooltip: 'Rescan for new videos',
             onPressed: () {
               ref.invalidate(localMediaScannerProvider);
               ref.invalidate(localMediaFilesProvider);
             },
-            tooltip: 'Rescan for new videos',
           ),
-          const SizedBox(width: AppSpacing.sm),
-        ];
-        break;
-      case 4:
-        title = 'Calendar';
+        );
         break;
       case 5:
+        title = 'Calendar';
+        subtitle = 'Upcoming · airing this week';
+        break;
+      case 6:
         title = 'Favorites';
+        subtitle = 'Your saved shows and movies';
         break;
       default:
-        title = 'Torrent Client';
+        title = 'MediaHub';
     }
 
+    // Settings lives at the rightmost position of the TopBar's
+    // actions row — single source for global app actions.
     actions.add(
-      IconButton(
-        icon: const Icon(Icons.settings_outlined),
-        onPressed: () => Navigator.of(
-          context,
-        ).push(MaterialPageRoute(builder: (_) => const SettingsScreen())),
+      MediaHubIconButton(
+        icon: Icons.settings_outlined,
         tooltip: 'Settings',
+        onPressed: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const SettingsScreen()),
+        ),
       ),
     );
-    actions.add(const SizedBox(width: AppSpacing.sm));
 
-    return AppBar(title: Text(title), actions: actions);
+    return MediaHubTopBar(
+      title: title,
+      subtitle: subtitle,
+      showSearch: false,
+      actions: actions,
+    );
   }
 }
 
@@ -617,8 +570,8 @@ class _DownloadsContentState extends ConsumerState<_DownloadsContent> {
     final torrentState = ref.watch(torrentListProvider);
     final filteredTorrents = ref.watch(filteredTorrentsProvider);
     final currentFilter = ref.watch(currentFilterProvider);
-    final currentSort = ref.watch(currentSortProvider);
-    final sortAscending = ref.watch(sortAscendingProvider);
+    // Sort lives in the column-header strip below; no need to read it
+    // here — _TorrentListBuilder reads it directly when it renders.
     final isSelectionMode = ref.watch(isSelectionModeProvider);
     final selectedHashes = ref.watch(selectedTorrentHashesProvider);
 
@@ -647,250 +600,58 @@ class _DownloadsContentState extends ConsumerState<_DownloadsContent> {
             onDelete: () => _deleteSelected(context, ref, selectedHashes),
           ),
 
-        // Search bar
-        if (connectionState.isConnected)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.screenPadding,
-              AppSpacing.sm,
-              AppSpacing.screenPadding,
-              AppSpacing.xs,
-            ),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Search torrents',
-                prefixIcon: const Icon(Icons.search_rounded),
-                suffixIcon: searchQuery.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.close_rounded),
-                        tooltip: 'Clear search',
-                        onPressed: () {
-                          ref.read(torrentSearchQueryProvider.notifier).clear();
-                          _searchController.clear();
-                        },
-                      )
-                    : null,
-              ),
-              onChanged: (value) {
-                ref.read(torrentSearchQueryProvider.notifier).set(value);
-              },
-            ),
-          ),
-
-        // Filter and sort bar
+        // MediaHub-style filter row — status filter chips on the left
+        // (with status dot + count per chip) and a tight 220px search
+        // pill on the right. Replaces the previous separate search
+        // TextField + filter+sort dropdowns. Sort happens via the
+        // sortable column header strip below — no redundant dropdown.
         if (connectionState.isConnected)
           Container(
+            decoration: const BoxDecoration(
+              color: AppColors.bgPage,
+              border: Border(
+                bottom: BorderSide(color: Color(0x0FFFFFFF), width: 1),
+              ),
+            ),
             padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.md,
+              horizontal: AppSpacing.xxl,
               vertical: AppSpacing.sm,
             ),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final isCompact = constraints.maxWidth < 450;
-                final isStacked = constraints.maxWidth < 720;
-
-                if (isCompact) {
-                  // Ultra-compact layout: dropdowns for both filter and sort
-                  return Row(
-                    children: [
-                      // Filter dropdown
-                      Expanded(
-                        child: Container(
-                          height: 36,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: AppSpacing.sm,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .surfaceContainerHighest
-                                .withValues(alpha: 0.5),
-                            borderRadius: BorderRadius.circular(AppRadius.sm),
-                          ),
-                          child: DropdownButtonHideUnderline(
-                            child: DropdownButton<TorrentFilter>(
-                              value: currentFilter,
-                              isExpanded: true,
-                              icon: const Icon(
-                                Icons.filter_list_rounded,
-                                size: 18,
-                              ),
-                              style: Theme.of(context).textTheme.bodySmall,
-                              items: TorrentFilter.values.map((filter) {
-                                final count = _getFilterCount(
-                                  torrentState.torrents,
-                                  filter,
-                                );
-                                return DropdownMenuItem(
-                                  value: filter,
-                                  child: Text(
-                                    '${filter.label} ($count)',
-                                    style: const TextStyle(fontSize: 13),
-                                  ),
-                                );
-                              }).toList(),
-                              onChanged: (filter) {
-                                if (filter != null) {
-                                  ref
-                                      .read(currentFilterProvider.notifier)
-                                      .set(filter);
-                                }
-                              },
+            child: Row(
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        for (final filter in TorrentFilter.values) ...[
+                          MediaHubFilterChip(
+                            label: filter.label,
+                            selected: filter == currentFilter,
+                            count: _getFilterCount(
+                              torrentState.torrents,
+                              filter,
                             ),
+                            dotColor: _filterAccent(filter),
+                            accentColor:
+                                _filterAccent(filter) ?? AppColors.seedColor,
+                            onTap: () => ref
+                                .read(currentFilterProvider.notifier)
+                                .set(filter),
                           ),
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.sm),
-                      // Sort dropdown
-                      Container(
-                        height: 36,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.sm,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .surfaceContainerHighest
-                              .withValues(alpha: 0.5),
-                          borderRadius: BorderRadius.circular(AppRadius.sm),
-                        ),
-                        child: DropdownButtonHideUnderline(
-                          child: DropdownButton<TorrentSort>(
-                            value: currentSort,
-                            icon: Icon(
-                              sortAscending
-                                  ? Icons.arrow_upward_rounded
-                                  : Icons.arrow_downward_rounded,
-                              size: 18,
-                            ),
-                            style: Theme.of(context).textTheme.bodySmall,
-                            items: TorrentSort.values.map((sort) {
-                              return DropdownMenuItem(
-                                value: sort,
-                                child: Text(
-                                  sort.label,
-                                  style: const TextStyle(fontSize: 13),
-                                ),
-                              );
-                            }).toList(),
-                            onChanged: (sort) {
-                              if (sort != null) {
-                                if (sort == currentSort) {
-                                  // Toggle direction if same sort selected
-                                  ref
-                                      .read(sortAscendingProvider.notifier)
-                                      .toggle();
-                                } else {
-                                  ref
-                                      .read(currentSortProvider.notifier)
-                                      .set(sort);
-                                }
-                              }
-                            },
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
-                }
-
-                final filterChips = Wrap(
-                  spacing: AppSpacing.sm,
-                  runSpacing: AppSpacing.xs,
-                  children: TorrentFilter.values.map((filter) {
-                    final isSelected = filter == currentFilter;
-                    final count = _getFilterCount(
-                      torrentState.torrents,
-                      filter,
-                    );
-                    return FilterChip(
-                      label: Text('${filter.label} ($count)'),
-                      selected: isSelected,
-                      onSelected: (_) {
-                        ref.read(currentFilterProvider.notifier).set(filter);
-                      },
-                    );
-                  }).toList(),
-                );
-
-                final sortControls = Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    PopupMenuButton<TorrentSort>(
-                      initialValue: currentSort,
-                      onSelected: (sort) {
-                        ref.read(currentSortProvider.notifier).set(sort);
-                      },
-                      itemBuilder: (context) => TorrentSort.values.map((sort) {
-                        return PopupMenuItem(
-                          value: sort,
-                          child: Row(
-                            children: [
-                              if (sort == currentSort)
-                                Icon(
-                                  sortAscending
-                                      ? Icons.arrow_upward
-                                      : Icons.arrow_downward,
-                                  size: AppIconSize.sm,
-                                )
-                              else
-                                const SizedBox(width: AppIconSize.sm),
-                              const SizedBox(width: AppSpacing.sm),
-                              Text(sort.label),
-                            ],
-                          ),
-                        );
-                      }).toList(),
-                      child: Chip(
-                        avatar: Icon(
-                          sortAscending
-                              ? Icons.arrow_upward
-                              : Icons.arrow_downward,
-                          size: AppIconSize.sm,
-                        ),
-                        label: Text(currentSort.label),
-                      ),
+                          const SizedBox(width: AppSpacing.xs),
+                        ],
+                      ],
                     ),
-                    IconButton(
-                      icon: Icon(
-                        sortAscending
-                            ? Icons.arrow_upward
-                            : Icons.arrow_downward,
-                      ),
-                      onPressed: () {
-                        ref.read(sortAscendingProvider.notifier).toggle();
-                      },
-                      tooltip: sortAscending
-                          ? 'Sort Descending'
-                          : 'Sort Ascending',
-                    ),
-                  ],
-                );
-
-                if (isStacked) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      filterChips,
-                      const SizedBox(height: AppSpacing.sm),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: sortControls,
-                      ),
-                    ],
-                  );
-                }
-
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: filterChips),
-                    const SizedBox(width: AppSpacing.sm),
-                    sortControls,
-                  ],
-                );
-              },
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.md),
+                _TransfersSearchPill(
+                  controller: _searchController,
+                  onChanged: (v) =>
+                      ref.read(torrentSearchQueryProvider.notifier).set(v),
+                ),
+              ],
             ),
           ),
 
@@ -905,6 +666,28 @@ class _DownloadsContentState extends ConsumerState<_DownloadsContent> {
         ),
       ],
     );
+  }
+
+  /// Pick the accent color for a filter chip — matches the MediaHub
+  /// status palette so the chip dot reads as the same identity as the
+  /// row state dot. Returns null for `all` (uses neutral accent).
+  Color? _filterAccent(TorrentFilter filter) {
+    switch (filter) {
+      case TorrentFilter.downloading:
+        return AppColors.downloading;
+      case TorrentFilter.seeding:
+        return AppColors.seeding;
+      case TorrentFilter.completed:
+        return AppColors.success;
+      case TorrentFilter.paused:
+        return AppColors.paused;
+      case TorrentFilter.errored:
+        return AppColors.errorState;
+      case TorrentFilter.active:
+      case TorrentFilter.inactive:
+      case TorrentFilter.all:
+        return null;
+    }
   }
 
   int _getFilterCount(List<Torrent> torrents, TorrentFilter filter) {
@@ -998,6 +781,138 @@ class _DownloadsContentState extends ConsumerState<_DownloadsContent> {
   }
 }
 
+/// Aggregate `↓ X MB/s · ↑ Y MB/s` pill rendered in the TopBar
+/// actions row on the Transfers tab. Matches the design's status
+/// widget on `screen-transfers.jsx`.
+class _TransfersSpeedPill extends StatelessWidget {
+  const _TransfersSpeedPill({required this.totalDl, required this.totalUl});
+
+  final int totalDl;
+  final int totalUl;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget speedRow({
+      required Color color,
+      required String arrow,
+      required int bytes,
+    }) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              boxShadow: [BoxShadow(color: color.withAlpha(120), blurRadius: 6)],
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            arrow,
+            style: const TextStyle(
+              fontSize: 11,
+              color: Color(0xFF7A7A92),
+              fontFamily: 'monospace',
+            ),
+          ),
+          const SizedBox(width: 2),
+          Text(
+            Formatters.formatSpeed(bytes),
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFFF4F4F8),
+              fontFamily: 'monospace',
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: 4,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.bgSurface,
+        border: Border.all(color: const Color(0x0FFFFFFF)),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          speedRow(
+            color: AppColors.downloading,
+            arrow: '↓',
+            bytes: totalDl,
+          ),
+          Container(
+            width: 1,
+            height: 14,
+            margin: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+            color: const Color(0x0FFFFFFF),
+          ),
+          speedRow(
+            color: AppColors.seeding,
+            arrow: '↑',
+            bytes: totalUl,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Compact search pill used in the Transfers filter row — matches
+/// the design's right-side 220px search field on the Transfers screen.
+class _TransfersSearchPill extends StatelessWidget {
+  const _TransfersSearchPill({required this.controller, required this.onChanged});
+
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 220,
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.bgSurface,
+        border: Border.all(color: const Color(0x0FFFFFFF)),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.search_rounded, size: 12, color: Color(0xFF7A7A92)),
+          const SizedBox(width: 6),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              onChanged: onChanged,
+              cursorColor: AppColors.seedColor,
+              style: const TextStyle(fontSize: 12, color: Color(0xFFF4F4F8)),
+              decoration: const InputDecoration(
+                isDense: true,
+                contentPadding: EdgeInsets.zero,
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                hintText: 'Filter by name…',
+                hintStyle: TextStyle(fontSize: 12, color: Color(0x66B4B4C8)),
+                filled: false,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _TorrentListBuilder extends ConsumerWidget {
   final List<Torrent> torrents;
   final TorrentListState state;
@@ -1044,8 +959,8 @@ class _TorrentListBuilder extends ConsumerWidget {
         subtitle: 'Discover shows and start downloading episodes',
         action: FilledButton.icon(
           onPressed: () {
-            // Navigate to Browse tab
-            ref.read(currentTabIndexProvider.notifier).set(1);
+            // Navigate to TV Shows tab (index 2 — Home is now 0).
+            ref.read(currentTabIndexProvider.notifier).set(2);
           },
           icon: const Icon(Icons.tv),
           label: const Text('Browse Shows'),
@@ -1056,22 +971,23 @@ class _TorrentListBuilder extends ConsumerWidget {
     final selectedHash = ref.watch(selectedTorrentHashProvider);
     final isSelectionMode = ref.watch(isSelectionModeProvider);
     final selectedHashes = ref.watch(selectedTorrentHashesProvider);
+    final useDenseRows = context.isTabletOrLarger;
+    final currentSort = ref.watch(currentSortProvider);
+    final sortAscending = ref.watch(sortAscendingProvider);
 
-    return RefreshIndicator(
-      onRefresh: () => ref.read(torrentListProvider.notifier).refresh(),
-      child: ListView.builder(
-        padding: const EdgeInsets.only(bottom: 80),
-        itemCount: torrents.length,
-        itemBuilder: (context, index) {
-          final torrent = torrents[index];
-          final isSelected = isSelectionMode
-              ? selectedHashes.contains(torrent.hash)
-              : isInMasterDetail && torrent.hash == selectedHash;
-          // Use swipeable version on mobile, regular on desktop master-detail
-          return SwipeableTorrentListItem(
+    final list = ListView.builder(
+      padding: EdgeInsets.only(bottom: useDenseRows ? 0 : 80),
+      itemCount: torrents.length,
+      itemBuilder: (context, index) {
+        final torrent = torrents[index];
+        final isSelected = isSelectionMode
+            ? selectedHashes.contains(torrent.hash)
+            : isInMasterDetail && torrent.hash == selectedHash;
+        if (useDenseRows) {
+          return MediaHubTorrentRow(
             torrent: torrent,
             selected: isSelected,
-            enableSwipe: !isInMasterDetail && !isSelectionMode,
+            compact: isInMasterDetail,
             onTap: () {
               if (isSelectionMode) {
                 ref.read(selectionModeProvider.notifier).enable();
@@ -1092,8 +1008,55 @@ class _TorrentListBuilder extends ConsumerWidget {
             onResume: () => _resumeTorrent(context, ref, torrent),
             onDelete: () => _showDeleteDialog(context, ref, torrent),
           );
-        },
-      ),
+        }
+        return SwipeableTorrentListItem(
+          torrent: torrent,
+          selected: isSelected,
+          enableSwipe: !isInMasterDetail && !isSelectionMode,
+          onTap: () {
+            if (isSelectionMode) {
+              ref.read(selectionModeProvider.notifier).enable();
+              ref
+                  .read(selectedTorrentHashesProvider.notifier)
+                  .toggle(torrent.hash);
+            } else {
+              _openTorrentDetails(context, ref, torrent);
+            }
+          },
+          onLongPress: () {
+            ref.read(selectionModeProvider.notifier).enable();
+            ref
+                .read(selectedTorrentHashesProvider.notifier)
+                .toggle(torrent.hash);
+          },
+          onPause: () => _pauseTorrent(context, ref, torrent),
+          onResume: () => _resumeTorrent(context, ref, torrent),
+          onDelete: () => _showDeleteDialog(context, ref, torrent),
+        );
+      },
+    );
+
+    return RefreshIndicator(
+      onRefresh: () => ref.read(torrentListProvider.notifier).refresh(),
+      child: useDenseRows
+          ? Column(
+              children: [
+                MediaHubTorrentHeader(
+                  sortKey: currentSort,
+                  ascending: sortAscending,
+                  compact: isInMasterDetail,
+                  onSortKeyTap: (k) {
+                    if (currentSort == k) {
+                      ref.read(sortAscendingProvider.notifier).toggle();
+                    } else {
+                      ref.read(currentSortProvider.notifier).set(k);
+                    }
+                  },
+                ),
+                Expanded(child: list),
+              ],
+            )
+          : list,
     );
   }
 
