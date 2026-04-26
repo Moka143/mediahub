@@ -59,6 +59,13 @@ class AutoDownloadState {
   /// Map of show ID -> last downloaded episode tracking
   final Map<int, EpisodeTrackingInfo> lastDownloadedEpisodes;
 
+  /// Per-show overrides for the master `enabled` flag — `true` forces auto
+  /// download on for that show even when the global toggle is off, `false`
+  /// forces it off, missing key = follow global. `downloadOnProgress` and
+  /// `progressThreshold` stay global because the threshold model is global.
+  /// Surfaced as the in-player "Continue Watching" pill.
+  final Map<int, bool> showAutoDownloadOverrides;
+
   /// Whether auto-download is currently processing
   final bool isProcessing;
 
@@ -73,6 +80,7 @@ class AutoDownloadState {
     this.showQualityPreferences = const {},
     this.downloadQueue = const {},
     this.lastDownloadedEpisodes = const {},
+    this.showAutoDownloadOverrides = const {},
     this.isProcessing = false,
     this.error,
   });
@@ -85,6 +93,7 @@ class AutoDownloadState {
     Map<int, String>? showQualityPreferences,
     Set<String>? downloadQueue,
     Map<int, EpisodeTrackingInfo>? lastDownloadedEpisodes,
+    Map<int, bool>? showAutoDownloadOverrides,
     bool? isProcessing,
     String? error,
   }) {
@@ -98,6 +107,8 @@ class AutoDownloadState {
       downloadQueue: downloadQueue ?? this.downloadQueue,
       lastDownloadedEpisodes:
           lastDownloadedEpisodes ?? this.lastDownloadedEpisodes,
+      showAutoDownloadOverrides:
+          showAutoDownloadOverrides ?? this.showAutoDownloadOverrides,
       isProcessing: isProcessing ?? this.isProcessing,
       error: error,
     );
@@ -115,6 +126,9 @@ class AutoDownloadState {
       'download_queue': downloadQueue.toList(),
       'last_downloaded_episodes': lastDownloadedEpisodes.map(
         (k, v) => MapEntry(k.toString(), v.toJson()),
+      ),
+      'show_auto_download_overrides': showAutoDownloadOverrides.map(
+        (k, v) => MapEntry(k.toString(), v),
       ),
     };
   }
@@ -142,6 +156,11 @@ class AutoDownloadState {
             ),
           ) ??
           {},
+      showAutoDownloadOverrides:
+          (json['show_auto_download_overrides'] as Map<String, dynamic>?)?.map(
+            (k, v) => MapEntry(int.parse(k), v as bool),
+          ) ??
+          const {},
     );
   }
 }
@@ -240,6 +259,33 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
     return state.showQualityPreferences[showId] ?? state.defaultQuality;
   }
 
+  /// Override the auto-download enabled flag for a single show.
+  ///
+  /// Pass `null` to clear the override and revert to the global setting.
+  /// `true` forces auto-download on for this show, `false` forces it off.
+  /// Note: this controls only the `enabled` axis — `downloadOnProgress`
+  /// and `progressThreshold` remain global.
+  Future<void> setShowAutoDownloadOverride(int showId, bool? override) async {
+    final overrides = Map<int, bool>.from(state.showAutoDownloadOverrides);
+    if (override == null) {
+      overrides.remove(showId);
+    } else {
+      overrides[showId] = override;
+    }
+    state = state.copyWith(showAutoDownloadOverrides: overrides);
+    await _saveState();
+  }
+
+  /// Whether auto-download should fire for [showId]. Resolves the per-show
+  /// override against the global flags. For null show ids (movies / untagged
+  /// content) falls back to the global gate alone.
+  bool isAutoDownloadActiveForShow(int? showId) {
+    if (!state.downloadOnProgress) return false;
+    if (showId == null) return state.enabled;
+    final override = state.showAutoDownloadOverrides[showId];
+    return override ?? state.enabled;
+  }
+
   /// Start periodic check for next episodes
   void _startPeriodicCheck() {
     _checkTimer?.cancel();
@@ -249,7 +295,12 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
     });
   }
 
-  /// Trigger auto-download check when watching progress reaches threshold
+  /// Trigger auto-download check when watching progress reaches threshold.
+  ///
+  /// Honours the per-show "Continue Watching" override — i.e. a show with
+  /// `showAutoDownloadOverrides[showId] == true` will fire even when the
+  /// global `enabled` flag is off. `downloadOnProgress` and the threshold
+  /// remain global gates.
   Future<void> onWatchProgress({
     required int showId,
     required String? imdbId,
@@ -259,8 +310,21 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
     required double progress,
     required String currentQuality,
   }) async {
-    if (!state.enabled || !state.downloadOnProgress) return;
-    if (progress < state.progressThreshold) return;
+    if (!isAutoDownloadActiveForShow(showId)) {
+      print(
+        '[AutoDownload] onWatchProgress skipped: gate closed for showId=$showId',
+      );
+      return;
+    }
+    if (progress < state.progressThreshold) {
+      print(
+        '[AutoDownload] onWatchProgress skipped: progress=$progress < threshold=${state.progressThreshold}',
+      );
+      return;
+    }
+    print(
+      '[AutoDownload] onWatchProgress: showId=$showId $showName S${season}E$episode progress=${progress.toStringAsFixed(2)}',
+    );
 
     // Mark the current episode as watched in tracking
     final currentTracking = state.lastDownloadedEpisodes[showId];
@@ -280,10 +344,17 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
         '${showId}_S${season.toString().padLeft(2, '0')}E${nextEpNum.toString().padLeft(2, '0')}';
 
     // Check if already in queue
-    if (state.downloadQueue.contains(queueKey)) return;
+    if (state.downloadQueue.contains(queueKey)) {
+      print(
+        '[AutoDownload] $queueKey already in download queue — skipping',
+      );
+      return;
+    }
 
     // Update show quality preference from current episode
     await setShowQualityPreference(showId, currentQuality);
+
+    print('[AutoDownload] queueing download for $queueKey');
 
     // Trigger next episode download
     await _downloadNextEpisode(
@@ -398,7 +469,14 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
     required int currentEpisode,
     required String quality,
   }) async {
-    if (imdbId == null) return false;
+    print(
+      '[AutoDownload] _downloadNextEpisode: showId=$showId imdbId=$imdbId '
+      '$showName S${currentSeason}E$currentEpisode quality=$quality',
+    );
+    if (imdbId == null) {
+      print('[AutoDownload] aborting — no imdbId');
+      return false;
+    }
 
     final service = ref.read(autoDownloadServiceProvider);
     final downloadedFiles = ref.read(localMediaFilesProvider).value ?? [];
@@ -448,6 +526,10 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
     );
 
     if (torrent == null) {
+      print(
+        '[AutoDownload] no torrent found for $showName ${nextEp.episodeCode} '
+        '(quality=$quality)',
+      );
       ref
           .read(autoDownloadEventsProvider.notifier)
           .addEvent(
@@ -464,6 +546,10 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
           );
       return false;
     }
+    print(
+      '[AutoDownload] torrent found: hash=${torrent.hash} '
+      'quality=${torrent.quality}',
+    );
 
     // Download
     final settings = ref.read(settingsProvider);
@@ -473,6 +559,7 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
       infoHash: torrent.hash,
       fileIdx: torrent.fileIdx,
     );
+    print('[AutoDownload] addTorrent result: success=$success');
 
     if (success) {
       // Add to queue and update tracking

@@ -9,6 +9,7 @@ import '../models/local_media_file.dart';
 import '../models/torrentio_stream.dart';
 import '../models/torrent.dart';
 import '../models/torrent_file.dart';
+import 'local_streaming_server.dart';
 import 'qbittorrent_api_service.dart';
 
 /// Represents the state of a streaming session
@@ -59,6 +60,12 @@ class StreamingSession {
   String? errorMessage;
   LocalMediaFile? videoFile;
 
+  /// HTTP URL the player should open instead of [videoFile.path] while the
+  /// torrent is still downloading. Populated once the local streaming proxy
+  /// is up. Null when streaming isn't available (or once the file is
+  /// fully downloaded and direct file playback is fine).
+  String? streamUrl;
+
   StreamingSession({
     required this.id,
     required this.stream,
@@ -76,6 +83,7 @@ class StreamingSession {
     this.bufferProgress = 0.0,
     this.errorMessage,
     this.videoFile,
+    this.streamUrl,
   }) : createdAt = DateTime.now();
 
   bool get isActive =>
@@ -95,6 +103,7 @@ class StreamingSession {
     double? bufferProgress,
     String? errorMessage,
     LocalMediaFile? videoFile,
+    String? streamUrl,
   }) {
     return StreamingSession(
       id: id,
@@ -113,6 +122,7 @@ class StreamingSession {
       bufferProgress: bufferProgress ?? this.bufferProgress,
       errorMessage: errorMessage,
       videoFile: videoFile ?? this.videoFile,
+      streamUrl: streamUrl ?? this.streamUrl,
     );
   }
 }
@@ -136,6 +146,11 @@ class StreamingService {
       {};
   final Set<String> _checkingProgress =
       {}; // prevents concurrent checks per session
+  /// Local HTTP proxy keyed by session id. Started when a session reaches
+  /// [StreamingState.ready] and torn down on cancel/dispose. mpv reads from
+  /// the proxy URL instead of the on-disk file so it doesn't choke on the
+  /// zero-padded sparse regions qBittorrent leaves for un-downloaded bytes.
+  final Map<String, LocalStreamingServer> _streamingServers = {};
 
   /// Video file extensions to look for
   static const videoExtensions = {
@@ -158,7 +173,7 @@ class StreamingService {
   static const double minPiecePercent = 0.03; // 3% of pieces
 
   /// Minimum absolute buffer (bytes) before streaming is ready.
-  /// Scales with file size — see [_minBufferBytesFor].
+  /// Scales with file size — see [minBufferBytesFor].
   static const int _minBufferSmall = 50 * 1024 * 1024; // 50 MB  (files < 1 GB)
   static const int _minBufferMedium =
       100 * 1024 * 1024; // 100 MB (files 1–4 GB)
@@ -171,7 +186,7 @@ class StreamingService {
   static const Duration bufferTimeout = Duration(minutes: 5);
 
   /// Returns the minimum bytes needed before a file is ready to stream.
-  static int _minBufferBytesFor(int fileSizeBytes) {
+  static int minBufferBytesFor(int fileSizeBytes) {
     if (fileSizeBytes > 4 * 1024 * 1024 * 1024) return _minBufferLarge;
     if (fileSizeBytes > 1 * 1024 * 1024 * 1024) return _minBufferMedium;
     return _minBufferSmall;
@@ -190,6 +205,29 @@ class StreamingService {
   /// Get all active sessions
   List<StreamingSession> get activeSessions =>
       _sessions.values.where((s) => s.isActive).toList();
+
+  /// Register a streaming proxy server that isn't owned by a normal session
+  /// — e.g. the binge-watching auto-next-episode flow in VideoPlayerScreen,
+  /// which manages its own buffering check rather than going through
+  /// [startStreaming]. Storing the server here ensures it's torn down on
+  /// app shutdown rather than leaking. Replaces any previously-registered
+  /// server under the same [key].
+  void registerExternalServer(String key, LocalStreamingServer server) {
+    final existing = _streamingServers[key];
+    if (existing != null && !identical(existing, server)) {
+      unawaited(existing.stop());
+    }
+    _streamingServers[key] = server;
+  }
+
+  /// Stop and remove a previously-registered external server. Safe to call
+  /// for unknown keys.
+  Future<void> stopExternalServer(String key) async {
+    final s = _streamingServers.remove(key);
+    if (s != null) {
+      await s.stop();
+    }
+  }
 
   /// Get a specific session by ID
   StreamingSession? getSession(String sessionId) => _sessions[sessionId];
@@ -288,6 +326,12 @@ class StreamingService {
     // Stop monitoring
     _monitoringTimers[sessionId]?.cancel();
     _monitoringTimers.remove(sessionId);
+
+    // Tear down the local HTTP proxy if one was started for this session.
+    final server = _streamingServers.remove(sessionId);
+    if (server != null) {
+      await server.stop();
+    }
 
     // Update state
     _updateSession(sessionId, state: StreamingState.cancelled);
@@ -525,28 +569,29 @@ class StreamingService {
   ///
   /// Uses TWO checks before declaring ready:
   /// 1. Overall file progress → enough bytes buffered (scales with file size).
-  /// 2. Piece-level contiguous check → the first N pieces are actually
-  ///    downloaded in order, so the player won't hit gaps.
+  /// 2. Piece-level contiguous check → the selected file's first N pieces are
+  ///    actually downloaded in order, so the player won't hit gaps.
   Future<void> _handleBuffering(String sessionId, Torrent torrent) async {
     final session = _sessions[sessionId];
     if (session == null || session.selectedFileIndex == null) return;
 
     double fileProgress = 0;
     int fileSizeBytes = 0;
+    TorrentFile? selectedFile;
 
     try {
       final files = await _qbtService.getTorrentFiles(torrent.hash);
       if (session.selectedFileIndex! < files.length) {
-        final file = files[session.selectedFileIndex!];
-        fileProgress = file.progress;
-        fileSizeBytes = file.size.round();
+        selectedFile = files[session.selectedFileIndex!];
+        fileProgress = selectedFile.progress;
+        fileSizeBytes = selectedFile.size.round();
       }
     } catch (e) {
       debugPrint('[StreamingService] Error getting file progress: $e');
     }
 
     final bufferedBytes = (fileSizeBytes * fileProgress).round();
-    final minBytes = _minBufferBytesFor(fileSizeBytes);
+    final minBytes = minBufferBytesFor(fileSizeBytes);
 
     debugPrint(
       '[StreamingService] Buffer progress: ${(fileProgress * 100).toStringAsFixed(1)}% '
@@ -559,37 +604,64 @@ class StreamingService {
     // Byte threshold: enough absolute data for the player to start.
     final bytesOk = bufferedBytes >= minBytes;
 
-    // Piece-level contiguous check: verify the FIRST pieces are actually
-    // downloaded in order — prevents starting when pieces are scattered.
-    bool piecesOk = false;
+    // We used to also gate the ready transition on a strict piece-level
+    // contiguity check (every piece in the file's first ~4% in state 2).
+    // That made sense when mpv read the file path directly: any missing
+    // piece in the start meant the demuxer would hit zero-padded sparse
+    // data and freeze. It also made the ready transition unreliable —
+    // qBittorrent's "sequential download" is best-effort, so the first
+    // chunk routinely had one or two pieces still in-flight long after
+    // the byte threshold was met (we observed 200+ MB buffered with the
+    // ready transition still gated).
+    //
+    // The LocalStreamingServer makes this gate unnecessary: it never
+    // serves bytes past the current download head, so a gap in the first
+    // chunk turns into a brief mpv pause-for-cache rather than a frozen
+    // demuxer. Trust the byte threshold and let the proxy handle edges.
     if (bytesOk) {
-      try {
-        piecesOk = await _qbtService.isReadyForStreaming(
-          torrent.hash,
-          minProgress: minPiecePercent,
-        );
-      } catch (e) {
-        debugPrint('[StreamingService] Piece check failed: $e');
-        // Fall back to byte-only check if piece API fails
-        piecesOk = true;
-      }
-    }
-
-    if (bytesOk && piecesOk) {
       debugPrint(
         '[StreamingService] Buffer ready! '
-        '${_formatBytes(bufferedBytes)} buffered, pieces contiguous.',
+        '${_formatBytes(bufferedBytes)} buffered, selected-file pieces contiguous.',
       );
 
       final videoFile = await _findVideoFile(session);
+
+      // Stand up the local HTTP proxy *before* declaring ready, so the
+      // listener that pushes VideoPlayerScreen has the URL on hand.
+      String? streamUrl;
+      if (videoFile != null && session.selectedFileIndex != null) {
+        try {
+          final server = LocalStreamingServer(
+            qbt: _qbtService,
+            filePath: videoFile.path,
+            torrentHash: torrent.hash,
+            fileIndex: session.selectedFileIndex!,
+            logTag: 'main',
+          );
+          await server.start();
+          // If a previous server is somehow still around for this session,
+          // shut it down before swapping in the new one.
+          await _streamingServers[sessionId]?.stop();
+          _streamingServers[sessionId] = server;
+          streamUrl = server.url;
+          debugPrint('[StreamingService] Local stream URL: $streamUrl');
+        } catch (e) {
+          // Falling back to direct file playback isn't great — the spinner
+          // bug returns — but at least the user gets *something*. Surface
+          // this in logs so we can debug if it ever happens.
+          debugPrint('[StreamingService] Failed to start local proxy: $e');
+        }
+      }
 
       _updateSession(
         sessionId,
         state: StreamingState.ready,
         videoFile: videoFile,
+        streamUrl: streamUrl,
       );
 
-      // Stop monitoring — mpv cache-pause handles ongoing buffering
+      // Stop readiness monitoring. VideoPlayerScreen tracks the download edge
+      // while playback continues.
       _monitoringTimers[sessionId]?.cancel();
     } else {
       if (DateTime.now().difference(session.createdAt) > bufferTimeout) {
@@ -610,7 +682,18 @@ class StreamingService {
 
     try {
       String fullPath;
-      if (session.stream.isSingleFile) {
+
+      // qBittorrent's contentPath is the file itself for single-file torrents
+      // and the directory for multi-file torrents. The stream's
+      // `isSingleFile` flag comes from Torrentio's heuristic and isn't always
+      // right (e.g. some "season pack" entries actually resolve to a single
+      // file once metadata arrives). Inspect the filesystem to decide
+      // instead of trusting the flag — joining a file path with another
+      // filename produces `...mkv/...mkv` which won't open.
+      final contentStat = FileSystemEntity.typeSync(session.contentPath!);
+      final contentIsFile = contentStat == FileSystemEntityType.file;
+
+      if (contentIsFile) {
         fullPath = session.contentPath!;
       } else {
         // Normalise segments so mixed separators from qBittorrent don't double up.
@@ -623,7 +706,7 @@ class StreamingService {
       }
 
       final file = File(fullPath);
-      if (!await file.exists()) {
+      if (!await file.exists() && !contentIsFile) {
         final dir = Directory(session.contentPath!);
         if (await dir.exists()) {
           final selectedFileName = p.basename(
@@ -673,6 +756,7 @@ class StreamingService {
     double? bufferProgress,
     String? errorMessage,
     LocalMediaFile? videoFile,
+    String? streamUrl,
   }) {
     final session = _sessions[sessionId];
     if (session == null) return;
@@ -686,6 +770,7 @@ class StreamingService {
       bufferProgress: bufferProgress,
       errorMessage: errorMessage,
       videoFile: videoFile,
+      streamUrl: streamUrl,
     );
 
     _notifySession(sessionId);
@@ -731,6 +816,13 @@ class StreamingService {
       timer.cancel();
     }
     _monitoringTimers.clear();
+
+    for (final server in _streamingServers.values) {
+      // Fire-and-forget — dispose is sync and the server cleans up its own
+      // sockets internally.
+      unawaited(server.stop());
+    }
+    _streamingServers.clear();
 
     for (final controller in _sessionControllers.values) {
       controller.close();

@@ -119,20 +119,40 @@ class PlayerService {
   Timer? _progressSaveTimer;
   LocalMediaFile? _currentFile;
   Completer<void>? _firstPlayCompleter;
-  StreamSubscription<bool>? _firstPlaySubscription;
+  StreamSubscription<Duration>? _firstPlaySubscription;
 
   PlayerService(this.ref);
 
   Player get _player => ref.read(playerProvider);
 
   /// Open and play a video file.
-  /// Set [isStreaming] to true when opening a partially downloaded file
-  /// to configure mpv's cache for tolerating incomplete data.
+  ///
+  /// Set [isStreaming] to true when the file is being downloaded in real
+  /// time. In that case the caller should normally also provide [streamUrl]
+  /// — an `http://127.0.0.1:.../...` URL served by [LocalStreamingServer]
+  /// that proxies the partial file with proper byte-range backpressure.
+  /// mpv reads from the HTTP URL instead of the on-disk file so it doesn't
+  /// choke on the zero-padded sparse regions qBittorrent leaves for un-
+  /// downloaded bytes; mpv's network cache layer then handles the wait
+  /// gracefully (paused-for-cache that actually clears when bytes arrive).
   Future<void> openFile(
     LocalMediaFile file, {
     Duration? startPosition,
     bool isStreaming = false,
+    String? streamUrl,
   }) async {
+    // Hard-reset the global player before loading a new file. Without this
+    // the previous session's `playing=true, position>0` leaks into the new
+    // session: the streaming-mode buffering UI uses player state to decide
+    // when initial loading is over, and stale state causes it to declare
+    // "playing" before the new file has even been opened — leaving the
+    // spinner stuck on top of a mpv instance that's still actually loading.
+    try {
+      await _player.stop();
+    } catch (_) {
+      // No media loaded yet — non-fatal.
+    }
+
     _currentFile = file;
     ref.read(currentPlayingFileProvider.notifier).set(file);
 
@@ -140,30 +160,101 @@ class PlayerService {
     // switcher shows something more useful than "MediaHub".
     unawaited(windowManager.setTitle(_windowTitleFor(file)));
 
-    // For streaming (partially downloaded files), configure mpv so it stays
-    // close to known-good data instead of reading deep into sparse regions
-    // (qBittorrent allocates the file at full size, and unwritten bytes read
-    // back as zeros — mpv would otherwise treat that as garbage video data
-    // and silently freeze video while audio keeps playing).
-    if (isStreaming) {
-      final nativePlayer = _player.platform as NativePlayer;
-      await nativePlayer.setProperty('cache', 'yes');
-      await nativePlayer.setProperty('cache-pause', 'yes');
-      await nativePlayer.setProperty('cache-pause-wait', '2');
-      await nativePlayer.setProperty('cache-pause-initial', 'no');
-      // Smaller demuxer cache — keeps mpv from speculatively reading ~150 MB
-      // ahead into possibly-sparse regions. The PlaybackHealthMonitor in
-      // VideoPlayerScreen pauses the player before it overruns the download
-      // edge, so a smaller window is safe.
-      await nativePlayer.setProperty('demuxer-max-bytes', '50000000'); // 50 MB
+    // Decide what URL to hand to mpv. For streaming we much prefer the local
+    // HTTP proxy URL (LocalStreamingServer) over the on-disk file path:
+    // qBittorrent pre-allocates the file and pads not-yet-downloaded ranges
+    // with zero bytes. When mpv reads those zeros directly off disk the
+    // demuxer treats them as garbage video data and freezes (`Invalid NAL
+    // unit size`, paused-for-cache that never clears) — that's the "spinner
+    // forever" bug. The proxy holds reads back until real bytes are written,
+    // and mpv's network-stream cache handles backpressure correctly.
+    final mediaUri = (isStreaming && streamUrl != null) ? streamUrl : file.path;
+    final nativePlayer = _player.platform as NativePlayer;
+
+    if (isStreaming && streamUrl != null) {
+      // mpv is now talking to a localhost HTTP server. Let mpv's network
+      // cache do its job: it'll pause-for-cache while the proxy is waiting
+      // on bytes from qBittorrent, and resume the moment data flows again.
+      try {
+        await nativePlayer.setProperty('cache', 'yes');
+        await nativePlayer.setProperty('cache-secs', '30');
+        // Don't wait on initial cache fill — start playback as soon as
+        // mpv has decoded the first frame. Default is already 'no' but
+        // we set it explicitly because some libmpv builds flip it.
+        await nativePlayer.setProperty('cache-pause-initial', 'no');
+        // After a cache underrun, resume playback after only 1 s of
+        // buffering instead of the 4 s default. The proxy serves bytes
+        // as soon as qBittorrent writes them, so 4 s of waiting is
+        // overkill and just makes streaming feel laggy.
+        await nativePlayer.setProperty('cache-pause-wait', '1');
+        await nativePlayer.setProperty('demuxer-max-bytes', '50000000');
+        await nativePlayer.setProperty('demuxer-readahead-secs', '15');
+        // The proxy can be slow to respond when we're at the download edge
+        // — give libavformat time before it gives up.
+        await nativePlayer.setProperty('network-timeout', '60');
+
+        // Stop mpv from probing the end of the file. By default mpv reads
+        // the very last region of an MKV to:
+        //   • read the Cues element (seek index)
+        //   • compute exact duration from the last cluster
+        // For a torrent that's only 100 MB into a 2 GB file, the end is
+        // not yet downloaded — qBittorrent has it as zero-padded sparse
+        // bytes. Without these flags mpv blocks on the proxy waiting for
+        // the tail to land, which manifests as the spinner-forever bug.
+        await nativePlayer.setProperty(
+          'demuxer-mkv-probe-start-time',
+          'no',
+        );
+        await nativePlayer.setProperty(
+          'demuxer-mkv-probe-video-duration',
+          'no',
+        );
+        // libavformat (used for MP4/WebM/etc.) has a similar tail-probe
+        // pass — keep it bounded so initial open isn't dominated by tail
+        // reads against an undownloaded region. Note: analyzeduration is
+        // in *microseconds*. Setting it to 1 (the previous value) meant
+        // 1 µs of analysis, which is far too short for libavformat to
+        // identify the codec and stream layout — mpv would silently fail
+        // to open the file. 5 seconds is a sane minimum.
+        await nativePlayer.setProperty(
+          'demuxer-lavf-analyzeduration',
+          '5000000', // 5 seconds (microseconds)
+        );
+        await nativePlayer.setProperty(
+          'demuxer-lavf-probesize',
+          '8388608', // 8 MB
+        );
+      } catch (_) {
+        // Older libmpv may reject some — non-fatal.
+      }
+    } else if (isStreaming) {
+      // Fallback: streaming requested but no proxy URL available. Use the
+      // older direct-disk tweaks; spinner-forever bug may resurface, but at
+      // least we don't crash. Logged in StreamingService.
+      await nativePlayer.setProperty('demuxer-max-bytes', '50000000');
       await nativePlayer.setProperty('demuxer-readahead-secs', '8');
-      // Force seekability so a back-seek during stall recovery actually works
-      // even when the underlying file doesn't look fully complete to mpv.
       await nativePlayer.setProperty('force-seekable', 'yes');
+      try {
+        await nativePlayer.setProperty('cache', 'no');
+      } catch (_) {}
+    } else {
+      // Streaming-mode properties are set on the *global* mpv instance and
+      // persist across files. If a streaming session ran earlier, restore
+      // sensible defaults for normal local-file playback so the next opened
+      // file isn't crippled by the streaming-tuned demuxer window.
+      try {
+        await nativePlayer.setProperty('demuxer-max-bytes', '150000000');
+        await nativePlayer.setProperty('demuxer-readahead-secs', '20');
+        await nativePlayer.setProperty('force-seekable', 'auto');
+        await nativePlayer.setProperty('cache', 'auto');
+      } catch (_) {
+        // Older libmpv may reject some of these — non-fatal.
+      }
     }
 
-    // Open the media file
-    await _player.open(Media(file.path));
+    // Open the media. media_kit's open() defaults to play=true, which sets
+    // mpv's `pause` property to "no" after loadfile.
+    await _player.open(Media(mediaUri));
 
     // Seek to start position if provided — wait for a valid duration rather
     // than a blind 500 ms delay, which was too short on slow storage.
@@ -182,20 +273,47 @@ class PlayerService {
     _startProgressSaveTimer();
   }
 
-  /// Returns a [Future] that completes when mpv first reports playing.
+  /// Returns a [Future] that completes when mpv is *actually* playing —
+  /// i.e. the position has moved, not just the `pause` flag flipped to no.
   ///
-  /// If playback doesn't start within [timeout], forces a play() call as
-  /// recovery (mpv may be stuck in cache-pause).  Returns immediately if the
-  /// player is already playing.
+  /// Why position-based? media_kit emits `playing: true` as soon as it sets
+  /// mpv's `pause` property to `no` inside `Player.open()`, even before mpv
+  /// has demuxed the first frame. For partially-downloaded torrent files
+  /// mpv can sit in `paused-for-cache=true` indefinitely while still
+  /// reporting `playing: true` to us. Watching position advance is the only
+  /// honest signal that frames are being delivered.
+  ///
+  /// On timeout, runs a real recovery (forward-probe seek + back) which
+  /// forces mpv to flush its demuxer state. A bare `play()` won't do it —
+  /// `play()` just clears the *user* pause, not `paused-for-cache`.
   Future<void> waitForFirstPlay({
-    Duration timeout = const Duration(seconds: 15),
+    Duration timeout = const Duration(seconds: 7),
   }) async {
-    if (_player.state.playing) return;
+    // Baseline = position at the moment the caller starts waiting.
+    // openFile() now hard-stops the player before loading, so this is
+    // typically Duration.zero — but we capture explicitly in case the caller
+    // is invoking us mid-playback (e.g. after a resume seek).
+    //
+    // Previously this method:
+    //   • short-circuited when the *global* player still reported
+    //     `playing && position > 0` from a previous session — returning
+    //     before the new file was even loaded; and
+    //   • used "first emitted position event" as the baseline. If the
+    //     subscription was set up before the new file's open() fully
+    //     applied, the first event could be the previous file's stale
+    //     position (e.g. 1500s); the new file then resets to 0 and never
+    //     "advances past 1500s", so the completer never fired and the
+    //     streaming spinner was stuck waiting on a 7s timeout every time.
+    final baseline = _player.state.position;
 
     _firstPlayCompleter = Completer<void>();
     _firstPlaySubscription?.cancel();
-    _firstPlaySubscription = _player.stream.playing.listen((isPlaying) {
-      if (isPlaying && !(_firstPlayCompleter?.isCompleted ?? true)) {
+
+    _firstPlaySubscription = _player.stream.position.listen((pos) {
+      // Require a real advancement past the baseline (not just any equal/
+      // smaller value emitted as mpv loads the new file).
+      if (pos > baseline + const Duration(milliseconds: 50) &&
+          !(_firstPlayCompleter?.isCompleted ?? true)) {
         _firstPlayCompleter!.complete();
         _firstPlaySubscription?.cancel();
         _firstPlaySubscription = null;
@@ -204,11 +322,24 @@ class PlayerService {
 
     return _firstPlayCompleter!.future.timeout(
       timeout,
-      onTimeout: () {
+      onTimeout: () async {
         _firstPlaySubscription?.cancel();
         _firstPlaySubscription = null;
-        // Recovery: force play if mpv got stuck in cache-pause
-        _player.play();
+        // A forward-then-back seek forces mpv to flush its demuxer cache,
+        // which is what actually clears `paused-for-cache` when mpv has
+        // gotten stuck reading sparse zero data. Calling `play()` alone
+        // only flips the user-pause flag and doesn't help.
+        try {
+          final pos = _player.state.position;
+          await _player.pause();
+          await _player.seek(pos + const Duration(seconds: 1));
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+          await _player.seek(pos);
+          await _player.play();
+        } catch (_) {
+          // Worst case fall back to a plain play() — better than nothing.
+          await _player.play();
+        }
       },
     );
   }

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -701,14 +702,22 @@ class QBittorrentApiService {
     onLog?.call(message);
   }
 
-  /// Toggle sequential download for a torrent
+  /// Toggle sequential download for a torrent.
+  ///
+  /// qBittorrent's WebAPI expects `hashes` in the form-encoded body for
+  /// these toggle endpoints, not as a query parameter — passing it as a
+  /// query param silently no-ops on at least some builds (returns 200 with
+  /// an empty body but doesn't actually flip the flag, or returns a non-200
+  /// depending on version). Match `setFilePriority` / `addTorrent` /
+  /// `toggleFirstLastPiecePrio` and submit as form data.
   Future<bool> toggleSequentialDownload(String hash) async {
     if (!await _ensureAuthenticated()) return false;
 
     try {
       final response = await _dio.post(
         '/api/v2/torrents/toggleSequentialDownload',
-        queryParameters: {'hashes': hash},
+        data: 'hashes=$hash',
+        options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
       return response.statusCode == 200;
     } catch (e) {
@@ -717,14 +726,16 @@ class QBittorrentApiService {
     }
   }
 
-  /// Toggle first/last piece priority for a torrent
+  /// Toggle first/last piece priority for a torrent. See
+  /// [toggleSequentialDownload] for why `hashes` is form-encoded.
   Future<bool> toggleFirstLastPiecePrio(String hash) async {
     if (!await _ensureAuthenticated()) return false;
 
     try {
       final response = await _dio.post(
         '/api/v2/torrents/toggleFirstLastPiecePrio',
-        queryParameters: {'hashes': hash},
+        data: 'hashes=$hash',
+        options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
       return response.statusCode == 200;
     } catch (e) {
@@ -806,6 +817,90 @@ class QBittorrentApiService {
       _log('Check streaming ready error: $e');
       return false;
     }
+  }
+
+  /// Check whether the selected file has enough contiguous pieces at its own
+  /// beginning to start playback.
+  ///
+  /// qBittorrent's `pieceStates` response is torrent-wide, while `files`
+  /// exposes each file's inclusive `piece_range`. Streaming a season pack must
+  /// check the selected episode's range, not piece 0 of the whole torrent.
+  Future<bool> isFileReadyForStreaming(
+    String hash,
+    TorrentFile file, {
+    double minProgress = 0.05,
+    int? minBufferBytes,
+  }) async {
+    try {
+      final pieceStates = await getPieceStates(hash);
+      if (pieceStates == null || pieceStates.isEmpty) return false;
+
+      final range = file.pieceRange;
+      if (range == null || range.length < 2) {
+        // Older qBittorrent versions may omit piece_range. Keep the previous
+        // torrent-level behavior as a compatibility fallback.
+        return isReadyForStreaming(hash, minProgress: minProgress);
+      }
+
+      return isPieceRangeReadyForStreaming(
+        pieceStates: pieceStates,
+        pieceRange: range,
+        fileSizeBytes: file.size,
+        minProgress: minProgress,
+        minBufferBytes: minBufferBytes,
+      );
+    } catch (e) {
+      _log('Check file streaming ready error: $e');
+      return false;
+    }
+  }
+
+  @visibleForTesting
+  static bool isPieceRangeReadyForStreaming({
+    required List<int> pieceStates,
+    required List<int> pieceRange,
+    required int fileSizeBytes,
+    required double minProgress,
+    int? minBufferBytes,
+  }) {
+    if (pieceStates.isEmpty || pieceRange.length < 2) return false;
+
+    final start = pieceRange[0].clamp(0, pieceStates.length - 1).toInt();
+    final end = pieceRange[1].clamp(0, pieceStates.length - 1).toInt();
+    if (end < start) return false;
+
+    final filePieceCount = end - start + 1;
+    final requiredPieces = requiredContiguousPiecesForStreaming(
+      filePieceCount: filePieceCount,
+      fileSizeBytes: fileSizeBytes,
+      minProgress: minProgress,
+      minBufferBytes: minBufferBytes,
+    );
+
+    for (var i = start; i < start + requiredPieces; i++) {
+      if (pieceStates[i] != 2) return false;
+    }
+
+    return true;
+  }
+
+  @visibleForTesting
+  static int requiredContiguousPiecesForStreaming({
+    required int filePieceCount,
+    required int fileSizeBytes,
+    required double minProgress,
+    int? minBufferBytes,
+  }) {
+    if (filePieceCount <= 0) return 0;
+
+    final progress = minProgress.clamp(0.0, 1.0);
+    final byProgress = (filePieceCount * progress).ceil();
+    final byBytes =
+        minBufferBytes != null && minBufferBytes > 0 && fileSizeBytes > 0
+        ? (filePieceCount * (minBufferBytes / fileSizeBytes)).ceil()
+        : 0;
+
+    return math.max(1, math.min(filePieceCount, math.max(byProgress, byBytes)));
   }
 
   /// Check connection to qBittorrent

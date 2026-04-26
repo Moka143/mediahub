@@ -4,6 +4,7 @@ import 'package:media_kit/media_kit.dart';
 
 import '../design/app_tokens.dart';
 import '../models/local_media_file.dart';
+import '../providers/auto_download_provider.dart';
 import '../providers/player_provider.dart';
 import '../providers/subtitle_provider.dart';
 import '../services/opensubtitles_service.dart';
@@ -28,6 +29,16 @@ class VideoControlsOverlay extends ConsumerWidget {
   /// (0.0–1.0) is what tells the user how far they can safely seek.
   final double? streamingDownloadedRatio;
 
+  /// TMDB show id for a series episode. Drives the per-show
+  /// "Continue Watching" toggle in the bottom bar. `null` for movies or
+  /// untagged content — toggle is hidden.
+  final int? showId;
+
+  /// Fired when the Continue Watching toggle transitions to explicit-On.
+  /// The player uses this to kick off the next-episode auto-download
+  /// immediately rather than waiting for the progress threshold.
+  final VoidCallback? onContinueWatchingActivated;
+
   const VideoControlsOverlay({
     super.key,
     required this.file,
@@ -40,6 +51,8 @@ class VideoControlsOverlay extends ConsumerWidget {
     required this.onClose,
     required this.onShowShortcuts,
     this.streamingDownloadedRatio,
+    this.showId,
+    this.onContinueWatchingActivated,
   });
 
   @override
@@ -136,16 +149,9 @@ class VideoControlsOverlay extends ConsumerWidget {
             ),
           ),
 
-          // Subtitle button
-          _SubtitleButton(),
-
-          // Audio track button
-          _AudioTrackButton(),
-
-          // Playback speed button
-          _PlaybackSpeedButton(),
-
-          // Keyboard shortcuts help
+          // Track-selection / playback-speed / continue-watching all live
+          // in the bottom bar now (next to the seek controls). Top bar is
+          // intentionally minimal: back, title, keyboard-shortcuts.
           IconButton(
             icon: const Icon(Icons.keyboard_rounded, color: Colors.white),
             tooltip: 'Keyboard shortcuts (?)',
@@ -345,16 +351,27 @@ class VideoControlsOverlay extends ConsumerWidget {
           ),
           SizedBox(height: AppSpacing.sm),
 
-          // Bottom buttons
+          // Bottom buttons — three-cluster layout:
+          //   [Volume]  ────  [CC | Audio | Speed | ContinueWatching]  ────  [Fullscreen]
+          // Mirrors modern desktop players (YouTube/Plex). The track-controls
+          // cluster is wrapped in a soft-tinted pill so it reads as one unit.
           Row(
             children: [
-              // Volume control
               _VolumeControl(
                 volume: volume,
                 onVolumeChanged: (v) => playerService.setVolume(v),
               ),
 
               const Spacer(),
+
+              _BottomTrackControls(
+                showId: showId,
+                isCompact: MediaQuery.of(context).size.width <
+                    AppBreakpoints.mobile,
+                onContinueWatchingActivated: onContinueWatchingActivated,
+              ),
+
+              SizedBox(width: AppSpacing.sm),
 
               // Fullscreen toggle
               Container(
@@ -465,6 +482,10 @@ class _VolumeControlState extends State<_VolumeControl> {
 
 /// Subtitle track selector button with OpenSubtitles support
 class _SubtitleButton extends ConsumerWidget {
+  final double iconSize;
+
+  const _SubtitleButton({this.iconSize = AppIconSize.lg});
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final subtitleTracksAsync = ref.watch(subtitleTracksProvider);
@@ -488,6 +509,8 @@ class _SubtitleButton extends ConsumerWidget {
     return Stack(
       children: [
         IconButton(
+          tooltip: 'Subtitles (C)',
+          iconSize: iconSize,
           icon: Icon(
             currentExternalSub != null ||
                     (currentTrackAsync.value != null &&
@@ -811,6 +834,10 @@ class _SubtitleButton extends ConsumerWidget {
 
 /// Audio track selector button
 class _AudioTrackButton extends ConsumerWidget {
+  final double iconSize;
+
+  const _AudioTrackButton({this.iconSize = AppIconSize.lg});
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final audioTracksAsync = ref.watch(audioTracksProvider);
@@ -821,6 +848,8 @@ class _AudioTrackButton extends ConsumerWidget {
         if (tracks.length <= 1) return const SizedBox.shrink();
 
         return IconButton(
+          tooltip: 'Audio track (A)',
+          iconSize: iconSize,
           icon: const Icon(Icons.audiotrack_rounded, color: Colors.white),
           onPressed: () =>
               _showAudioMenu(context, ref, tracks, currentTrackAsync.value),
@@ -896,6 +925,10 @@ class _AudioTrackButton extends ConsumerWidget {
 
 /// Playback speed selector button
 class _PlaybackSpeedButton extends ConsumerWidget {
+  final double iconSize;
+
+  const _PlaybackSpeedButton({this.iconSize = AppIconSize.lg});
+
   static const List<double> _speeds = [
     0.25,
     0.5,
@@ -911,18 +944,22 @@ class _PlaybackSpeedButton extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final currentRate = ref.watch(playbackRateProvider).value ?? 1.0;
 
+    // Match the visual height of the surrounding IconButtons (kMinInteractiveDimension = 48)
+    // so the cluster row stays uniform regardless of which control is hovered.
     return Tooltip(
-      message: 'Playback speed',
+      message: 'Playback speed (S)',
       child: InkWell(
         onTap: () => _showSpeedMenu(context, ref, currentRate),
-        borderRadius: BorderRadius.circular(AppRadius.sm),
+        borderRadius: BorderRadius.circular(AppRadius.full),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          height: iconSize + AppSpacing.md,
+          padding: EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+          alignment: Alignment.center,
           decoration: BoxDecoration(
             color: currentRate != 1.0
-                ? Colors.white.withValues(alpha: 0.2)
+                ? Colors.white.withValues(alpha: AppOpacity.medium / 255.0)
                 : Colors.transparent,
-            borderRadius: BorderRadius.circular(AppRadius.sm),
+            borderRadius: BorderRadius.circular(AppRadius.full),
           ),
           child: Text(
             '${currentRate}x',
@@ -1000,6 +1037,207 @@ class _PlaybackSpeedButton extends ConsumerWidget {
           ),
         );
       },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Bottom-bar track-control cluster
+// ---------------------------------------------------------------------------
+
+/// Soft-tinted pill grouping the track-selection controls in the bottom bar:
+/// subtitles, audio, playback speed, and (for series) the per-show
+/// "Continue Watching" toggle.
+///
+/// Replaces the trio that used to crowd the top bar — modern desktop players
+/// (YouTube/Plex) anchor track-selection at the bottom near the seek bar.
+class _BottomTrackControls extends StatelessWidget {
+  final int? showId;
+
+  /// Sub-mobile width — shrink icons so the cluster doesn't crowd the seek
+  /// row. The functional controls are unchanged.
+  final bool isCompact;
+
+  /// Forwarded to `_ContinueWatchingToggle` so the player can kick off
+  /// the auto-download immediately when the user opts in.
+  final VoidCallback? onContinueWatchingActivated;
+
+  const _BottomTrackControls({
+    required this.showId,
+    required this.isCompact,
+    this.onContinueWatchingActivated,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final iconSize = isCompact ? AppIconSize.md : AppIconSize.lg;
+
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHigh.withValues(
+          alpha: AppOpacity.medium / 255.0,
+        ),
+        borderRadius: BorderRadius.circular(AppRadius.full),
+        border: Border.all(
+          color: scheme.outlineVariant.withValues(
+            alpha: AppOpacity.light / 255.0,
+          ),
+          width: AppBorderWidth.thin,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _SubtitleButton(iconSize: iconSize),
+          _AudioTrackButton(iconSize: iconSize),
+          _PlaybackSpeedButton(iconSize: iconSize),
+          if (showId != null)
+            _ContinueWatchingToggle(
+              showId: showId!,
+              iconSize: iconSize,
+              onActivated: onContinueWatchingActivated,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Per-show "Continue Watching" pill in the bottom bar.
+///
+/// Three states:
+///   • **Auto** (default, override absent) — outlined pill, follows the
+///     global auto-download setting. Tooltip explains.
+///   • **On**   — explicit override, force auto-download for this show
+///     even if the global toggle is off.
+///   • **Off**  — explicit override, never auto-download for this show
+///     even if the global toggle is on.
+///
+/// Tap cycles `Auto → On → Off → Auto`. Persisted in [AutoDownloadState]
+/// via `setShowAutoDownloadOverride`. Edge: if the user toggles On
+/// mid-episode after the playback already crossed the threshold, the
+/// existing one-shot `_autoDownloadTriggered` guard means the trigger
+/// won't back-fire for *this* episode — applies from the next.
+class _ContinueWatchingToggle extends ConsumerWidget {
+  final int showId;
+  final double iconSize;
+
+  /// Fired only on the `null → true` and `false → true` transitions, so the
+  /// player can kick off auto-download for the next episode immediately
+  /// without waiting for the progress threshold.
+  final VoidCallback? onActivated;
+
+  const _ContinueWatchingToggle({
+    required this.showId,
+    this.iconSize = AppIconSize.lg,
+    this.onActivated,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final state = ref.watch(autoDownloadProvider);
+    final override = state.showAutoDownloadOverrides[showId];
+
+    // Visual state mapping
+    final IconData icon;
+    final String label;
+    final Color bgColor;
+    final Color borderColor;
+    final Color fgColor;
+    final String tooltip;
+
+    if (override == true) {
+      icon = Icons.playlist_play_rounded;
+      label = 'On';
+      bgColor = scheme.primaryContainer;
+      borderColor = Colors.transparent;
+      fgColor = scheme.onPrimaryContainer;
+      tooltip = 'Continue Watching: On for this show';
+    } else if (override == false) {
+      icon = Icons.playlist_remove_rounded;
+      label = 'Off';
+      bgColor = scheme.surfaceContainerHigh;
+      borderColor = Colors.transparent;
+      fgColor = scheme.onSurfaceVariant;
+      tooltip = 'Continue Watching: Off for this show';
+    } else {
+      icon = Icons.playlist_play_rounded;
+      label = 'Auto';
+      bgColor = Colors.transparent;
+      borderColor = scheme.outlineVariant.withValues(
+        alpha: AppOpacity.semi / 255.0,
+      );
+      fgColor = scheme.onSurfaceVariant;
+      tooltip = 'Continue Watching: Auto (follows global setting)';
+    }
+
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: () {
+          // Auto → On → Off → Auto
+          final next = override == null
+              ? true
+              : override == true
+                  ? false
+                  : null;
+          debugPrint(
+            '[ContinueWatching] tapped: showId=$showId override=$override → ${next ?? "auto"}',
+          );
+          ref
+              .read(autoDownloadProvider.notifier)
+              .setShowAutoDownloadOverride(showId, next);
+          // Notify the player when we just opted in, so it can kick off
+          // the next-episode auto-download immediately rather than waiting
+          // for the progress threshold.
+          if (next == true) {
+            onActivated?.call();
+          }
+        },
+        borderRadius: BorderRadius.circular(AppRadius.full),
+        child: AnimatedContainer(
+          duration: AppDuration.normal,
+          curve: Curves.easeOutCubic,
+          height: iconSize + AppSpacing.md,
+          padding: EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(AppRadius.full),
+            border: Border.all(
+              color: borderColor,
+              width: AppBorderWidth.thin,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AnimatedSwitcher(
+                duration: AppDuration.fast,
+                transitionBuilder: (child, animation) =>
+                    FadeTransition(opacity: animation, child: child),
+                child: Icon(
+                  icon,
+                  key: ValueKey(label),
+                  size: iconSize,
+                  color: fgColor,
+                ),
+              ),
+              SizedBox(width: AppSpacing.xs),
+              Text(
+                label,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: fgColor,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
