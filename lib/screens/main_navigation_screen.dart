@@ -29,6 +29,9 @@ import '../widgets/common/responsive_layout.dart';
 import '../widgets/connection_status_widget.dart';
 import '../widgets/mediahub_torrent_row.dart';
 import '../widgets/torrent_list_item.dart';
+import '../providers/favorites_provider.dart';
+import '../providers/tmdb_account_provider.dart';
+import '../providers/watchlist_provider.dart';
 import 'calendar_screen.dart';
 import 'favorites_screen.dart';
 import 'mediahub_home_screen.dart';
@@ -65,6 +68,21 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
   /// Sidebar collapse state — auto-managed (expanded on wide displays
   /// by default, but the user can toggle).
   bool _sidebarCollapsed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Pull authoritative favorites/watchlist from TMDB on launch when
+    // already signed in. Best-effort: failures stay silent and the user
+    // still sees the local cache.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (ref.read(tmdbSessionProvider) != null) {
+        ref.read(favoritesProvider.notifier).syncFromTmdb();
+        ref.read(watchlistProvider.notifier).syncFromTmdb();
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {

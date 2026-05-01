@@ -13,6 +13,7 @@ import '../providers/settings_provider.dart';
 import '../utils/debouncer.dart';
 import '../utils/constants.dart';
 import '../widgets/common/section_header.dart';
+import '../widgets/tmdb_account_section.dart';
 
 /// Settings screen with tabbed layout for better organization
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -699,6 +700,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                 ),
               ],
             ),
+          ),
+        ),
+
+        const SizedBox(height: AppSpacing.sectionSpacing),
+
+        // TMDB Account — sign in to sync favorites & watchlist with TMDB
+        const SettingsSectionHeader(
+          title: 'TMDB Account',
+          icon: Icons.account_circle_rounded,
+        ),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.cardPadding),
+            child: TmdbAccountSection(),
           ),
         ),
       ],

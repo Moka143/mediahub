@@ -18,6 +18,7 @@ import '../providers/connection_provider.dart' as connection_provider;
 import '../providers/navigation_provider.dart';
 import '../providers/shows_provider.dart';
 import '../providers/favorites_provider.dart';
+import '../providers/watchlist_provider.dart';
 import '../providers/torrentio_provider.dart';
 import '../providers/eztv_provider.dart';
 import '../providers/streaming_provider.dart';
@@ -834,9 +835,9 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
             description: show.overview,
             posterPlaceholderIcon: Icons.live_tv_rounded,
             metaPills: [
-              if (show.status != null)
+              if (show.statusLabel != null)
                 MediaHubMetaPill(
-                  label: show.status!,
+                  label: show.statusLabel!,
                   color: AppColors.accentTertiary,
                 ),
               if (show.numberOfSeasons != null)
@@ -927,6 +928,33 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
                           ? 'Remove from favorites'
                           : 'Add to favorites',
                     ),
+                  ),
+                  const SizedBox(width: AppSpacing.xs),
+                  Consumer(
+                    builder: (context, ref, _) {
+                      final onWatchlist =
+                          ref.watch(isOnWatchlistProvider(show.id));
+                      return Material(
+                        color: Colors.white.withAlpha(20),
+                        shape: const CircleBorder(),
+                        child: IconButton(
+                          onPressed: () => ref
+                              .read(watchlistProvider.notifier)
+                              .toggleShow(show.id),
+                          icon: Icon(
+                            onWatchlist
+                                ? Icons.bookmark_rounded
+                                : Icons.bookmark_outline_rounded,
+                            color: onWatchlist
+                                ? Colors.amberAccent
+                                : Colors.white,
+                          ),
+                          tooltip: onWatchlist
+                              ? 'Remove from watchlist'
+                              : 'Add to watchlist',
+                        ),
+                      );
+                    },
                   ),
                   const SizedBox(width: AppSpacing.xs),
                   Material(
@@ -1185,7 +1213,9 @@ class _QuickFactsGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final facts = <(String, String)>[
       if (show.firstAirDate != null) ('First aired', show.firstAirDate!),
-      if (show.status != null) ('Status', show.status!),
+      if (show.lastAirDate != null && show.hasEnded)
+        ('Last aired', show.lastAirDate!),
+      if (show.statusLabel != null) ('Status', show.statusLabel!),
       if (show.numberOfSeasons != null) ('Seasons', '${show.numberOfSeasons}'),
       if (show.numberOfEpisodes != null)
         ('Episodes', '${show.numberOfEpisodes}'),

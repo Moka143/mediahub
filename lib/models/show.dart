@@ -7,6 +7,7 @@ class Show {
   final String? backdropPath;
   final double voteAverage;
   final String? firstAirDate;
+  final String? lastAirDate;
   final String? status;
   final int? numberOfSeasons;
   final int? numberOfEpisodes;
@@ -29,6 +30,7 @@ class Show {
     this.backdropPath,
     this.voteAverage = 0.0,
     this.firstAirDate,
+    this.lastAirDate,
     this.status,
     this.numberOfSeasons,
     this.numberOfEpisodes,
@@ -49,6 +51,7 @@ class Show {
       backdropPath: json['backdrop_path'] as String?,
       voteAverage: (json['vote_average'] as num?)?.toDouble() ?? 0.0,
       firstAirDate: json['first_air_date'] as String?,
+      lastAirDate: json['last_air_date'] as String?,
       status: json['status'] as String?,
       numberOfSeasons: json['number_of_seasons'] as int?,
       numberOfEpisodes: json['number_of_episodes'] as int?,
@@ -78,6 +81,7 @@ class Show {
       'backdrop_path': backdropPath,
       'vote_average': voteAverage,
       'first_air_date': firstAirDate,
+      'last_air_date': lastAirDate,
       'status': status,
       'number_of_seasons': numberOfSeasons,
       'number_of_episodes': numberOfEpisodes,
@@ -104,6 +108,31 @@ class Show {
 
   /// Check if show is currently airing
   bool get isAiring => status == 'Returning Series' || inProduction;
+
+  /// Year the series finished airing — only meaningful when [hasEnded].
+  String? get endYear => lastAirDate != null && lastAirDate!.length >= 4
+      ? lastAirDate!.substring(0, 4)
+      : null;
+
+  /// True for TMDB statuses that indicate no more episodes are coming.
+  bool get hasEnded => status == 'Ended' || status == 'Canceled';
+
+  /// User-facing status label that includes the end year for finished
+  /// shows ("Ended · 2013") and a more readable label for ongoing ones.
+  String? get statusLabel {
+    final s = status;
+    if (s == null) return null;
+    switch (s) {
+      case 'Returning Series':
+        return 'Ongoing';
+      case 'Ended':
+      case 'Canceled':
+        final y = endYear;
+        return y != null ? '$s · $y' : s;
+      default:
+        return s; // In Production / Planned / Pilot
+    }
+  }
 
   @override
   bool operator ==(Object other) =>

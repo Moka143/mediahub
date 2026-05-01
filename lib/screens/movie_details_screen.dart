@@ -11,8 +11,10 @@ import '../models/local_media_file.dart';
 import '../models/movie.dart';
 import '../models/torrentio_stream.dart';
 import '../providers/connection_provider.dart' as connection_provider;
+import '../providers/favorites_provider.dart';
 import '../providers/local_media_provider.dart';
 import '../providers/movies_provider.dart';
+import '../providers/watchlist_provider.dart';
 import '../providers/navigation_provider.dart';
 import '../providers/streaming_provider.dart';
 import '../providers/torrentio_provider.dart';
@@ -538,28 +540,90 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
                   ),
                 ),
               ),
-              // Floating settings button — top-right, mirrors the
-              // global TopBar action so the entry-point is consistent
-              // across every screen.
+              // Floating top-right actions: favorite, watchlist, settings.
               Positioned(
                 top: AppSpacing.lg,
                 right: AppSpacing.xxl,
                 child: SafeArea(
-                  child: Material(
-                    color: Colors.white.withAlpha(20),
-                    shape: const CircleBorder(),
-                    child: IconButton(
-                      icon: const Icon(
-                        Icons.settings_outlined,
-                        color: Colors.white,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Consumer(
+                        builder: (context, ref, _) {
+                          final fav = ref.watch(
+                            isMovieFavoriteProvider(movie.id),
+                          );
+                          return Material(
+                            color: Colors.white.withAlpha(20),
+                            shape: const CircleBorder(),
+                            child: IconButton(
+                              onPressed: () => ref
+                                  .read(favoritesProvider.notifier)
+                                  .toggleMovieFavorite(
+                                    movie.id,
+                                    movie: movie,
+                                  ),
+                              icon: Icon(
+                                fav
+                                    ? Icons.favorite_rounded
+                                    : Icons.favorite_outline_rounded,
+                                color: fav
+                                    ? Colors.redAccent
+                                    : Colors.white,
+                              ),
+                              tooltip: fav
+                                  ? 'Remove from favorites'
+                                  : 'Add to favorites',
+                            ),
+                          );
+                        },
                       ),
-                      tooltip: 'Settings',
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const SettingsScreen(),
+                      const SizedBox(width: AppSpacing.xs),
+                      Consumer(
+                        builder: (context, ref, _) {
+                          final wl = ref.watch(
+                            isMovieOnWatchlistProvider(movie.id),
+                          );
+                          return Material(
+                            color: Colors.white.withAlpha(20),
+                            shape: const CircleBorder(),
+                            child: IconButton(
+                              onPressed: () => ref
+                                  .read(watchlistProvider.notifier)
+                                  .toggleMovie(movie.id),
+                              icon: Icon(
+                                wl
+                                    ? Icons.bookmark_rounded
+                                    : Icons.bookmark_outline_rounded,
+                                color: wl
+                                    ? Colors.amberAccent
+                                    : Colors.white,
+                              ),
+                              tooltip: wl
+                                  ? 'Remove from watchlist'
+                                  : 'Add to watchlist',
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(width: AppSpacing.xs),
+                      Material(
+                        color: Colors.white.withAlpha(20),
+                        shape: const CircleBorder(),
+                        child: IconButton(
+                          icon: const Icon(
+                            Icons.settings_outlined,
+                            color: Colors.white,
+                          ),
+                          tooltip: 'Settings',
+                          onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const SettingsScreen(),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
+                    ],
                   ),
                 ),
               ),
