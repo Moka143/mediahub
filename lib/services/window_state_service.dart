@@ -33,17 +33,33 @@ class WindowStateService with WindowListener {
     if (boundsJson != null) {
       try {
         final map = jsonDecode(boundsJson) as Map<String, dynamic>;
-        bounds = Rect.fromLTWH(
+        final candidate = Rect.fromLTWH(
           (map['x'] as num).toDouble(),
           (map['y'] as num).toDouble(),
           (map['width'] as num).toDouble(),
           (map['height'] as num).toDouble(),
         );
+        if (_isSane(candidate)) bounds = candidate;
       } catch (_) {
         bounds = null;
       }
     }
     return (bounds: bounds, maximized: maximized);
+  }
+
+  // Reject rectangles that would place the window invisibly: zero/negative
+  // dimensions, NaN/infinite coordinates, or values too small to host a usable
+  // window. (A post-BSOD prefs file recovered as all-zero bytes deserializes
+  // to Rect(0,0,0,0), which previously got applied verbatim.)
+  static bool _isSane(Rect r) {
+    if (!r.left.isFinite ||
+        !r.top.isFinite ||
+        !r.width.isFinite ||
+        !r.height.isFinite) {
+      return false;
+    }
+    if (r.width < 200 || r.height < 200) return false;
+    return true;
   }
 
   /// Persist the current window state immediately. Maximized wins — we don't
