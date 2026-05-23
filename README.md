@@ -52,7 +52,7 @@ Browse the TMDB catalog, pick a torrent, and stream it directly in the built-in 
 ## Requirements
 
 - **qBittorrent** with Web UI enabled — the app drives qBittorrent as its torrent backend and can launch it for you
-- **TMDB Read Access Token (v4)** — free, grab one from your TMDB [API settings page](https://www.themoviedb.org/settings/api) (the "API Read Access Token" field). The first-launch onboarding prompts for it, OR you can sign in to TMDB via your browser to use your account's token — both work, the latter also syncs your favorites/watchlist. Release builds may ship with a bundled token via `--dart-define=TMDB_READ_ACCESS_TOKEN=…` so users can skip onboarding entirely.
+- **TMDB Read Access Token (v4)** — free, grab one from your TMDB [API settings page](https://www.themoviedb.org/settings/api) (the "API Read Access Token" field — the long one starting with `eyJ…`). The first-launch onboarding asks you to paste it once. After that you can optionally sign in to TMDB in your browser to sync your favorites and watchlist across devices.
 - **Flutter SDK 3.10+** — only needed for building from source
 
 ### Installing qBittorrent

@@ -14,15 +14,11 @@ import 'main_navigation_screen.dart';
 
 /// First-run screen.
 ///
-/// Leads with TMDB browser sign-in (so the user can sync favorites and
-/// watchlist across devices) instead of a raw token paste. When a bundled
-/// read access token is present (set at build time via
-/// `--dart-define=TMDB_READ_ACCESS_TOKEN=…`) users can also skip sign-in
-/// entirely and just browse locally.
-///
-/// The token paste field stays available under an "Advanced" expander —
-/// useful when there's no bundled token, or when the user wants their
-/// own quota.
+/// Two clear steps:
+///   1. Paste your TMDB Read Access Token (one-time, from your TMDB
+///      account's API settings page).
+///   2. Optionally sign in via TMDB browser OAuth to sync your favorites
+///      and watchlist — or skip and just browse locally.
 class OnboardingScreen extends ConsumerStatefulWidget {
   const OnboardingScreen({super.key});
 
@@ -31,11 +27,10 @@ class OnboardingScreen extends ConsumerStatefulWidget {
 }
 
 class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
-  final _keyController = TextEditingController();
-  bool _obscureKey = true;
-  bool _showAdvanced = false;
+  final _tokenController = TextEditingController();
+  bool _obscureToken = true;
   bool _busy = false;
-  String? _pendingToken;
+  String? _pendingApprovalToken;
   String? _error;
 
   static final Uri _tmdbSignupUrl = Uri.parse(
@@ -47,7 +42,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
   @override
   void dispose() {
-    _keyController.dispose();
+    _tokenController.dispose();
     super.dispose();
   }
 
@@ -59,12 +54,37 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   }
 
   Future<void> _navigateToHome() async {
-    // Stamp the onboarding flag so splash doesn't route here again next launch.
     await ref.read(hasCompletedOnboardingProvider.notifier).markCompleted();
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => const MainNavigationScreen()),
     );
+  }
+
+  Future<void> _saveTokenAndAdvance() async {
+    final value = _tokenController.text.trim();
+    if (value.isEmpty) {
+      setState(() => _error = 'Please paste your token first');
+      return;
+    }
+    if (!value.startsWith('eyJ')) {
+      setState(
+        () => _error =
+            'That doesn\'t look right. Copy the "API Read Access Token" '
+            '(starts with "eyJ…") from your TMDB settings page.',
+      );
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await ref.read(settingsProvider.notifier).setTmdbApiKey(value);
+      // Don't navigate yet — let the screen rebuild and show Step 2.
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _startSignIn() async {
@@ -75,7 +95,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     try {
       final token = await ref.read(tmdbSessionProvider.notifier).beginSignIn();
       if (!mounted) return;
-      setState(() => _pendingToken = token);
+      setState(() => _pendingApprovalToken = token);
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
@@ -84,7 +104,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   }
 
   Future<void> _completeSignIn() async {
-    final token = _pendingToken;
+    final token = _pendingApprovalToken;
     if (token == null) return;
     setState(() {
       _busy = true;
@@ -92,7 +112,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     });
     try {
       await ref.read(tmdbSessionProvider.notifier).completeSignIn(token);
-      // Pull TMDB lists so the app opens already populated.
       await ref
           .read(favoritesProvider.notifier)
           .syncFromTmdb(pushLocalFirst: true);
@@ -108,156 +127,77 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     }
   }
 
-  Future<void> _saveApiKeyAndContinue() async {
-    final value = _keyController.text.trim();
-    if (value.isEmpty) {
-      setState(() => _error = 'Token cannot be empty');
-      return;
-    }
-    if (!value.startsWith('eyJ')) {
-      setState(
-        () => _error =
-            'That doesn\'t look like a TMDB v4 Read Access Token '
-            '(should start with "eyJ"). Get one from your TMDB settings page.',
-      );
-      return;
-    }
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      await ref.read(settingsProvider.notifier).setTmdbApiKey(value);
-      if (!mounted) return;
-      _navigateToHome();
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  void _skip() {
-    // Bundled key is in place; user can sync later via Settings.
-    _navigateToHome();
-  }
+  void _skipSignIn() => _navigateToHome();
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final hasKey = ref.watch(hasTmdbApiKeyProvider);
-    final usingBundled = ref.watch(isUsingBundledTmdbKeyProvider);
+    final hasToken = ref.watch(hasTmdbApiKeyProvider);
 
     return Scaffold(
       body: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 520),
+          constraints: const BoxConstraints(maxWidth: 540),
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(AppSpacing.xl),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(AppRadius.lg),
-                  child: Image.asset('assets/icon.png', width: 96, height: 96),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                Text(
-                  'Welcome to ${AppConstants.appName}',
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                _IntroCopy(hasKey: hasKey, theme: theme),
+                _Header(theme: theme),
                 const SizedBox(height: AppSpacing.xl),
 
-                if (_pendingToken != null)
-                  _PendingApprovalCard(
+                if (_pendingApprovalToken != null)
+                  _ApprovalPendingCard(
                     theme: theme,
                     busy: _busy,
                     onFinish: _completeSignIn,
-                    onCancel: () => setState(() => _pendingToken = null),
+                    onCancel: () =>
+                        setState(() => _pendingApprovalToken = null),
                   )
-                else if (hasKey) ...[
-                  _PrimarySignInButton(busy: _busy, onPressed: _startSignIn),
-                  const SizedBox(height: AppSpacing.sm),
-                  TextButton(
-                    onPressed: _busy ? null : _skip,
-                    child: const Text('Skip — use locally only'),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  _AdvancedSection(
-                    expanded: _showAdvanced,
-                    onToggle: () =>
-                        setState(() => _showAdvanced = !_showAdvanced),
-                    controller: _keyController,
-                    obscure: _obscureKey,
-                    onObscureToggle: () =>
-                        setState(() => _obscureKey = !_obscureKey),
+                else if (!hasToken)
+                  _Step1PasteToken(
+                    controller: _tokenController,
+                    obscure: _obscureToken,
+                    onToggleObscure: () =>
+                        setState(() => _obscureToken = !_obscureToken),
                     busy: _busy,
-                    onSave: _saveApiKeyAndContinue,
-                    onOpenKeyPage: () => _openUrl(_tmdbApiUrl),
+                    onSave: _saveTokenAndAdvance,
                     onOpenSignup: () => _openUrl(_tmdbSignupUrl),
-                    bundledKeyInUse: usingBundled,
+                    onOpenApiPage: () => _openUrl(_tmdbApiUrl),
+                  )
+                else
+                  _Step2SignInOrSkip(
+                    busy: _busy,
+                    onSignIn: _startSignIn,
+                    onSkip: _skipSignIn,
                   ),
-                ] else ...[
-                  // No key at all — releases shipped without --dart-define
-                  // OR a dev source build. Paste flow is primary here.
-                  _ApiKeyEntry(
-                    controller: _keyController,
-                    obscure: _obscureKey,
-                    onObscureToggle: () =>
-                        setState(() => _obscureKey = !_obscureKey),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => _openUrl(_tmdbSignupUrl),
-                          icon: const Icon(Icons.person_add_alt_rounded),
-                          label: const Text('Create account'),
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.sm),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => _openUrl(_tmdbApiUrl),
-                          icon: const Icon(Icons.key_rounded),
-                          label: const Text('Get token'),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
-                  FilledButton(
-                    onPressed: _busy ? null : _saveApiKeyAndContinue,
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    child: _busy
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('Continue'),
-                  ),
-                ],
 
                 if (_error != null) ...[
                   const SizedBox(height: AppSpacing.md),
-                  Text(
-                    _error!,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: theme.colorScheme.error),
+                  Container(
+                    padding: const EdgeInsets.all(AppSpacing.sm),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.errorContainer.withValues(
+                        alpha: 0.6,
+                      ),
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                    ),
+                    child: Text(
+                      _error!,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: theme.colorScheme.onErrorContainer,
+                      ),
+                    ),
                   ),
                 ],
-                const SizedBox(height: AppSpacing.md),
+
+                const SizedBox(height: AppSpacing.lg),
                 Text(
-                  hasKey
-                      ? 'You can sign in later from Settings → TMDB Account.'
-                      : 'Your key is stored only on this device.',
+                  hasToken
+                      ? 'You can sign in (or out) later from Settings → '
+                            'TMDB Account.'
+                      : 'Your token is stored only on this device.',
                   textAlign: TextAlign.center,
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
@@ -272,61 +212,233 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   }
 }
 
-class _IntroCopy extends StatelessWidget {
-  final bool hasKey;
+class _Header extends StatelessWidget {
   final ThemeData theme;
-
-  const _IntroCopy({required this.hasKey, required this.theme});
+  const _Header({required this.theme});
 
   @override
   Widget build(BuildContext context) {
-    final text = hasKey
-        ? 'Sign in with TMDB to sync your favorites and watchlist across '
-              'devices. You can also skip and just browse locally.'
-        : 'To discover shows and movies, paste your free TMDB Read Access '
-              'Token.';
-    return Text(
-      text,
-      textAlign: TextAlign.center,
-      style: theme.textTheme.bodyMedium?.copyWith(
-        color: theme.colorScheme.onSurfaceVariant,
-      ),
+    return Column(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          child: Image.asset('assets/icon.png', width: 96, height: 96),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        Text(
+          'Welcome to ${AppConstants.appName}',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.headlineSmall?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          'A free TMDB account powers the catalog.',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
     );
   }
 }
 
-class _PrimarySignInButton extends StatelessWidget {
+// ============================================================================
+// STEP 1 — paste your TMDB token
+// ============================================================================
+
+class _Step1PasteToken extends StatelessWidget {
+  final TextEditingController controller;
+  final bool obscure;
+  final VoidCallback onToggleObscure;
   final bool busy;
-  final VoidCallback onPressed;
+  final VoidCallback onSave;
+  final VoidCallback onOpenSignup;
+  final VoidCallback onOpenApiPage;
 
-  const _PrimarySignInButton({required this.busy, required this.onPressed});
+  const _Step1PasteToken({
+    required this.controller,
+    required this.obscure,
+    required this.onToggleObscure,
+    required this.busy,
+    required this.onSave,
+    required this.onOpenSignup,
+    required this.onOpenApiPage,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return FilledButton.icon(
-      onPressed: busy ? null : onPressed,
-      style: FilledButton.styleFrom(
-        padding: const EdgeInsets.symmetric(vertical: 14),
+    final theme = Theme.of(context);
+    return _StepCard(
+      stepNumber: 1,
+      title: 'Paste your TMDB token',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'On TMDB\'s API settings page, copy the field labelled '
+            '"API Read Access Token" (the long one starting with "eyJ…") '
+            'and paste it below.',
+            style: theme.textTheme.bodyMedium,
+          ),
+          const SizedBox(height: AppSpacing.md),
+
+          // Quick links
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: busy ? null : onOpenApiPage,
+                  icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                  label: const Text('Open TMDB API page'),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              TextButton.icon(
+                onPressed: busy ? null : onOpenSignup,
+                icon: const Icon(Icons.person_add_alt_rounded, size: 18),
+                label: const Text('No account?'),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+
+          // Token field
+          TextField(
+            controller: controller,
+            autofocus: true,
+            obscureText: obscure,
+            enableSuggestions: false,
+            autocorrect: false,
+            textInputAction: TextInputAction.done,
+            inputFormatters: [FilteringTextInputFormatter.deny(RegExp(r'\s'))],
+            onSubmitted: (_) => onSave(),
+            decoration: InputDecoration(
+              labelText: 'Read Access Token',
+              hintText: 'eyJhbGciOiJIUzI1NiJ9…',
+              prefixIcon: const Icon(Icons.key_rounded),
+              border: const OutlineInputBorder(),
+              suffixIcon: IconButton(
+                icon: Icon(
+                  obscure
+                      ? Icons.visibility_rounded
+                      : Icons.visibility_off_rounded,
+                ),
+                tooltip: obscure ? 'Show' : 'Hide',
+                onPressed: onToggleObscure,
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+
+          // Save & continue
+          FilledButton.icon(
+            onPressed: busy ? null : onSave,
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
+            icon: busy
+                ? const SizedBox(
+                    height: 18,
+                    width: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.arrow_forward_rounded),
+            label: const Text('Continue'),
+          ),
+        ],
       ),
-      icon: busy
-          ? const SizedBox(
-              height: 18,
-              width: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : const Icon(Icons.login_rounded),
-      label: const Text('Sign in with TMDB'),
     );
   }
 }
 
-class _PendingApprovalCard extends StatelessWidget {
+// ============================================================================
+// STEP 2 — sign in to sync, or skip
+// ============================================================================
+
+class _Step2SignInOrSkip extends StatelessWidget {
+  final bool busy;
+  final VoidCallback onSignIn;
+  final VoidCallback onSkip;
+
+  const _Step2SignInOrSkip({
+    required this.busy,
+    required this.onSignIn,
+    required this.onSkip,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return _StepCard(
+      stepNumber: 2,
+      title: 'Sign in to sync (optional)',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.check_circle_rounded,
+                color: theme.colorScheme.primary,
+                size: 18,
+              ),
+              const SizedBox(width: AppSpacing.xs),
+              Text(
+                'Token saved.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Sign in with TMDB in your browser to sync your favorites and '
+            'watchlist across devices. You can skip this and just browse '
+            'locally — your favorites will stay on this machine only.',
+            style: theme.textTheme.bodyMedium,
+          ),
+          const SizedBox(height: AppSpacing.md),
+
+          FilledButton.icon(
+            onPressed: busy ? null : onSignIn,
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
+            icon: busy
+                ? const SizedBox(
+                    height: 18,
+                    width: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.login_rounded),
+            label: const Text('Sign in with TMDB'),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          TextButton(
+            onPressed: busy ? null : onSkip,
+            child: const Text('Skip — use locally only'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// Approval-pending card (between step 2 sign-in click and browser approval)
+// ============================================================================
+
+class _ApprovalPendingCard extends StatelessWidget {
   final ThemeData theme;
   final bool busy;
   final VoidCallback onFinish;
   final VoidCallback onCancel;
 
-  const _PendingApprovalCard({
+  const _ApprovalPendingCard({
     required this.theme,
     required this.busy,
     required this.onFinish,
@@ -335,41 +447,23 @@ class _PendingApprovalCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(AppRadius.md),
-      ),
+    return _StepCard(
+      stepNumber: 2,
+      title: 'Waiting for browser approval',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Icon(
-                Icons.open_in_browser_rounded,
-                color: theme.colorScheme.primary,
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: Text(
-                  'Approve access in your browser',
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.sm),
           Text(
-            'A TMDB authorization page should have opened. After approving, '
-            'come back here and tap the button below.',
-            style: theme.textTheme.bodySmall,
+            'A TMDB authorization page should have opened in your browser. '
+            'Log in if needed, click Approve, then come back here.',
+            style: theme.textTheme.bodyMedium,
           ),
           const SizedBox(height: AppSpacing.md),
           FilledButton.icon(
             onPressed: busy ? null : onFinish,
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
             icon: busy
                 ? const SizedBox(
                     height: 18,
@@ -377,7 +471,7 @@ class _PendingApprovalCard extends StatelessWidget {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.check_rounded),
-            label: const Text("I've approved it — finish sign-in"),
+            label: const Text("I've approved it"),
           ),
           const SizedBox(height: AppSpacing.xs),
           TextButton(
@@ -390,165 +484,68 @@ class _PendingApprovalCard extends StatelessWidget {
   }
 }
 
-class _AdvancedSection extends StatelessWidget {
-  final bool expanded;
-  final VoidCallback onToggle;
-  final TextEditingController controller;
-  final bool obscure;
-  final VoidCallback onObscureToggle;
-  final bool busy;
-  final VoidCallback onSave;
-  final VoidCallback onOpenKeyPage;
-  final VoidCallback onOpenSignup;
-  final bool bundledKeyInUse;
+// ============================================================================
+// Reusable step card — adds the numbered chip + title
+// ============================================================================
 
-  const _AdvancedSection({
-    required this.expanded,
-    required this.onToggle,
-    required this.controller,
-    required this.obscure,
-    required this.onObscureToggle,
-    required this.busy,
-    required this.onSave,
-    required this.onOpenKeyPage,
-    required this.onOpenSignup,
-    required this.bundledKeyInUse,
+class _StepCard extends StatelessWidget {
+  final int stepNumber;
+  final String title;
+  final Widget child;
+
+  const _StepCard({
+    required this.stepNumber,
+    required this.title,
+    required this.child,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
+      padding: const EdgeInsets.all(AppSpacing.lg),
       decoration: BoxDecoration(
-        border: Border.all(color: theme.colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(AppRadius.md),
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          InkWell(
-            borderRadius: BorderRadius.circular(AppRadius.md),
-            onTap: onToggle,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.md,
-                vertical: AppSpacing.sm,
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    expanded
-                        ? Icons.expand_less_rounded
-                        : Icons.expand_more_rounded,
-                    size: 20,
-                    color: theme.colorScheme.onSurfaceVariant,
+          Row(
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary,
+                  shape: BoxShape.circle,
+                ),
+                child: Text(
+                  '$stepNumber',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: theme.colorScheme.onPrimary,
+                    fontWeight: FontWeight.bold,
                   ),
-                  const SizedBox(width: AppSpacing.xs),
-                  Text(
-                    'Advanced: use your own TMDB Read Access Token',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
+                ),
               ),
-            ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  title,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
           ),
-          if (expanded)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.md,
-                0,
-                AppSpacing.md,
-                AppSpacing.md,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (bundledKeyInUse)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                      child: Text(
-                        'Currently using the bundled key. Paste your own '
-                        'below if you prefer your personal quota.',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                  _ApiKeyEntry(
-                    controller: controller,
-                    obscure: obscure,
-                    onObscureToggle: onObscureToggle,
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextButton.icon(
-                          onPressed: onOpenSignup,
-                          icon: const Icon(
-                            Icons.person_add_alt_rounded,
-                            size: 18,
-                          ),
-                          label: const Text('Create account'),
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.sm),
-                      Expanded(
-                        child: TextButton.icon(
-                          onPressed: onOpenKeyPage,
-                          icon: const Icon(Icons.key_rounded, size: 18),
-                          label: const Text('Get token'),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  FilledButton.tonal(
-                    onPressed: busy ? null : onSave,
-                    child: const Text('Save key & continue'),
-                  ),
-                ],
-              ),
-            ),
+          const SizedBox(height: AppSpacing.md),
+          child,
         ],
-      ),
-    );
-  }
-}
-
-class _ApiKeyEntry extends StatelessWidget {
-  final TextEditingController controller;
-  final bool obscure;
-  final VoidCallback onObscureToggle;
-
-  const _ApiKeyEntry({
-    required this.controller,
-    required this.obscure,
-    required this.onObscureToggle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return TextField(
-      controller: controller,
-      obscureText: obscure,
-      enableSuggestions: false,
-      autocorrect: false,
-      textInputAction: TextInputAction.done,
-      inputFormatters: [FilteringTextInputFormatter.deny(RegExp(r'\s'))],
-      decoration: InputDecoration(
-        labelText: 'TMDB Read Access Token (v4)',
-        hintText: 'e.g. 0123456789abcdef…',
-        border: const OutlineInputBorder(),
-        suffixIcon: IconButton(
-          icon: Icon(
-            obscure ? Icons.visibility_rounded : Icons.visibility_off_rounded,
-          ),
-          tooltip: obscure ? 'Show' : 'Hide',
-          onPressed: onObscureToggle,
-        ),
       ),
     );
   }

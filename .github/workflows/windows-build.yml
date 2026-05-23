@@ -33,22 +33,12 @@ jobs:
         run: flutter test
 
       - name: Build Windows release
-        env:
-          # When set in repo secrets, the build bundles a default TMDB v4
-          # Read Access Token so release users can skip the onboarding paste
-          # step. If unset, the secret evaluates to an empty string and the
-          # app falls back to asking for one on first launch.
-          #
-          # The new secret name is `TMDB_READ_ACCESS_TOKEN`; the legacy
-          # `TMDB_API_KEY` name is also read for backward compatibility, but
-          # a v3 api_key won't authenticate as a v4 Bearer — store a v4
-          # Read Access Token (JWT) under either secret.
-          TMDB_READ_ACCESS_TOKEN: ${{ secrets.TMDB_READ_ACCESS_TOKEN }}
-          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
-        run: >
-          flutter build windows --release
-          --dart-define=TMDB_READ_ACCESS_TOKEN=$env:TMDB_READ_ACCESS_TOKEN
-          --dart-define=TMDB_API_KEY=$env:TMDB_API_KEY
+        # Releases ship without a bundled TMDB token — each user pastes
+        # their own free Read Access Token on first launch. The bundled
+        # --dart-define plumbing is still in lib/providers/settings_provider.dart
+        # if you ever want to add one; just set the TMDB_READ_ACCESS_TOKEN
+        # secret and re-add the --dart-define here.
+        run: flutter build windows --release
 
       - name: Package MSIX installer
         run: dart run msix:create --sign-msix false --install-certificate false
