@@ -129,6 +129,23 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
       messenger.hideCurrentSnackBar();
 
       if (isStreaming) {
+        // Local-first: skip the streaming dance entirely if the movie is
+        // already on disk. qBit doesn't always know about a previously-
+        // downloaded file that was removed from its session, so re-adding
+        // the magnet would either start a fresh download or a full
+        // re-hash-check — and the "Preparing" modal would hang waiting
+        // for the buffer threshold either way.
+        final localFile = ref.read(movieLocalFileProvider(movie.title));
+        if (localFile != null && File(localFile.path).existsSync()) {
+          rootNavigatorKey.currentState?.push(
+            MaterialPageRoute(
+              builder: (_) =>
+                  VideoPlayerScreen(file: localFile, movieImdbId: movie.imdbId),
+            ),
+          );
+          return;
+        }
+
         await _startStreamingSession(stream, movie);
       } else {
         // Regular download

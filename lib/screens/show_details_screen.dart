@@ -15,6 +15,7 @@ import '../models/season.dart';
 import '../models/episode.dart';
 import '../models/torrentio_stream.dart';
 import '../providers/connection_provider.dart' as connection_provider;
+import '../providers/local_media_provider.dart';
 import '../providers/navigation_provider.dart';
 import '../providers/shows_provider.dart';
 import '../providers/favorites_provider.dart';
@@ -219,7 +220,29 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
       messenger.hideCurrentSnackBar();
 
       if (isStreaming) {
-        // Use the new streaming service for robust streaming
+        // Local-first: if the user already has this episode on disk,
+        // play directly. Skips the entire torrent + buffer dance — qBit
+        // doesn't necessarily know about a previously-downloaded file
+        // that was removed from its session, and re-adding the magnet
+        // would force a full re-check or even a re-download.
+        final localFile = ref.read(
+          episodeLocalFileProvider((
+            showName: show.name,
+            season: episode.seasonNumber,
+            episode: episode.episodeNumber,
+          )),
+        );
+        if (localFile != null && File(localFile.path).existsSync()) {
+          rootNavigatorKey.currentState?.push(
+            MaterialPageRoute(
+              builder: (_) =>
+                  VideoPlayerScreen(file: localFile, showImdbId: show.imdbId),
+            ),
+          );
+          return;
+        }
+
+        // Use the streaming service for robust streaming
         await _startStreamingSession(stream, episode, show);
       } else {
         // Regular download
