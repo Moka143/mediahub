@@ -546,8 +546,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         );
 
         if (duration.inSeconds < 30) return;
-        final positionRatio =
-            position.inMilliseconds / duration.inMilliseconds;
+        final positionRatio = position.inMilliseconds / duration.inMilliseconds;
         final headroomRatio = fileProgress - positionRatio;
 
         // Ratio band, file-fraction units. For a 4 GB / 45-min episode:

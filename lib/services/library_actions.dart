@@ -117,7 +117,9 @@ Future<void> markAsWatched(
   // the user has downloaded but never opened). Without this, "Mark as
   // watched" silently no-ops on those — the bug behind the user's
   // "menu actions don't work" report.
-  await ref.read(watchProgressProvider.notifier).markCompleted(
+  await ref
+      .read(watchProgressProvider.notifier)
+      .markCompleted(
         file.path,
         showName: file.showName,
         showId: file.showId ?? tmdbShowId,
