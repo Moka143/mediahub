@@ -180,21 +180,18 @@ class StreamingService {
 
   /// Minimum contiguous piece percentage at the start of the file.
   /// The piece-level check verifies these are actually downloaded in order.
-  static const double minPiecePercent = 0.03; // 3% of pieces
+  /// Tracks the higher byte floor below — 5% of pieces matches the ~10%
+  /// byte target without overshooting on tiny files where each piece is
+  /// a big fraction of the whole.
+  static const double minPiecePercent = 0.05;
 
-  /// Minimum absolute buffer (bytes) before streaming is ready.
-  /// Scales with file size — see [minBufferBytesFor].
-  ///
-  /// Conservative thresholds: the proxy + mpv's network cache will keep
-  /// playback alive even if download stalls, but the user-facing
-  /// experience is much better when the player opens with ~30–60 sec of
-  /// video already on disk. With 5–20 MB the player visibly buffered
-  /// after navigation; ~50–200 MB ensures the first scene plays through
-  /// without a visible mpv pause-for-cache.
-  static const int _minBufferSmall = 50 * 1024 * 1024; // 50 MB  (files < 1 GB)
-  static const int _minBufferMedium =
-      100 * 1024 * 1024; // 100 MB (files 1–4 GB)
-  static const int _minBufferLarge = 200 * 1024 * 1024; // 200 MB (files > 4 GB)
+  /// Pre-play buffer model: max(absolute floor, 10% of file), clamped to a
+  /// cap so a 50 GB UHD rip doesn't demand 5 GB before opening. Matches the
+  /// user's mental model of "stream waits for ~10% before playing" while
+  /// keeping small files snappy (small pieces still need mpv headroom).
+  static const int _bufferAbsoluteMin = 80 * 1024 * 1024; // 80 MB
+  static const int _bufferAbsoluteCap = 500 * 1024 * 1024; // 500 MB
+  static const double _bufferPercent = 0.10;
 
   /// Maximum time to wait for metadata
   static const Duration metadataTimeout = Duration(minutes: 2);
@@ -204,9 +201,9 @@ class StreamingService {
 
   /// Returns the minimum bytes needed before a file is ready to stream.
   static int minBufferBytesFor(int fileSizeBytes) {
-    if (fileSizeBytes > 4 * 1024 * 1024 * 1024) return _minBufferLarge;
-    if (fileSizeBytes > 1 * 1024 * 1024 * 1024) return _minBufferMedium;
-    return _minBufferSmall;
+    if (fileSizeBytes <= 0) return _bufferAbsoluteMin;
+    final pct = (fileSizeBytes * _bufferPercent).round();
+    return pct.clamp(_bufferAbsoluteMin, _bufferAbsoluteCap);
   }
 
   /// Polling interval for monitoring progress

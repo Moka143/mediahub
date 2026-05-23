@@ -124,6 +124,7 @@ class _WatchScreenState extends ConsumerState<WatchScreen> {
                 controller: _searchController,
                 hasQuery: hasQuery,
                 onClear: () => _searchController.clear(),
+                onRefresh: _refreshFromButton,
               ),
             ),
             const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.md)),
@@ -218,6 +219,15 @@ class _WatchScreenState extends ConsumerState<WatchScreen> {
     await ref.read(localMediaFilesProvider.future);
     // Clean up watch progress entries for files that no longer exist
     await ref.read(watchProgressProvider.notifier).cleanupStaleEntries();
+  }
+
+  /// Same as [_handleRefresh] but surfaces a confirmation snackbar — wired
+  /// to the explicit refresh button. The pull-to-refresh path already has
+  /// its own spinner affordance so it doesn't need the toast.
+  Future<void> _refreshFromButton() async {
+    await _handleRefresh();
+    if (!mounted) return;
+    AppSnackBar.showInfo(context, message: 'Library refreshed');
   }
 
   void _navigateToDiscover() {
@@ -376,11 +386,13 @@ class _LibrarySearchBar extends StatelessWidget {
   final TextEditingController controller;
   final bool hasQuery;
   final VoidCallback onClear;
+  final VoidCallback onRefresh;
 
   const _LibrarySearchBar({
     required this.controller,
     required this.hasQuery,
     required this.onClear,
+    required this.onRefresh,
   });
 
   @override
@@ -389,39 +401,56 @@ class _LibrarySearchBar extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.screenPadding),
-      child: TextField(
-        controller: controller,
-        decoration: InputDecoration(
-          hintText: 'Search your library',
-          prefixIcon: const Icon(Icons.search_rounded),
-          suffixIcon: hasQuery
-              ? IconButton(
-                  icon: const Icon(Icons.close_rounded),
-                  tooltip: 'Clear search',
-                  onPressed: onClear,
-                )
-              : null,
-          filled: true,
-          fillColor: theme.colorScheme.surfaceContainerHighest.withValues(
-            alpha: 0.5,
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: controller,
+              decoration: InputDecoration(
+                hintText: 'Search your library',
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: hasQuery
+                    ? IconButton(
+                        icon: const Icon(Icons.close_rounded),
+                        tooltip: 'Clear search',
+                        onPressed: onClear,
+                      )
+                    : null,
+                filled: true,
+                fillColor: theme.colorScheme.surfaceContainerHighest
+                    .withValues(alpha: 0.5),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  borderSide: BorderSide.none,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  borderSide: BorderSide(
+                    color: theme.colorScheme.primary,
+                    width: 2,
+                  ),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.lg,
+                  vertical: AppSpacing.md,
+                ),
+              ),
+            ),
           ),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(AppRadius.md),
-            borderSide: BorderSide.none,
+          const SizedBox(width: AppSpacing.sm),
+          // Explicit refresh affordance — pull-to-refresh isn't an obvious
+          // gesture on desktop, so users were left thinking the library
+          // wouldn't pick up out-of-band file changes.
+          IconButton.filledTonal(
+            icon: const Icon(Icons.refresh_rounded),
+            tooltip: 'Refresh library',
+            onPressed: onRefresh,
           ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(AppRadius.md),
-            borderSide: BorderSide.none,
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(AppRadius.md),
-            borderSide: BorderSide(color: theme.colorScheme.primary, width: 2),
-          ),
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.lg,
-            vertical: AppSpacing.md,
-          ),
-        ),
+        ],
       ),
     );
   }

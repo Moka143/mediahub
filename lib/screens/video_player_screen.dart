@@ -525,17 +525,18 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         return;
       }
 
-      // When streaming via the LocalStreamingServer proxy, the proxy + mpv's
-      // network cache handle buffering by themselves: pauses-for-cache when
-      // we throttle the response, resumes when bytes flow. The pause/resume
-      // side-effects below were designed for the old direct-disk path and
-      // fight mpv in proxy mode (especially because we disable the MKV tail
-      // probe, which makes `duration` unreliable and breaks the `secondsAhead`
-      // formula).
+      // When streaming via the LocalStreamingServer proxy, we still need to
+      // actively pause/resume — earlier rounds delegated entirely to mpv's
+      // network cache, which works for short stalls but leaves the player
+      // stuck in `paused-for-cache` once the cache drains and the proxy is
+      // simultaneously waiting on missing pieces. The user-visible symptom
+      // was "doesn't resume until the whole torrent is done."
       //
-      // The one thing the proxy can't do for us is *tell the user why* they
-      // see a spinner after seeking past the download head — the proxy just
-      // serves bytes slowly. We surface that here.
+      // We can't use seconds-ahead here because the MKV tail probe is
+      // disabled in proxy mode and `duration` is unreliable until mpv has
+      // settled (~30 s of media decoded). Use file-fraction units instead:
+      // positionRatio vs fileProgress. Same gate as the seek-past-head
+      // detector below.
       final usingProxy = widget.streamingProxyUrl != null;
       if (usingProxy) {
         _updateSeekPastHeadIndicator(
@@ -543,6 +544,57 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
           duration: duration,
           fileProgress: fileProgress,
         );
+
+        if (duration.inSeconds < 30) return;
+        final positionRatio =
+            position.inMilliseconds / duration.inMilliseconds;
+        final headroomRatio = fileProgress - positionRatio;
+
+        // Ratio band, file-fraction units. For a 4 GB / 45-min episode:
+        // pauseBelow ≈ 20 MB / 13 s headroom; resumeAbove ≈ 80 MB / 54 s.
+        // Wide enough that mpv doesn't flap; tight enough that we don't
+        // pause when there's still plenty downloaded.
+        const pauseBelow = 0.005;
+        const resumeAbove = 0.020;
+
+        if (!_autoBufferPaused &&
+            isPlaying &&
+            headroomRatio > 0 &&
+            headroomRatio < pauseBelow) {
+          debugPrint(
+            '[HealthMonitor] proxy pause — headroom '
+            '${(headroomRatio * 100).toStringAsFixed(2)}% '
+            '< ${(pauseBelow * 100).toStringAsFixed(1)}%',
+          );
+          _autoBufferPaused = true;
+          await player.pause();
+          _showStreamingStatus(
+            status: StreamingStatus.buffering,
+            message: 'Buffering — waiting for download…',
+            progress: fileProgress,
+          );
+        } else if (_autoBufferPaused && headroomRatio >= resumeAbove) {
+          debugPrint(
+            '[HealthMonitor] proxy resume — headroom '
+            '${(headroomRatio * 100).toStringAsFixed(2)}% '
+            '>= ${(resumeAbove * 100).toStringAsFixed(1)}%',
+          );
+          _autoBufferPaused = false;
+          _dismissStreamingStatus();
+          _lastPositionAdvanceAt = DateTime.now();
+          await player.play();
+        } else if (_autoBufferPaused && !_seekPastHeadActive) {
+          // Live progress while paused so the overlay doesn't look frozen.
+          // Suppressed when the seek-past-head indicator owns the overlay.
+          final pct = (headroomRatio.clamp(0.0, resumeAbove) * 100)
+              .toStringAsFixed(1);
+          final target = (resumeAbove * 100).toStringAsFixed(1);
+          _showStreamingStatus(
+            status: StreamingStatus.buffering,
+            message: 'Buffering — $pct% / $target% ahead',
+            progress: fileProgress,
+          );
+        }
         return;
       }
 

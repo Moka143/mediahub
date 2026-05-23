@@ -112,7 +112,19 @@ Future<void> markAsWatched(
   int? tmdbMovieId,
   int? tmdbShowId,
 }) async {
-  await ref.read(watchProgressProvider.notifier).markCompleted(file.path);
+  // Forward enough metadata that the notifier can synthesise a fresh
+  // `WatchProgress` entry if none exists yet (the common case for items
+  // the user has downloaded but never opened). Without this, "Mark as
+  // watched" silently no-ops on those — the bug behind the user's
+  // "menu actions don't work" report.
+  await ref.read(watchProgressProvider.notifier).markCompleted(
+        file.path,
+        showName: file.showName,
+        showId: file.showId ?? tmdbShowId,
+        seasonNumber: file.seasonNumber,
+        episodeNumber: file.episodeNumber,
+        posterPath: file.posterPath,
+      );
 
   if (!ref.read(isTmdbSignedInProvider)) return;
 

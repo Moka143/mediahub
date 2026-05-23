@@ -403,8 +403,27 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
     await updateProgress(progress);
   }
 
-  /// Mark a file as completed (watched)
-  Future<void> markCompleted(String filePath) async {
+  /// Mark a file as completed (watched).
+  ///
+  /// Upserts — if no `WatchProgress` entry exists for this file yet (the
+  /// common case for freshly-downloaded items the user has never opened),
+  /// synthesises a minimal one so the "watched" state is recorded and the
+  /// UI's checkmark/filter picks it up immediately. Caller passes file
+  /// metadata for the new entry; all fields are optional and the entry
+  /// degrades gracefully without them.
+  ///
+  /// A synthetic entry has `position=0, duration=0`, so `progress == 0.0`.
+  /// `continueWatchingProvider` filters that out (it requires `progress >
+  /// 0.05`), so a "mark as watched" on an unopened file correctly does
+  /// NOT add it to Continue Watching.
+  Future<void> markCompleted(
+    String filePath, {
+    String? showName,
+    int? showId,
+    int? seasonNumber,
+    int? episodeNumber,
+    String? posterPath,
+  }) async {
     final hash = WatchProgress.generateHash(filePath);
     final existing = state[hash];
 
@@ -414,8 +433,27 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
         lastWatched: DateTime.now(),
       );
       state = {...state, hash: updated};
-      await _saveProgress();
+    } else {
+      final synthetic = WatchProgress(
+        fileHash: hash,
+        filePath: filePath,
+        showName: showName,
+        showId: showId,
+        seasonNumber: seasonNumber,
+        episodeNumber: episodeNumber,
+        episodeCode: (seasonNumber != null && episodeNumber != null)
+            ? 'S${seasonNumber.toString().padLeft(2, '0')}'
+                  'E${episodeNumber.toString().padLeft(2, '0')}'
+            : null,
+        posterPath: posterPath,
+        position: Duration.zero,
+        duration: Duration.zero,
+        lastWatched: DateTime.now(),
+        isCompleted: true,
+      );
+      state = {...state, hash: synthetic};
     }
+    await _saveProgress();
   }
 
   /// Mark a file as not completed (unwatched)
