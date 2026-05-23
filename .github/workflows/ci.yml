@@ -6,11 +6,16 @@ on:
   pull_request:
     branches: [main]
 
+# See windows-build.yml — opts every JS action into Node.js 24 ahead of
+# GitHub's June 2026 forced-migration.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 jobs:
   analyze:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: subosito/flutter-action@v2
         with:
           channel: stable

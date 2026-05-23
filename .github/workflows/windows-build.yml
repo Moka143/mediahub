@@ -8,12 +8,19 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Belt-and-braces opt-in to Node.js 24 for any JavaScript action that
+# still bundles Node 20 internally. GitHub will force-flip this default
+# on June 2, 2026; setting it now removes the runtime-deprecation
+# annotation and protects against any laggard action publisher.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 jobs:
   build-windows:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: subosito/flutter-action@v2
         with:
@@ -44,14 +51,14 @@ jobs:
         run: dart run msix:create --sign-msix false --install-certificate false
 
       - name: Upload unpacked Release build
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mediahub-windows-unpacked
           path: build/windows/x64/runner/Release/
           if-no-files-found: error
 
       - name: Upload MSIX installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mediahub-msix
           path: build/windows/msix/*.msix
@@ -65,13 +72,13 @@ jobs:
       contents: write
     steps:
       - name: Download MSIX
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: mediahub-msix
           path: release-assets
 
       - name: Download unpacked Release
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: mediahub-windows-unpacked
           path: unpacked
@@ -82,7 +89,7 @@ jobs:
           zip -rq "../release-assets/mediahub-${GITHUB_REF_NAME}-windows-portable.zip" .
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: release-assets/*
           generate_release_notes: true
