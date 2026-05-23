@@ -114,9 +114,16 @@ class Subtitle {
       id: json['id']?.toString() ?? '',
       url: json['url'] as String? ?? '',
       lang: lang,
-      langName: _getLanguageName(lang),
+      langName: json['langName'] as String? ?? _getLanguageName(lang),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'url': url,
+    'lang': lang,
+    if (langName != null) 'langName': langName,
+  };
 
   /// Get human-readable language name from code
   static String _getLanguageName(String code) {

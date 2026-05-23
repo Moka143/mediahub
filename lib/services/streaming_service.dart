@@ -536,8 +536,21 @@ class StreamingService {
       '[StreamingService] Selected file index $targetFileIndex: $targetFilePath',
     );
 
-    // For season packs, disable all other files to save bandwidth
-    if (session.stream.isSeasonPack && files.length > 1) {
+    // Fast path: torrent is already fully downloaded (seeding / paused /
+    // stopped after completion). Skip the buffer wait — and crucially skip
+    // toggling file priorities, which can re-trigger a qBit recheck on a
+    // completed torrent and starve the next sync update.
+    final isAlreadyComplete =
+        torrent.isCompleted || torrent.progress >= 0.99;
+
+    // For season packs, disable all other files to save bandwidth — but only
+    // while the torrent is still downloading. Setting priorities on a
+    // completed torrent can flip qBittorrent into a recheck state that
+    // briefly reports progress=0 on the file, which then never recovers in
+    // the sync delta (see Fix 1 in plan).
+    if (session.stream.isSeasonPack &&
+        files.length > 1 &&
+        !isAlreadyComplete) {
       debugPrint(
         '[StreamingService] Disabling non-target files in season pack',
       );
@@ -556,13 +569,73 @@ class StreamingService {
       }
     }
 
-    // Update session with selected file info
+    // Surface a real percentage in the overlay even before buffering kicks
+    // in — otherwise the user just sees "Preparing" with no progress.
     _updateSession(
       sessionId,
       state: StreamingState.buffering,
       selectedFileIndex: targetFileIndex,
       selectedFilePath: targetFilePath,
+      bufferProgress: torrent.progress,
     );
+
+    if (isAlreadyComplete) {
+      debugPrint(
+        '[StreamingService] Torrent already complete (state=${torrent.state}, '
+        'progress=${(torrent.progress * 100).toStringAsFixed(1)}%) — '
+        'fast-pathing to ready.',
+      );
+      await _promoteToReady(sessionId, torrent);
+    }
+  }
+
+  /// Stand up the local HTTP proxy and transition the session to `ready`.
+  /// Shared by the fast-path (`_handleFileSelection`) and the regular
+  /// buffer-threshold path (`_handleBuffering`).
+  Future<void> _promoteToReady(String sessionId, Torrent torrent) async {
+    final session = _sessions[sessionId];
+    if (session == null || session.selectedFileIndex == null) return;
+
+    final videoFile = await _findVideoFile(session);
+    if (videoFile == null) {
+      _updateSession(
+        sessionId,
+        state: StreamingState.error,
+        errorMessage: 'Could not locate video file on disk',
+      );
+      _monitoringTimers[sessionId]?.cancel();
+      return;
+    }
+
+    String? streamUrl;
+    try {
+      final server = LocalStreamingServer(
+        qbt: _qbtService,
+        filePath: videoFile.path,
+        torrentHash: torrent.hash,
+        fileIndex: session.selectedFileIndex!,
+        logTag: 'main',
+      );
+      await server.start();
+      await _streamingServers[sessionId]?.stop();
+      _streamingServers[sessionId] = server;
+      streamUrl = server.url;
+      debugPrint('[StreamingService] Local stream URL: $streamUrl');
+    } catch (e) {
+      debugPrint('[StreamingService] Failed to start local proxy: $e');
+    }
+
+    _updateSession(
+      sessionId,
+      state: StreamingState.ready,
+      videoFile: videoFile,
+      streamUrl: streamUrl,
+      bufferProgress: 1.0,
+    );
+
+    // Stop readiness monitoring. VideoPlayerScreen tracks the download edge
+    // while playback continues.
+    _monitoringTimers[sessionId]?.cancel();
   }
 
   /// Handle buffering state for a streaming session.
@@ -604,65 +677,19 @@ class StreamingService {
     // Byte threshold: enough absolute data for the player to start.
     final bytesOk = bufferedBytes >= minBytes;
 
-    // We used to also gate the ready transition on a strict piece-level
-    // contiguity check (every piece in the file's first ~4% in state 2).
-    // That made sense when mpv read the file path directly: any missing
-    // piece in the start meant the demuxer would hit zero-padded sparse
-    // data and freeze. It also made the ready transition unreliable —
-    // qBittorrent's "sequential download" is best-effort, so the first
-    // chunk routinely had one or two pieces still in-flight long after
-    // the byte threshold was met (we observed 200+ MB buffered with the
-    // ready transition still gated).
-    //
-    // The LocalStreamingServer makes this gate unnecessary: it never
-    // serves bytes past the current download head, so a gap in the first
-    // chunk turns into a brief mpv pause-for-cache rather than a frozen
-    // demuxer. Trust the byte threshold and let the proxy handle edges.
-    if (bytesOk) {
+    // Completion short-circuit: if qBit reports the torrent fully done,
+    // promote immediately even if our local byte threshold isn't met
+    // (small files can be done at <50 MB).
+    final torrentDone =
+        torrent.isCompleted || torrent.progress >= 0.99;
+    final readyNow = bytesOk || (torrentDone && fileProgress >= 0.95);
+
+    if (readyNow) {
       debugPrint(
-        '[StreamingService] Buffer ready! '
-        '${_formatBytes(bufferedBytes)} buffered, selected-file pieces contiguous.',
+        '[StreamingService] Buffer ready (bytesOk=$bytesOk torrentDone=$torrentDone)! '
+        '${_formatBytes(bufferedBytes)} buffered.',
       );
-
-      final videoFile = await _findVideoFile(session);
-
-      // Stand up the local HTTP proxy *before* declaring ready, so the
-      // listener that pushes VideoPlayerScreen has the URL on hand.
-      String? streamUrl;
-      if (videoFile != null && session.selectedFileIndex != null) {
-        try {
-          final server = LocalStreamingServer(
-            qbt: _qbtService,
-            filePath: videoFile.path,
-            torrentHash: torrent.hash,
-            fileIndex: session.selectedFileIndex!,
-            logTag: 'main',
-          );
-          await server.start();
-          // If a previous server is somehow still around for this session,
-          // shut it down before swapping in the new one.
-          await _streamingServers[sessionId]?.stop();
-          _streamingServers[sessionId] = server;
-          streamUrl = server.url;
-          debugPrint('[StreamingService] Local stream URL: $streamUrl');
-        } catch (e) {
-          // Falling back to direct file playback isn't great — the spinner
-          // bug returns — but at least the user gets *something*. Surface
-          // this in logs so we can debug if it ever happens.
-          debugPrint('[StreamingService] Failed to start local proxy: $e');
-        }
-      }
-
-      _updateSession(
-        sessionId,
-        state: StreamingState.ready,
-        videoFile: videoFile,
-        streamUrl: streamUrl,
-      );
-
-      // Stop readiness monitoring. VideoPlayerScreen tracks the download edge
-      // while playback continues.
-      _monitoringTimers[sessionId]?.cancel();
+      await _promoteToReady(sessionId, torrent);
     } else {
       if (DateTime.now().difference(session.createdAt) > bufferTimeout) {
         _updateSession(

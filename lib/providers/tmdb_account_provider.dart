@@ -31,7 +31,7 @@ class TmdbSession {
 }
 
 final tmdbAccountServiceProvider = Provider<TmdbAccountService>((ref) {
-  final apiKey = ref.watch(settingsProvider).tmdbApiKey;
+  final apiKey = ref.watch(effectiveTmdbApiKeyProvider);
   return TmdbAccountService(apiKey: apiKey);
 });
 

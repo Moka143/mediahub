@@ -8,6 +8,7 @@ import '../models/watch_progress.dart';
 import '../providers/local_media_provider.dart';
 import '../providers/navigation_provider.dart';
 import '../providers/watch_progress_provider.dart';
+import '../services/library_actions.dart';
 import '../utils/feedback_utils.dart';
 import '../widgets/common/empty_state.dart';
 import '../widgets/common/loading_state.dart';
@@ -159,6 +160,9 @@ class _WatchScreenState extends ConsumerState<WatchScreen> {
                     onPlayFile: _playFile,
                     onPlayProgress: _playFromProgress,
                     onRemoveProgress: _showRemoveProgressDialog,
+                    onMarkWatched: _markWatched,
+                    onMarkNotWatched: _markNotWatched,
+                    onDeleteFile: _confirmAndDeleteFile,
                   ),
                 ),
               ),
@@ -280,6 +284,67 @@ class _WatchScreenState extends ConsumerState<WatchScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _markWatched(LocalMediaFile file) async {
+    await markAsWatched(ref, file, tmdbShowId: file.showId);
+    if (!mounted) return;
+    AppSnackBar.showInfo(
+      context,
+      message: 'Marked "${file.displayTitle}" as watched',
+    );
+  }
+
+  Future<void> _markNotWatched(LocalMediaFile file) async {
+    await markAsNotWatched(ref, file);
+    if (!mounted) return;
+    AppSnackBar.showInfo(
+      context,
+      message: 'Marked "${file.displayTitle}" as not watched',
+    );
+  }
+
+  Future<void> _confirmAndDeleteFile(LocalMediaFile file) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete file?'),
+        content: Text(
+          'This deletes "${file.displayTitle}" from disk. '
+          'If it was downloaded via the app, the torrent will also be removed.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(
+              foregroundColor: Theme.of(context).colorScheme.error,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final result = await deleteLibraryItem(ref, file);
+    if (!mounted) return;
+    if (result.success) {
+      AppSnackBar.showInfo(
+        context,
+        message: result.torrentRemoved
+            ? 'Deleted file and torrent'
+            : 'Deleted file',
+      );
+    } else {
+      AppSnackBar.showError(
+        context,
+        message: 'Delete failed: ${result.error ?? "unknown error"}',
+      );
+    }
   }
 }
 
@@ -465,6 +530,9 @@ class _LibraryHub extends StatelessWidget {
   final void Function(LocalMediaFile) onPlayFile;
   final void Function(WatchProgress) onPlayProgress;
   final void Function(WatchProgress) onRemoveProgress;
+  final void Function(LocalMediaFile) onMarkWatched;
+  final void Function(LocalMediaFile) onMarkNotWatched;
+  final void Function(LocalMediaFile) onDeleteFile;
 
   const _LibraryHub({
     required this.selectedSection,
@@ -478,6 +546,9 @@ class _LibraryHub extends StatelessWidget {
     required this.onPlayFile,
     required this.onPlayProgress,
     required this.onRemoveProgress,
+    required this.onMarkWatched,
+    required this.onMarkNotWatched,
+    required this.onDeleteFile,
   });
 
   @override
@@ -521,6 +592,9 @@ class _LibraryHub extends StatelessWidget {
               onPlayFile: onPlayFile,
               onPlayProgress: onPlayProgress,
               onRemoveProgress: onRemoveProgress,
+              onMarkWatched: onMarkWatched,
+              onMarkNotWatched: onMarkNotWatched,
+              onDeleteFile: onDeleteFile,
             ),
           ),
         ],
@@ -794,6 +868,9 @@ class _LibrarySectionContent extends StatelessWidget {
   final void Function(LocalMediaFile) onPlayFile;
   final void Function(WatchProgress) onPlayProgress;
   final void Function(WatchProgress) onRemoveProgress;
+  final void Function(LocalMediaFile) onMarkWatched;
+  final void Function(LocalMediaFile) onMarkNotWatched;
+  final void Function(LocalMediaFile) onDeleteFile;
 
   const _LibrarySectionContent({
     super.key,
@@ -807,6 +884,9 @@ class _LibrarySectionContent extends StatelessWidget {
     required this.onPlayFile,
     required this.onPlayProgress,
     required this.onRemoveProgress,
+    required this.onMarkWatched,
+    required this.onMarkNotWatched,
+    required this.onDeleteFile,
   });
 
   @override
@@ -833,6 +913,8 @@ class _LibrarySectionContent extends StatelessWidget {
             items: continueWatching,
             onTap: onPlayProgress,
             onRemove: onRemoveProgress,
+            onMarkWatched: onMarkWatched,
+            onDelete: onDeleteFile,
           ),
         );
 
@@ -848,7 +930,13 @@ class _LibrarySectionContent extends StatelessWidget {
           emptySubtitle: hasQuery
               ? 'Try another search'
               : 'New downloads will appear here',
-          body: _RecentDownloadsList(files: recentDownloads, onTap: onPlayFile),
+          body: _LocalMediaGrid(
+            files: recentDownloads,
+            onTap: onPlayFile,
+            onMarkWatched: onMarkWatched,
+            onMarkNotWatched: onMarkNotWatched,
+            onDelete: onDeleteFile,
+          ),
         );
 
       case LibrarySection.movies:
@@ -863,7 +951,13 @@ class _LibrarySectionContent extends StatelessWidget {
           emptySubtitle: hasQuery
               ? 'Try another search'
               : 'Movies will appear when downloads finish',
-          body: _MoviesList(movies: movies, onFileTap: onPlayFile),
+          body: _LocalMediaGrid(
+            files: movies,
+            onTap: onPlayFile,
+            onMarkWatched: onMarkWatched,
+            onMarkNotWatched: onMarkNotWatched,
+            onDelete: onDeleteFile,
+          ),
         );
 
       case LibrarySection.shows:
@@ -878,7 +972,13 @@ class _LibrarySectionContent extends StatelessWidget {
           emptySubtitle: hasQuery
               ? 'Try another search'
               : 'Shows will appear when downloads finish',
-          body: _ShowsList(shows: shows, onFileTap: onPlayFile),
+          body: _ShowsGrid(
+            shows: shows,
+            onFileTap: onPlayFile,
+            onMarkWatched: onMarkWatched,
+            onMarkNotWatched: onMarkNotWatched,
+            onDelete: onDeleteFile,
+          ),
         );
 
       case LibrarySection.all:
@@ -892,6 +992,9 @@ class _LibrarySectionContent extends StatelessWidget {
           onPlayFile: onPlayFile,
           onPlayProgress: onPlayProgress,
           onRemoveProgress: onRemoveProgress,
+          onMarkWatched: onMarkWatched,
+          onMarkNotWatched: onMarkNotWatched,
+          onDeleteFile: onDeleteFile,
         );
     }
   }
@@ -1026,19 +1129,34 @@ class _FocusedSection extends StatelessWidget {
 // Content Lists
 // ============================================================================
 
-class _ContinueWatchingStrip extends StatelessWidget {
+class _ContinueWatchingStrip extends ConsumerWidget {
   final List<WatchProgress> items;
   final void Function(WatchProgress) onTap;
   final void Function(WatchProgress) onRemove;
+  final void Function(LocalMediaFile)? onMarkWatched;
+  final void Function(LocalMediaFile)? onDelete;
 
   const _ContinueWatchingStrip({
     required this.items,
     required this.onTap,
     required this.onRemove,
+    this.onMarkWatched,
+    this.onDelete,
   });
 
+  /// Locate the underlying [LocalMediaFile] for a Continue-Watching entry —
+  /// needed because the mark-watched / delete actions operate on files, not
+  /// progress records. Returns null if the file is no longer on disk.
+  LocalMediaFile? _fileFor(WidgetRef ref, WatchProgress progress) {
+    final files = ref.read(localMediaFilesProvider).value ?? [];
+    for (final f in files) {
+      if (f.path == progress.filePath) return f;
+    }
+    return null;
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return SizedBox(
       height: 190,
       child: ListView.builder(
@@ -1051,6 +1169,18 @@ class _ContinueWatchingStrip extends StatelessWidget {
             progress: progress,
             onTap: () => onTap(progress),
             onRemove: () => onRemove(progress),
+            onMarkWatched: onMarkWatched == null
+                ? null
+                : () {
+                    final f = _fileFor(ref, progress);
+                    if (f != null) onMarkWatched!(f);
+                  },
+            onDelete: onDelete == null
+                ? null
+                : () {
+                    final f = _fileFor(ref, progress);
+                    if (f != null) onDelete!(f);
+                  },
           );
         },
       ),
@@ -1058,65 +1188,231 @@ class _ContinueWatchingStrip extends StatelessWidget {
   }
 }
 
-class _RecentDownloadsList extends StatelessWidget {
+/// Grid of [MediaPosterCard]s for flat lists of local files (Recent / Movies).
+class _LocalMediaGrid extends StatelessWidget {
   final List<LocalMediaFile> files;
   final void Function(LocalMediaFile) onTap;
+  final void Function(LocalMediaFile) onMarkWatched;
+  final void Function(LocalMediaFile) onMarkNotWatched;
+  final void Function(LocalMediaFile) onDelete;
 
-  const _RecentDownloadsList({required this.files, required this.onTap});
+  const _LocalMediaGrid({
+    required this.files,
+    required this.onTap,
+    required this.onMarkWatched,
+    required this.onMarkNotWatched,
+    required this.onDelete,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return ListView.separated(
+    return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 180,
+        mainAxisSpacing: AppSpacing.md,
+        crossAxisSpacing: AppSpacing.md,
+        childAspectRatio: 152 / 252,
+      ),
       itemCount: files.length,
-      separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
-      itemBuilder: (context, index) {
+      itemBuilder: (_, index) {
         final file = files[index];
-        return LocalMediaListItem(file: file, onTap: () => onTap(file));
+        return _LocalMediaCard(
+          file: file,
+          onTap: () => onTap(file),
+          onMarkWatched: () => onMarkWatched(file),
+          onMarkNotWatched: () => onMarkNotWatched(file),
+          onDelete: () => onDelete(file),
+        );
       },
     );
   }
 }
 
-class _MoviesList extends StatelessWidget {
-  final List<LocalMediaFile> movies;
-  final void Function(LocalMediaFile) onFileTap;
-
-  const _MoviesList({required this.movies, required this.onFileTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView.separated(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: movies.length,
-      separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.sm),
-      itemBuilder: (context, index) {
-        final file = movies[index];
-        return LocalMediaListItem(file: file, onTap: () => onFileTap(file));
-      },
-    );
-  }
-}
-
-class _ShowsList extends StatelessWidget {
+/// Grid of show cards. Tap a show → modal sheet with seasons & episodes.
+class _ShowsGrid extends StatelessWidget {
   final List<ShowWithSeasons> shows;
   final void Function(LocalMediaFile) onFileTap;
+  final void Function(LocalMediaFile) onMarkWatched;
+  final void Function(LocalMediaFile) onMarkNotWatched;
+  final void Function(LocalMediaFile) onDelete;
 
-  const _ShowsList({required this.shows, required this.onFileTap});
+  const _ShowsGrid({
+    required this.shows,
+    required this.onFileTap,
+    required this.onMarkWatched,
+    required this.onMarkNotWatched,
+    required this.onDelete,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return ListView.separated(
+    return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 180,
+        mainAxisSpacing: AppSpacing.md,
+        crossAxisSpacing: AppSpacing.md,
+        childAspectRatio: 152 / 252,
+      ),
       itemCount: shows.length,
-      separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
-      itemBuilder: (context, index) {
+      itemBuilder: (_, index) {
         final showData = shows[index];
-        return ShowExpansionTile(showData: showData, onFileTap: onFileTap);
+        return _ShowCard(
+          showData: showData,
+          onFileTap: onFileTap,
+          onMarkWatched: onMarkWatched,
+          onMarkNotWatched: onMarkNotWatched,
+          onDelete: onDelete,
+        );
       },
+    );
+  }
+}
+
+/// Single library item rendered as a poster card. Resolves its poster (show
+/// poster if it's an episode, movie poster otherwise) via the existing
+/// TMDB poster providers.
+class _LocalMediaCard extends ConsumerWidget {
+  final LocalMediaFile file;
+  final VoidCallback onTap;
+  final VoidCallback onMarkWatched;
+  final VoidCallback onMarkNotWatched;
+  final VoidCallback onDelete;
+
+  const _LocalMediaCard({
+    required this.file,
+    required this.onTap,
+    required this.onMarkWatched,
+    required this.onMarkNotWatched,
+    required this.onDelete,
+  });
+
+  AsyncValue<String?>? _resolvePoster(WidgetRef ref) {
+    if (file.showName != null &&
+        file.showName!.isNotEmpty &&
+        (file.seasonNumber != null || file.episodeNumber != null)) {
+      return ref.watch(showPosterProvider(file.showName!));
+    }
+    // For movies, strip quality/year/extension noise before searching TMDB —
+    // a raw filename like `Movie.2020.1080p.BluRay.mkv` rarely matches.
+    final movieName = file.showName ?? _cleanMovieName(file.fileName);
+    if (movieName.isEmpty) return null;
+    return ref.watch(moviePosterProvider(movieName));
+  }
+
+  /// Best-effort: convert a torrent-style filename into something searchable.
+  /// Drops extension, common quality tags, release-group suffixes and year.
+  static String _cleanMovieName(String filename) {
+    var name = filename.replaceAll(
+      RegExp(r'\.(mp4|mkv|avi|mov|wmv|flv|webm|m4v)$', caseSensitive: false),
+      '',
+    );
+    name = name.replaceAll(
+      RegExp(
+        r'[\.\s]?(1080p|720p|480p|2160p|4K|HDRip|BluRay|WEB-DL|WEBRip|BRRip|DVDRip|HDTV).*',
+        caseSensitive: false,
+      ),
+      '',
+    );
+    name = name.replaceAll(RegExp(r'\s*\(\d{4}\)\s*'), ' ');
+    name = name.replaceAll(RegExp(r'\s*\d{4}\s*$'), '');
+    name = name.replaceAll(RegExp(r'[\._]'), ' ');
+    name = name.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return name;
+  }
+
+  String _displayTitle() {
+    if (file.showName != null && file.showName!.isNotEmpty) {
+      return file.episodeCode != null
+          ? '${file.showName} ${file.episodeCode}'
+          : file.showName!;
+    }
+    final cleaned = _cleanMovieName(file.fileName);
+    return cleaned.isNotEmpty ? cleaned : file.fileName;
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final actions = <MediaCardAction>[
+      if (!file.isWatched)
+        MediaCardAction(
+          icon: Icons.check_circle_outline_rounded,
+          label: 'Mark as watched',
+          onSelected: onMarkWatched,
+        ),
+      if (file.isWatched)
+        MediaCardAction(
+          icon: Icons.remove_circle_outline_rounded,
+          label: 'Mark as not watched',
+          onSelected: onMarkNotWatched,
+        ),
+      MediaCardAction(
+        icon: Icons.delete_outline_rounded,
+        label: 'Delete',
+        onSelected: onDelete,
+        destructive: true,
+      ),
+    ];
+
+    return MediaPosterCard(
+      posterAsync: _resolvePoster(ref),
+      title: _displayTitle(),
+      subtitle: [
+        file.formattedSize,
+        if (file.quality != null) file.quality!,
+      ].join(' • '),
+      badge: file.episodeCode,
+      progress: file.hasProgress ? file.watchProgress : null,
+      isWatched: file.isWatched,
+      onTap: onTap,
+      actions: actions,
+    );
+  }
+}
+
+/// Show-level card. Tap opens [ShowEpisodesSheet] for season/episode drill-in.
+class _ShowCard extends ConsumerWidget {
+  final ShowWithSeasons showData;
+  final void Function(LocalMediaFile) onFileTap;
+  final void Function(LocalMediaFile) onMarkWatched;
+  final void Function(LocalMediaFile) onMarkNotWatched;
+  final void Function(LocalMediaFile) onDelete;
+
+  const _ShowCard({
+    required this.showData,
+    required this.onFileTap,
+    required this.onMarkWatched,
+    required this.onMarkNotWatched,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final posterAsync = ref.watch(showPosterProvider(showData.showName));
+    final hasMultipleSeasons = showData.seasons.length > 1;
+    final subtitle = hasMultipleSeasons
+        ? '${showData.seasons.length} seasons • ${showData.totalEpisodes} ep'
+        : '${showData.totalEpisodes} episode'
+              '${showData.totalEpisodes > 1 ? 's' : ''}';
+
+    return MediaPosterCard(
+      posterAsync: posterAsync,
+      title: showData.showName,
+      subtitle: subtitle,
+      onTap: () => ShowEpisodesSheet.show(
+        context,
+        showData: showData,
+        onFileTap: (f) {
+          Navigator.of(context).maybePop();
+          onFileTap(f);
+        },
+        onMarkWatched: onMarkWatched,
+        onMarkNotWatched: onMarkNotWatched,
+        onDelete: onDelete,
+      ),
     );
   }
 }
@@ -1135,6 +1431,9 @@ class _AllSectionsView extends StatelessWidget {
   final void Function(LocalMediaFile) onPlayFile;
   final void Function(WatchProgress) onPlayProgress;
   final void Function(WatchProgress) onRemoveProgress;
+  final void Function(LocalMediaFile) onMarkWatched;
+  final void Function(LocalMediaFile) onMarkNotWatched;
+  final void Function(LocalMediaFile) onDeleteFile;
 
   const _AllSectionsView({
     required this.continueWatching,
@@ -1146,6 +1445,9 @@ class _AllSectionsView extends StatelessWidget {
     required this.onPlayFile,
     required this.onPlayProgress,
     required this.onRemoveProgress,
+    required this.onMarkWatched,
+    required this.onMarkNotWatched,
+    required this.onDeleteFile,
   });
 
   @override
@@ -1170,6 +1472,8 @@ class _AllSectionsView extends StatelessWidget {
           items: continueWatching,
           onTap: onPlayProgress,
           onRemove: onRemoveProgress,
+          onMarkWatched: onMarkWatched,
+          onDelete: onDeleteFile,
         ),
         const SizedBox(height: AppSpacing.md),
       ]);
@@ -1190,7 +1494,13 @@ class _AllSectionsView extends StatelessWidget {
               : null,
         ),
         const SizedBox(height: AppSpacing.sm),
-        _RecentDownloadsList(files: recentPreview, onTap: onPlayFile),
+        _LocalMediaGrid(
+          files: recentPreview,
+          onTap: onPlayFile,
+          onMarkWatched: onMarkWatched,
+          onMarkNotWatched: onMarkNotWatched,
+          onDelete: onDeleteFile,
+        ),
         const SizedBox(height: AppSpacing.md),
       ]);
     }
@@ -1208,7 +1518,13 @@ class _AllSectionsView extends StatelessWidget {
               : null,
         ),
         const SizedBox(height: AppSpacing.sm),
-        _MoviesList(movies: moviesPreview, onFileTap: onPlayFile),
+        _LocalMediaGrid(
+          files: moviesPreview,
+          onTap: onPlayFile,
+          onMarkWatched: onMarkWatched,
+          onMarkNotWatched: onMarkNotWatched,
+          onDelete: onDeleteFile,
+        ),
         const SizedBox(height: AppSpacing.md),
       ]);
     }
@@ -1226,7 +1542,13 @@ class _AllSectionsView extends StatelessWidget {
               : null,
         ),
         const SizedBox(height: AppSpacing.sm),
-        _ShowsList(shows: showsPreview, onFileTap: onPlayFile),
+        _ShowsGrid(
+          shows: showsPreview,
+          onFileTap: onPlayFile,
+          onMarkWatched: onMarkWatched,
+          onMarkNotWatched: onMarkNotWatched,
+          onDelete: onDeleteFile,
+        ),
         const SizedBox(height: AppSpacing.md),
       ]);
     }

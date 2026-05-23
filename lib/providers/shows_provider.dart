@@ -5,10 +5,10 @@ import '../models/episode.dart';
 import '../services/tmdb_api_service.dart';
 import 'settings_provider.dart';
 
-/// Provider for TMDB API service — key is sourced from user settings.
-/// Rebuilt whenever the user updates their key in onboarding/settings.
+/// Provider for TMDB API service — uses the effective key (user override or
+/// bundled default). Rebuilt whenever the user updates their key.
 final tmdbApiServiceProvider = Provider<TmdbApiService>((ref) {
-  final apiKey = ref.watch(settingsProvider.select((s) => s.tmdbApiKey));
+  final apiKey = ref.watch(effectiveTmdbApiKeyProvider);
   return TmdbApiService(apiKey: apiKey);
 });
 

@@ -244,13 +244,20 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
     _monitorSubscription?.cancel();
     _monitorSubscription = sessionStream.listen((session) {
       switch (session.state) {
+        case StreamingState.addingTorrent:
+        case StreamingState.selectingFiles:
         case StreamingState.buffering:
+          final pct = session.bufferProgress * 100;
+          final titlePrefix = session.state == StreamingState.buffering
+              ? 'Buffering'
+              : 'Preparing';
           _streamingOverlayData?.value = StreamingOverlayData(
-            title: 'Buffering "${movie.title}"',
-            subtitle:
-                '${(session.bufferProgress * 100).toStringAsFixed(1)}% ready',
-            progress: session.bufferProgress,
-            isIndeterminate: false,
+            title: '$titlePrefix "${movie.title}"',
+            subtitle: pct > 0
+                ? '${pct.toStringAsFixed(1)}% ready'
+                : 'Connecting…',
+            progress: pct > 0 ? session.bufferProgress : null,
+            isIndeterminate: pct == 0,
           );
 
         case StreamingState.ready:

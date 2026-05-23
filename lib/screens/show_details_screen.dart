@@ -433,14 +433,23 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
     _monitorSubscription?.cancel();
     _monitorSubscription = sessionStream.listen((session) {
       switch (session.state) {
+        case StreamingState.addingTorrent:
+        case StreamingState.selectingFiles:
         case StreamingState.buffering:
           // Update the existing overlay in-place — no remove/recreate, no flicker.
+          // Always show actual percentage so the user sees forward motion even
+          // during file-selection / metadata phases.
+          final pct = session.bufferProgress * 100;
+          final titlePrefix = session.state == StreamingState.buffering
+              ? 'Buffering'
+              : 'Preparing';
           _streamingOverlayData?.value = StreamingOverlayData(
-            title: 'Buffering ${episode.episodeCode}',
-            subtitle:
-                '${(session.bufferProgress * 100).toStringAsFixed(1)}% ready',
-            progress: session.bufferProgress,
-            isIndeterminate: false,
+            title: '$titlePrefix ${episode.episodeCode}',
+            subtitle: pct > 0
+                ? '${pct.toStringAsFixed(1)}% ready'
+                : 'Connecting…',
+            progress: pct > 0 ? session.bufferProgress : null,
+            isIndeterminate: pct == 0,
           );
 
         case StreamingState.ready:

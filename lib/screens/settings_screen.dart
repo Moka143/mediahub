@@ -647,28 +647,69 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                if (ref.watch(isUsingBundledTmdbKeyProvider))
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.check_circle_outline_rounded,
+                          size: 18,
+                          color: appColors.success,
+                        ),
+                        const SizedBox(width: AppSpacing.xs),
+                        Expanded(
+                          child: Text(
+                            'Using the bundled TMDB key. Enter your own '
+                            'below to use a personal quota.',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: appColors.mutedText),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 TextField(
                   controller: _tmdbKeyController,
                   obscureText: !_showTmdbKey,
                   enableSuggestions: false,
                   autocorrect: false,
                   decoration: InputDecoration(
-                    labelText: 'API Key (v3 auth)',
+                    labelText: 'API Key (v3 auth) — override',
                     hintText: 'e.g. 0123456789abcdef…',
                     prefixIcon: Icon(
                       Icons.key_rounded,
                       color: appColors.mutedText,
                     ),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _showTmdbKey
-                            ? Icons.visibility_off_rounded
-                            : Icons.visibility_rounded,
-                        color: appColors.mutedText,
-                      ),
-                      onPressed: () =>
-                          setState(() => _showTmdbKey = !_showTmdbKey),
-                      tooltip: _showTmdbKey ? 'Hide key' : 'Show key',
+                    suffixIcon: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (ref.watch(settingsProvider).tmdbApiKey.isNotEmpty)
+                          IconButton(
+                            icon: Icon(
+                              Icons.restart_alt_rounded,
+                              color: appColors.mutedText,
+                            ),
+                            onPressed: () {
+                              _tmdbKeyController.clear();
+                              ref
+                                  .read(settingsProvider.notifier)
+                                  .setTmdbApiKey('');
+                            },
+                            tooltip: 'Reset to bundled default',
+                          ),
+                        IconButton(
+                          icon: Icon(
+                            _showTmdbKey
+                                ? Icons.visibility_off_rounded
+                                : Icons.visibility_rounded,
+                            color: appColors.mutedText,
+                          ),
+                          onPressed: () =>
+                              setState(() => _showTmdbKey = !_showTmdbKey),
+                          tooltip: _showTmdbKey ? 'Hide key' : 'Show key',
+                        ),
+                      ],
                     ),
                     helperText: 'Used to fetch show & movie metadata from TMDB',
                   ),

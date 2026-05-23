@@ -15,9 +15,11 @@ final downloadPathProvider = Provider<String>((ref) {
   return ref.watch(settingsProvider).defaultSavePath;
 });
 
-/// Provider for TMDB API service — key is sourced from user settings.
+/// Provider for TMDB API service — uses the effective key (user override or
+/// bundled default), so users who don't manually enter a key still get
+/// catalog access in release builds.
 final tmdbServiceProvider = Provider<TmdbApiService>((ref) {
-  final apiKey = ref.watch(settingsProvider.select((s) => s.tmdbApiKey));
+  final apiKey = ref.watch(effectiveTmdbApiKeyProvider);
   return TmdbApiService(apiKey: apiKey);
 });
 

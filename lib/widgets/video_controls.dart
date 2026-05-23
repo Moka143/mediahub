@@ -820,6 +820,17 @@ class _SubtitleButton extends ConsumerWidget {
       // Load the subtitle URL directly in media_kit
       await ref.read(playerServiceProvider).loadExternalSubtitle(subtitle.url);
       ref.read(currentExternalSubtitleProvider.notifier).set(subtitle);
+
+      // Persist the selection so we can auto-load it next time.
+      final ctx = ref.read(subtitleContextProvider);
+      if (ctx != null) {
+        final key = cacheKeyFromContext(ctx);
+        if (key != null) {
+          await ref
+              .read(currentExternalSubtitleProvider.notifier)
+              .persist(key, subtitle);
+        }
+      }
     } catch (e) {
       debugPrint('Failed to load subtitle: $e');
       if (context.mounted) {

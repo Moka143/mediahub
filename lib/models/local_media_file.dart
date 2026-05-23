@@ -32,6 +32,7 @@ class LocalMediaFile {
   final int? showId; // Matched TMDB show ID (nullable)
   final String? posterPath; // Show poster path
   final WatchProgress? progress; // Watch progress (nullable)
+  final String? torrentHash; // qBittorrent torrent hash if originating from one
 
   LocalMediaFile({
     required this.path,
@@ -46,6 +47,7 @@ class LocalMediaFile {
     this.showId,
     this.posterPath,
     this.progress,
+    this.torrentHash,
   });
 
   /// Check if this file is a video
@@ -214,6 +216,7 @@ class LocalMediaFile {
     int? showId,
     String? posterPath,
     WatchProgress? progress,
+    String? torrentHash,
   }) {
     return LocalMediaFile(
       path: path ?? this.path,
@@ -228,6 +231,7 @@ class LocalMediaFile {
       showId: showId ?? this.showId,
       posterPath: posterPath ?? this.posterPath,
       progress: progress ?? this.progress,
+      torrentHash: torrentHash ?? this.torrentHash,
     );
   }
 

@@ -430,8 +430,12 @@ class QBittorrentApiService {
 
       if (savePath != null) formData.fields.add(MapEntry('savepath', savePath));
       if (category != null) formData.fields.add(MapEntry('category', category));
-      if (paused != null)
+      if (paused != null) {
+        // qBittorrent 4.x uses 'paused'; 5.0+ uses 'stopped'. Send both —
+        // each version ignores the field it doesn't recognise.
         formData.fields.add(MapEntry('paused', paused.toString()));
+        formData.fields.add(MapEntry('stopped', paused.toString()));
+      }
       if (skipChecking != null)
         formData.fields.add(MapEntry('skip_checking', skipChecking.toString()));
       if (sequentialDownload != null)
@@ -521,7 +525,13 @@ class QBittorrentApiService {
         data: 'hashes=${hashes.join('|')}&deleteFiles=$deleteFiles',
         options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
-      return response.statusCode == 200;
+      final ok = response.statusCode == 200;
+      if (ok) {
+        // Force a full snapshot on the next sync — the maindata RID can
+        // miss the deletion delta if the call lands between polls.
+        _syncRid = 0;
+      }
+      return ok;
     } catch (e) {
       _log('Delete torrents error: $e');
       return false;

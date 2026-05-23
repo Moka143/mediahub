@@ -166,6 +166,8 @@ extension TorrentStateColor on String {
         return AppColors.seeding;
       case 'pauseddl':
       case 'pausedup':
+      case 'stoppeddl':
+      case 'stoppedup':
       case 'paused':
         return AppColors.paused;
       case 'queueddl':
@@ -199,6 +201,8 @@ extension TorrentStateColor on String {
         return AppColors.seedingLight;
       case 'pauseddl':
       case 'pausedup':
+      case 'stoppeddl':
+      case 'stoppedup':
       case 'paused':
         return AppColors.pausedLight;
       case 'queueddl':

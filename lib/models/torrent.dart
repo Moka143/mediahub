@@ -175,6 +175,7 @@ class Torrent {
       case TorrentState.uploading:
         return 'Seeding';
       case TorrentState.pausedUP:
+      case TorrentState.stoppedUP:
         return 'Paused (Seeding)';
       case TorrentState.queuedUP:
         return 'Queued (Seeding)';
@@ -191,6 +192,7 @@ class Torrent {
       case TorrentState.metaDL:
         return 'Fetching Metadata';
       case TorrentState.pausedDL:
+      case TorrentState.stoppedDL:
         return 'Paused';
       case TorrentState.queuedDL:
         return 'Queued';

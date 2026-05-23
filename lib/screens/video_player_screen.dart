@@ -278,9 +278,62 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         _setupStreamingBufferingDebounce();
         _startPlaybackHealthMonitor();
       }
+
+      // Auto-load a previously selected / sidecar subtitle. Best-effort —
+      // any failure logs and falls through (user can still pick manually).
+      unawaited(_autoLoadSubtitle());
     }
 
     _startHideControlsTimer();
+  }
+
+  /// Resolve a subtitle for the current file in this order:
+  ///   1. Sidecar `.srt`/`.ass`/`.vtt`/etc. next to the video file, preferring
+  ///      one whose filename contains the user's preferred-language tag.
+  ///   2. Previously persisted OpenSubtitles selection for this file's
+  ///      cache key (movie IMDB / series IMDB+S##E## / path hash).
+  ///   3. Nothing — leave subtitle off.
+  Future<void> _autoLoadSubtitle() async {
+    try {
+      final playerService = ref.read(playerServiceProvider);
+      final scanner = ref.read(localMediaScannerProvider);
+      final preferredLang = ref.read(preferredSubtitleLanguageProvider);
+
+      final sidecars = await scanner.findSubtitles(widget.file.path);
+      if (sidecars.isNotEmpty) {
+        String chosen = sidecars.first;
+        if (preferredLang != null && preferredLang.isNotEmpty) {
+          final lang = preferredLang.toLowerCase();
+          final byLang = sidecars.firstWhere(
+            (p) => p.toLowerCase().contains('.$lang.'),
+            orElse: () => sidecars.first,
+          );
+          chosen = byLang;
+        }
+        await playerService.loadExternalSubtitle(chosen);
+        debugPrint('[Subtitles] Auto-loaded sidecar: $chosen');
+        return;
+      }
+
+      final cacheKey = computeSubtitleCacheKey(
+        widget.file,
+        movieImdbId: widget.movieImdbId,
+        showImdbId: widget.showImdbId,
+      );
+      final saved = ref
+          .read(currentExternalSubtitleProvider.notifier)
+          .loadFor(cacheKey);
+      if (saved != null && saved.url.isNotEmpty) {
+        await playerService.loadExternalSubtitle(saved.url);
+        ref.read(currentExternalSubtitleProvider.notifier).set(saved);
+        debugPrint(
+          '[Subtitles] Auto-loaded persisted choice for $cacheKey '
+          '(${saved.lang})',
+        );
+      }
+    } catch (e) {
+      debugPrint('[Subtitles] Auto-load failed: $e');
+    }
   }
 
   static const _bufferingShowDelay = Duration(milliseconds: 400);

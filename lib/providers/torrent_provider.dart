@@ -396,8 +396,25 @@ class TorrentListNotifier extends Notifier<TorrentListState> {
         deleteFiles: deleteFiles,
       );
       if (success) {
-        // Immediate refresh for delete to update UI right away
-        await refresh();
+        // Optimistic local removal so the row disappears in the next frame
+        // instead of waiting for the poll cycle to pick up the change.
+        final hashSet = hashes.toSet();
+        state = state.copyWith(
+          torrents: state.torrents
+              .where((t) => !hashSet.contains(t.hash))
+              .toList(),
+        );
+
+        // Clear the master-detail selection if it pointed at a deleted row.
+        final selected = ref.read(selectedTorrentHashProvider);
+        if (selected != null && hashSet.contains(selected)) {
+          ref.read(selectedTorrentHashProvider.notifier).clear();
+        }
+
+        // Reconcile with the server — _syncRid was reset on the API side,
+        // so this is a full snapshot.
+        await refresh(fullUpdate: true);
+
         // Refresh media files after a short delay to allow file system to update
         Future.delayed(const Duration(seconds: 2), () {
           ref.invalidate(localMediaStreamProvider);

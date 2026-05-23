@@ -247,9 +247,34 @@ class SettingsNotifier extends Notifier<AppSettings> {
   }
 }
 
-/// Convenience: true when the user has entered a non-empty TMDB key.
+/// Build-time TMDB key bundled with the release. Pass via:
+///   flutter run --dart-define=TMDB_API_KEY=<key>
+/// or set it in a CI release pipeline. If empty, the user must enter their
+/// own key via Settings or onboarding.
+const String bundledTmdbApiKey =
+    String.fromEnvironment('TMDB_API_KEY', defaultValue: '');
+
+/// The TMDB API key that should actually be used for catalog requests:
+/// a non-empty user-entered key wins over the bundled default. When the user
+/// hasn't set one, fall back to the bundled key (which may itself be empty
+/// in source builds — in that case onboarding asks for one).
+final effectiveTmdbApiKeyProvider = Provider<String>((ref) {
+  final userKey = ref.watch(settingsProvider).tmdbApiKey.trim();
+  if (userKey.isNotEmpty) return userKey;
+  return bundledTmdbApiKey;
+});
+
+/// True when *any* TMDB key is available (user override OR bundled default).
+/// Drives the onboarding gate and the "Connect TMDB account" enable check.
 final hasTmdbApiKeyProvider = Provider<bool>((ref) {
-  return ref.watch(settingsProvider).tmdbApiKey.isNotEmpty;
+  return ref.watch(effectiveTmdbApiKeyProvider).isNotEmpty;
+});
+
+/// True when the app is running with the bundled default key (no user
+/// override). Used in Settings to label the field.
+final isUsingBundledTmdbKeyProvider = Provider<bool>((ref) {
+  final userKey = ref.watch(settingsProvider).tmdbApiKey.trim();
+  return userKey.isEmpty && bundledTmdbApiKey.isNotEmpty;
 });
 
 /// Provider for binge watching enabled

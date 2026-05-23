@@ -1,6 +1,12 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/local_media_file.dart';
 import '../services/opensubtitles_service.dart';
+import 'settings_provider.dart';
 
 /// Provider for OpenSubtitles service
 final openSubtitlesServiceProvider = Provider<OpenSubtitlesService>((ref) {
@@ -136,8 +142,46 @@ final subtitlesByLanguageProvider = Provider<Map<String, List<Subtitle>>>((
   );
 });
 
-/// Currently selected external subtitle (from OpenSubtitles)
+/// Build a SharedPreferences key for persisting the user's chosen subtitle
+/// against a video file. Order of preference:
+///   1. `movie:<imdbId>` when we have an IMDB id and no episode info.
+///   2. `series:<imdbId>:s##e##` when we have IMDB + season + episode.
+///   3. `path:<sha1(file.path)>` as the local-only fallback. The path hash
+///      invalidates when the user moves/renames a file — acceptable v1.
+String computeSubtitleCacheKey(
+  LocalMediaFile file, {
+  String? movieImdbId,
+  String? showImdbId,
+}) {
+  if (showImdbId != null &&
+      file.seasonNumber != null &&
+      file.episodeNumber != null) {
+    final s = file.seasonNumber!.toString().padLeft(2, '0');
+    final e = file.episodeNumber!.toString().padLeft(2, '0');
+    return 'series:$showImdbId:s${s}e$e';
+  }
+  if (movieImdbId != null) return 'movie:$movieImdbId';
+  final hash = sha1.convert(utf8.encode(file.path)).toString();
+  return 'path:$hash';
+}
+
+/// Cache key from a SubtitleContext (used at user-selection time when only
+/// the IMDB context is available — there's always an IMDB id when the menu
+/// can fetch OpenSubtitles, so the path-hash fallback isn't needed here).
+String? cacheKeyFromContext(SubtitleContext context) {
+  if (context.isMovie) return 'movie:${context.imdbId}';
+  if (context.seasonNumber == null || context.episodeNumber == null) {
+    return null;
+  }
+  final s = context.seasonNumber!.toString().padLeft(2, '0');
+  final e = context.episodeNumber!.toString().padLeft(2, '0');
+  return 'series:${context.imdbId}:s${s}e$e';
+}
+
+/// Currently selected external subtitle (from OpenSubtitles or sidecar).
 class CurrentExternalSubtitleNotifier extends Notifier<Subtitle?> {
+  static const _prefsKeyPrefix = 'subtitle_pref:';
+
   @override
   Subtitle? build() => null;
 
@@ -147,6 +191,35 @@ class CurrentExternalSubtitleNotifier extends Notifier<Subtitle?> {
 
   void clear() {
     state = null;
+  }
+
+  /// Persist the user's choice so we can auto-load it on the next playback
+  /// of the same video. Silent on failure — persistence is a nice-to-have.
+  Future<void> persist(String cacheKey, Subtitle subtitle) async {
+    try {
+      final prefs = ref.read(sharedPreferencesProvider);
+      final payload = {
+        ...subtitle.toJson(),
+        'savedAt': DateTime.now().millisecondsSinceEpoch,
+      };
+      await prefs.setString('$_prefsKeyPrefix$cacheKey', jsonEncode(payload));
+    } catch (e) {
+      debugPrint('[Subtitles] Failed to persist for $cacheKey: $e');
+    }
+  }
+
+  /// Look up a previously-persisted subtitle for the given cache key.
+  Subtitle? loadFor(String cacheKey) {
+    try {
+      final prefs = ref.read(sharedPreferencesProvider);
+      final raw = prefs.getString('$_prefsKeyPrefix$cacheKey');
+      if (raw == null) return null;
+      final json = jsonDecode(raw) as Map<String, dynamic>;
+      return Subtitle.fromJson(json);
+    } catch (e) {
+      debugPrint('[Subtitles] Failed to load for $cacheKey: $e');
+      return null;
+    }
   }
 }
 
