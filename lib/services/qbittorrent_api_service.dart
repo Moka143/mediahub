@@ -35,6 +35,14 @@ class QBittorrentApiService {
   bool _isAuthenticated = false;
   int _syncRid = 0;
 
+  /// True when the HTTP status code is in the 2xx success range.
+  ///
+  /// qBittorrent 5.2.0 changed empty-body responses from 200 to 204, so a
+  /// strict `== 200` check rejects valid successes on the latest qBit. Use
+  /// this everywhere we treat the response as a success/failure boolean.
+  static bool _isSuccessStatus(int? code) =>
+      code != null && code >= 200 && code < 300;
+
   /// Callback for logging
   final void Function(String message)? onLog;
 
@@ -150,7 +158,7 @@ class QBittorrentApiService {
         options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
 
-      if (response.statusCode == 200) {
+      if (_isSuccessStatus(response.statusCode)) {
         final cookies = response.headers['set-cookie'];
         if (cookies != null) {
           for (final cookie in cookies) {
@@ -260,7 +268,7 @@ class QBittorrentApiService {
         data: 'json=${Uri.encodeComponent(prefsJson)}',
         options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
-      return response.statusCode == 200;
+      return _isSuccessStatus(response.statusCode);
     } catch (e) {
       _log('Set preferences error: $e');
       return false;
@@ -449,7 +457,13 @@ class QBittorrentApiService {
 
       final response = await _dio.post('/api/v2/torrents/add', data: formData);
 
-      return response.statusCode == 200 && response.data == 'Ok.';
+      // qBittorrent 4.x returns 200 + body "Ok." on success and 200 + body
+      // "Fails." on failure. qBittorrent 5.2+ returns 204 with empty body on
+      // success and 4xx on failure. Treat any 2xx + non-failure body as
+      // success rather than relying on the exact "Ok." literal.
+      if (!_isSuccessStatus(response.statusCode)) return false;
+      final body = response.data?.toString().trim().toLowerCase() ?? '';
+      return body != 'fails.';
     } catch (e) {
       _log('Add torrent error: $e');
       return false;
@@ -477,7 +491,7 @@ class QBittorrentApiService {
         );
       }
 
-      return response.statusCode == 200;
+      return _isSuccessStatus(response.statusCode);
     } catch (e) {
       _log('Pause torrents error: $e');
       return false;
@@ -505,7 +519,7 @@ class QBittorrentApiService {
         );
       }
 
-      return response.statusCode == 200;
+      return _isSuccessStatus(response.statusCode);
     } catch (e) {
       _log('Resume torrents error: $e');
       return false;
@@ -525,7 +539,7 @@ class QBittorrentApiService {
         data: 'hashes=${hashes.join('|')}&deleteFiles=$deleteFiles',
         options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
-      final ok = response.statusCode == 200;
+      final ok = _isSuccessStatus(response.statusCode);
       if (ok) {
         // Force a full snapshot on the next sync — the maindata RID can
         // miss the deletion delta if the call lands between polls.
@@ -548,7 +562,7 @@ class QBittorrentApiService {
         data: 'hashes=${hashes.join('|')}',
         options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
-      return response.statusCode == 200;
+      return _isSuccessStatus(response.statusCode);
     } catch (e) {
       _log('Recheck torrents error: $e');
       return false;
@@ -565,7 +579,7 @@ class QBittorrentApiService {
         data: 'hashes=${hashes.join('|')}',
         options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
-      return response.statusCode == 200;
+      return _isSuccessStatus(response.statusCode);
     } catch (e) {
       _log('Reannounce torrents error: $e');
       return false;
@@ -600,7 +614,7 @@ class QBittorrentApiService {
         data: 'hashes=${hashes.join('|')}',
         options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
-      return response.statusCode == 200;
+      return _isSuccessStatus(response.statusCode);
     } catch (e) {
       _log('Set torrent priority error: $e');
       return false;
@@ -621,7 +635,7 @@ class QBittorrentApiService {
         data: 'hash=$hash&id=${fileIds.join('|')}&priority=$priority',
         options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
-      return response.statusCode == 200;
+      return _isSuccessStatus(response.statusCode);
     } catch (e) {
       _log('Set file priority error: $e');
       return false;
@@ -653,7 +667,7 @@ class QBittorrentApiService {
         data: 'limit=$limit',
         options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
-      return response.statusCode == 200;
+      return _isSuccessStatus(response.statusCode);
     } catch (e) {
       _log('Set download limit error: $e');
       return false;
@@ -670,7 +684,7 @@ class QBittorrentApiService {
         data: 'limit=$limit',
         options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
-      return response.statusCode == 200;
+      return _isSuccessStatus(response.statusCode);
     } catch (e) {
       _log('Set upload limit error: $e');
       return false;
@@ -729,7 +743,7 @@ class QBittorrentApiService {
         data: 'hashes=$hash',
         options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
-      return response.statusCode == 200;
+      return _isSuccessStatus(response.statusCode);
     } catch (e) {
       _log('Toggle sequential download error: $e');
       return false;
@@ -747,7 +761,7 @@ class QBittorrentApiService {
         data: 'hashes=$hash',
         options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
-      return response.statusCode == 200;
+      return _isSuccessStatus(response.statusCode);
     } catch (e) {
       _log('Toggle first/last piece priority error: $e');
       return false;
@@ -792,7 +806,7 @@ class QBittorrentApiService {
         queryParameters: {'hash': hash},
       );
 
-      if (response.statusCode == 200 && response.data is List) {
+      if (_isSuccessStatus(response.statusCode) && response.data is List) {
         return (response.data as List).cast<int>();
       }
       return null;
@@ -917,7 +931,7 @@ class QBittorrentApiService {
   Future<bool> testConnection() async {
     try {
       final response = await _dio.get('/api/v2/app/version');
-      return response.statusCode == 200;
+      return _isSuccessStatus(response.statusCode);
     } catch (e) {
       return false;
     }

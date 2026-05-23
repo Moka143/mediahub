@@ -52,8 +52,11 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
   bool _isStreaming = false;
   OverlayEntry? _streamingOverlay;
   ValueNotifier<StreamingOverlayData>? _streamingOverlayData;
-  // Subscription survives the screen being popped — uses root keys for navigation
-  StreamSubscription<StreamingSession>? _monitorSubscription;
+  // Subscription survives the screen being popped — uses root keys for navigation.
+  // Driven by the Riverpod notifier's state (not the streaming service's
+  // broadcast stream), so it can't miss the early state transitions that
+  // happen between startStreaming() returning and the listener subscribing.
+  ProviderSubscription<StreamingSessionsState>? _monitorSubscription;
 
   @override
   void initState() {
@@ -63,7 +66,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
 
   @override
   void dispose() {
-    _monitorSubscription?.cancel();
+    _monitorSubscription?.close();
     _streamingOverlay?.remove();
     _streamingOverlayData?.dispose();
     super.dispose();
@@ -415,7 +418,6 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
   /// keeps running even if the user navigates away from this screen.
   /// Navigation is done via [rootNavigatorKey] — no [mounted] check needed.
   void _monitorStreamingSession(String sessionId, Episode episode, Show show) {
-    final streamingService = ref.read(streamingServiceProvider);
     final containerRef = ProviderScope.containerOf(context);
 
     // Reuse the overlay created by _startStreamingSession if it's already up;
@@ -450,97 +452,119 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
       _streamingOverlayData = result.data;
     }
 
-    final sessionStream = streamingService.getSessionStream(sessionId);
-    if (sessionStream == null) return;
+    // Listen to the *notifier's* state instead of the streaming service's
+    // broadcast stream. The notifier already subscribes to the broadcast
+    // once and updates its state on every emit, so by watching the notifier
+    // we can't miss the early state transitions that happen between
+    // startStreaming() returning and the UI subscribing.
+    //
+    // `fireImmediately: true` makes the listener tick once with the current
+    // state — so if the session has already advanced (e.g. fast-path to
+    // ready), we react right away.
+    _monitorSubscription?.close();
+    _monitorSubscription = ref.listenManual<StreamingSessionsState>(
+      streamingSessionsProvider,
+      (prev, next) {
+        final session = next.sessions[sessionId];
+        if (session == null) return;
+        _handleSessionState(session, episode, show, containerRef);
+      },
+      fireImmediately: true,
+    );
+  }
 
-    _monitorSubscription?.cancel();
-    _monitorSubscription = sessionStream.listen((session) {
-      switch (session.state) {
-        case StreamingState.addingTorrent:
-        case StreamingState.selectingFiles:
-        case StreamingState.buffering:
-          // Update the existing overlay in-place — no remove/recreate, no flicker.
-          // Always show actual percentage so the user sees forward motion even
-          // during file-selection / metadata phases.
-          final pct = session.bufferProgress * 100;
-          final titlePrefix = session.state == StreamingState.buffering
-              ? 'Buffering'
-              : 'Preparing';
-          _streamingOverlayData?.value = StreamingOverlayData(
-            title: '$titlePrefix ${episode.episodeCode}',
-            subtitle: pct > 0
-                ? '${pct.toStringAsFixed(1)}% ready'
-                : 'Connecting…',
-            progress: pct > 0 ? session.bufferProgress : null,
-            isIndeterminate: pct == 0,
-          );
+  void _handleSessionState(
+    StreamingSession session,
+    Episode episode,
+    Show show,
+    ProviderContainer containerRef,
+  ) {
+    switch (session.state) {
+      case StreamingState.addingTorrent:
+      case StreamingState.selectingFiles:
+      case StreamingState.buffering:
+        // Update the existing overlay in-place — no remove/recreate, no flicker.
+        // Always show actual percentage so the user sees forward motion even
+        // during file-selection / metadata phases.
+        final pct = session.bufferProgress * 100;
+        final titlePrefix = session.state == StreamingState.buffering
+            ? 'Buffering'
+            : 'Preparing';
+        _streamingOverlayData?.value = StreamingOverlayData(
+          title: '$titlePrefix ${episode.episodeCode}',
+          subtitle: pct > 0
+              ? '${pct.toStringAsFixed(1)}% ready'
+              : 'Connecting…',
+          progress: pct > 0 ? session.bufferProgress : null,
+          isIndeterminate: pct == 0,
+        );
 
-        case StreamingState.ready:
-          _monitorSubscription?.cancel();
-          _streamingOverlay?.remove();
-          _streamingOverlay = null;
-          _streamingOverlayData?.dispose();
-          _streamingOverlayData = null;
-          if (mounted) setState(() => _isStreaming = false);
+      case StreamingState.ready:
+      case StreamingState.playing:
+        _monitorSubscription?.close();
+        _streamingOverlay?.remove();
+        _streamingOverlay = null;
+        _streamingOverlayData?.dispose();
+        _streamingOverlayData = null;
+        if (mounted) setState(() => _isStreaming = false);
 
-          // Clear the active session so the safety-net listener in
-          // main_navigation_screen doesn't also open the player.
-          containerRef
-              .read(streamingSessionsProvider.notifier)
-              .clearActiveSession();
+        // Clear the active session so the safety-net listener in
+        // main_navigation_screen doesn't also open the player.
+        containerRef
+            .read(streamingSessionsProvider.notifier)
+            .clearActiveSession();
 
-          // Navigate via root key — works whether screen is mounted or not
-          if (session.videoFile != null) {
-            rootNavigatorKey.currentState?.push(
-              MaterialPageRoute(
-                builder: (_) => VideoPlayerScreen(
-                  file: session.videoFile!,
-                  showImdbId: show.imdbId,
-                  isStreaming: true,
-                  streamingTorrentHash: session.torrentHash,
-                  streamingFileIndex: session.selectedFileIndex,
-                  streamingProxyUrl: session.streamUrl,
-                ),
+        // Navigate via root key — works whether screen is mounted or not
+        if (session.videoFile != null) {
+          rootNavigatorKey.currentState?.push(
+            MaterialPageRoute(
+              builder: (_) => VideoPlayerScreen(
+                file: session.videoFile!,
+                showImdbId: show.imdbId,
+                isStreaming: true,
+                streamingTorrentHash: session.torrentHash,
+                streamingFileIndex: session.selectedFileIndex,
+                streamingProxyUrl: session.streamUrl,
               ),
-            );
-          } else if (session.contentPath != null &&
-              session.selectedFilePath != null) {
-            // Fallback: open via content path
-            if (mounted) {
-              _openStreamingPlayer(session.contentPath!, episode, show);
-            }
-          }
-
-        case StreamingState.error:
-          _monitorSubscription?.cancel();
-          _streamingOverlay?.remove();
-          _streamingOverlay = null;
-          _streamingOverlayData?.dispose();
-          _streamingOverlayData = null;
-          if (mounted) setState(() => _isStreaming = false);
-
-          rootScaffoldMessengerKey.currentState?.showSnackBar(
-            SnackBar(
-              content: Text(
-                'Streaming error: ${session.errorMessage ?? "Failed to stream"}',
-              ),
-              backgroundColor: AppColors.error,
-              behavior: SnackBarBehavior.floating,
             ),
           );
+        } else if (session.contentPath != null &&
+            session.selectedFilePath != null) {
+          // Fallback: open via content path
+          if (mounted) {
+            _openStreamingPlayer(session.contentPath!, episode, show);
+          }
+        }
 
-        case StreamingState.cancelled:
-          _monitorSubscription?.cancel();
-          _streamingOverlay?.remove();
-          _streamingOverlay = null;
-          _streamingOverlayData?.dispose();
-          _streamingOverlayData = null;
-          if (mounted) setState(() => _isStreaming = false);
+      case StreamingState.error:
+        _monitorSubscription?.close();
+        _streamingOverlay?.remove();
+        _streamingOverlay = null;
+        _streamingOverlayData?.dispose();
+        _streamingOverlayData = null;
+        if (mounted) setState(() => _isStreaming = false);
 
-        default:
-          break;
-      }
-    });
+        rootScaffoldMessengerKey.currentState?.showSnackBar(
+          SnackBar(
+            content: Text(
+              'Streaming error: ${session.errorMessage ?? "Failed to stream"}',
+            ),
+            backgroundColor: AppColors.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+
+      case StreamingState.cancelled:
+        _monitorSubscription?.close();
+        _streamingOverlay?.remove();
+        _streamingOverlay = null;
+        _streamingOverlayData?.dispose();
+        _streamingOverlayData = null;
+        if (mounted) setState(() => _isStreaming = false);
+
+      case StreamingState.idle:
+        break;
+    }
   }
 
   /// Open the video player with a LocalMediaFile.

@@ -174,10 +174,15 @@ class StreamingService {
 
   /// Minimum absolute buffer (bytes) before streaming is ready.
   /// Scales with file size — see [minBufferBytesFor].
-  static const int _minBufferSmall = 50 * 1024 * 1024; // 50 MB  (files < 1 GB)
-  static const int _minBufferMedium =
-      100 * 1024 * 1024; // 100 MB (files 1–4 GB)
-  static const int _minBufferLarge = 200 * 1024 * 1024; // 200 MB (files > 4 GB)
+  ///
+  /// Drastically lowered (was 50/100/200 MB) because the LocalStreamingServer
+  /// never serves bytes past the current download head — a gap turns into a
+  /// brief mpv pause-for-cache rather than a frozen demuxer. 5 MB is enough
+  /// for MKV/MP4 headers + a few seconds of initial frames so the player can
+  /// start; the player handles further buffering itself.
+  static const int _minBufferSmall = 5 * 1024 * 1024; // 5 MB  (files < 1 GB)
+  static const int _minBufferMedium = 10 * 1024 * 1024; // 10 MB (files 1–4 GB)
+  static const int _minBufferLarge = 20 * 1024 * 1024; // 20 MB (files > 4 GB)
 
   /// Maximum time to wait for metadata
   static const Duration metadataTimeout = Duration(minutes: 2);
@@ -593,7 +598,13 @@ class StreamingService {
         'fast-pathing to ready.',
       );
       await _promoteToReady(sessionId, torrent);
+      return;
     }
+
+    // Same-poll buffer check — if the file already has enough bytes (e.g.
+    // sequential download piped in fast, or we're resuming a partial), we
+    // don't want to wait a full 2 s for the next poll just to discover it.
+    await _handleBuffering(sessionId, torrent);
   }
 
   /// Stand up the local HTTP proxy and transition the session to `ready`.

@@ -41,11 +41,14 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
   bool _isStreaming = false;
   OverlayEntry? _streamingOverlay;
   ValueNotifier<StreamingOverlayData>? _streamingOverlayData;
-  StreamSubscription<StreamingSession>? _monitorSubscription;
+  // Driven by the Riverpod notifier's state (not the streaming service's
+  // broadcast stream) so it can't miss early state transitions that happen
+  // between startStreaming() returning and the listener subscribing.
+  ProviderSubscription<StreamingSessionsState>? _monitorSubscription;
 
   @override
   void dispose() {
-    _monitorSubscription?.cancel();
+    _monitorSubscription?.close();
     _streamingOverlay?.remove();
     _streamingOverlayData?.dispose();
     super.dispose();
@@ -252,87 +255,100 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
     _monitorStreamingSession(session.id, movie);
   }
 
-  /// Listen to session updates and drive the overlay/player navigation.
+  /// Listen to session updates via the Riverpod notifier (NOT the streaming
+  /// service's broadcast stream — that has a race where early state
+  /// transitions can fire before the UI subscribes).
+  ///
+  /// `fireImmediately: true` makes the listener tick once with the current
+  /// state on registration, so if the session has already advanced
+  /// (e.g. fast-path to ready), we react right away.
   void _monitorStreamingSession(String sessionId, Movie movie) {
-    final streamingService = ref.read(streamingServiceProvider);
-    final sessionStream = streamingService.getSessionStream(sessionId);
-    if (sessionStream == null) return;
+    _monitorSubscription?.close();
+    _monitorSubscription = ref.listenManual<StreamingSessionsState>(
+      streamingSessionsProvider,
+      (prev, next) {
+        final session = next.sessions[sessionId];
+        if (session == null) return;
+        _handleSessionState(session, movie);
+      },
+      fireImmediately: true,
+    );
+  }
 
-    _monitorSubscription?.cancel();
-    _monitorSubscription = sessionStream.listen((session) {
-      switch (session.state) {
-        case StreamingState.addingTorrent:
-        case StreamingState.selectingFiles:
-        case StreamingState.buffering:
-          final pct = session.bufferProgress * 100;
-          final titlePrefix = session.state == StreamingState.buffering
-              ? 'Buffering'
-              : 'Preparing';
-          _streamingOverlayData?.value = StreamingOverlayData(
-            title: '$titlePrefix "${movie.title}"',
-            subtitle: pct > 0
-                ? '${pct.toStringAsFixed(1)}% ready'
-                : 'Connecting…',
-            progress: pct > 0 ? session.bufferProgress : null,
-            isIndeterminate: pct == 0,
-          );
+  void _handleSessionState(StreamingSession session, Movie movie) {
+    switch (session.state) {
+      case StreamingState.addingTorrent:
+      case StreamingState.selectingFiles:
+      case StreamingState.buffering:
+        final pct = session.bufferProgress * 100;
+        final titlePrefix = session.state == StreamingState.buffering
+            ? 'Buffering'
+            : 'Preparing';
+        _streamingOverlayData?.value = StreamingOverlayData(
+          title: '$titlePrefix "${movie.title}"',
+          subtitle: pct > 0
+              ? '${pct.toStringAsFixed(1)}% ready'
+              : 'Connecting…',
+          progress: pct > 0 ? session.bufferProgress : null,
+          isIndeterminate: pct == 0,
+        );
 
-        case StreamingState.ready:
-          _monitorSubscription?.cancel();
-          _streamingOverlay?.remove();
-          _streamingOverlay = null;
-          _streamingOverlayData?.dispose();
-          _streamingOverlayData = null;
-          if (mounted) setState(() => _isStreaming = false);
+      case StreamingState.ready:
+      case StreamingState.playing:
+        _monitorSubscription?.close();
+        _streamingOverlay?.remove();
+        _streamingOverlay = null;
+        _streamingOverlayData?.dispose();
+        _streamingOverlayData = null;
+        if (mounted) setState(() => _isStreaming = false);
 
-          ref.read(streamingSessionsProvider.notifier).clearActiveSession();
+        ref.read(streamingSessionsProvider.notifier).clearActiveSession();
 
-          if (session.videoFile != null) {
-            rootNavigatorKey.currentState?.push(
-              MaterialPageRoute(
-                builder: (_) => VideoPlayerScreen(
-                  file: session.videoFile!,
-                  movieImdbId: movie.imdbId,
-                  isStreaming: true,
-                  streamingTorrentHash: session.torrentHash,
-                  streamingFileIndex: session.selectedFileIndex,
-                  streamingProxyUrl: session.streamUrl,
-                ),
+        if (session.videoFile != null) {
+          rootNavigatorKey.currentState?.push(
+            MaterialPageRoute(
+              builder: (_) => VideoPlayerScreen(
+                file: session.videoFile!,
+                movieImdbId: movie.imdbId,
+                isStreaming: true,
+                streamingTorrentHash: session.torrentHash,
+                streamingFileIndex: session.selectedFileIndex,
+                streamingProxyUrl: session.streamUrl,
               ),
-            );
-          } else if (session.contentPath != null) {
-            _openStreamingPlayer(session.contentPath!, movie);
-          }
-
-        case StreamingState.error:
-          _monitorSubscription?.cancel();
-          _streamingOverlay?.remove();
-          _streamingOverlay = null;
-          _streamingOverlayData?.dispose();
-          _streamingOverlayData = null;
-          if (mounted) setState(() => _isStreaming = false);
-          rootScaffoldMessengerKey.currentState?.showSnackBar(
-            SnackBar(
-              content: Text(
-                'Streaming error: ${session.errorMessage ?? "Failed to stream"}',
-              ),
-              backgroundColor: AppColors.error,
-              behavior: SnackBarBehavior.floating,
             ),
           );
+        } else if (session.contentPath != null) {
+          _openStreamingPlayer(session.contentPath!, movie);
+        }
 
-        case StreamingState.cancelled:
-          _monitorSubscription?.cancel();
-          _streamingOverlay?.remove();
-          _streamingOverlay = null;
-          _streamingOverlayData?.dispose();
-          _streamingOverlayData = null;
-          if (mounted) setState(() => _isStreaming = false);
+      case StreamingState.error:
+        _monitorSubscription?.close();
+        _streamingOverlay?.remove();
+        _streamingOverlay = null;
+        _streamingOverlayData?.dispose();
+        _streamingOverlayData = null;
+        if (mounted) setState(() => _isStreaming = false);
+        rootScaffoldMessengerKey.currentState?.showSnackBar(
+          SnackBar(
+            content: Text(
+              'Streaming error: ${session.errorMessage ?? "Failed to stream"}',
+            ),
+            backgroundColor: AppColors.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
 
-        default:
-          break;
-      }
-    });
+      case StreamingState.cancelled:
+        _monitorSubscription?.close();
+        _streamingOverlay?.remove();
+        _streamingOverlay = null;
+        _streamingOverlayData?.dispose();
+        _streamingOverlayData = null;
+        if (mounted) setState(() => _isStreaming = false);
+
+      case StreamingState.idle:
+        break;
+    }
   }
 
   void _openStreamingPlayer(String contentPath, Movie movie) async {
