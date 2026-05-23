@@ -61,28 +61,26 @@ class TmdbAccountService {
   String authorizeUrl(String requestToken) =>
       'https://www.themoviedb.org/auth/access?request_token=$requestToken';
 
-  /// Step 3: exchange an approved request token for a v4 user access token
-  /// + account_id. Throws [TmdbAccountException] if the user hasn't
-  /// approved it yet (401).
-  Future<({String accessToken, int accountId})> createAccessToken(
-    String approvedRequestToken,
-  ) async {
+  /// Step 3: exchange an approved request token for a v4 user access token.
+  /// Throws [TmdbAccountException] if the user hasn't approved it yet (401).
+  ///
+  /// Note: TMDB v4's `/4/auth/access_token` response also includes an
+  /// `account_id`, but in **v4 ObjectId string form** (e.g.
+  /// `62b8f06b41d54e007e95dd1f`). That's useless for our v3 endpoints —
+  /// `/3/account/{id}/favorite` etc need the v3 **integer** account id.
+  /// So we drop the v4 account_id here and let the caller fetch the v3
+  /// integer one from `/3/account` after we have the bearer token.
+  Future<String> createAccessToken(String approvedRequestToken) async {
     try {
       final r = await _dio.post(
         '/4/auth/access_token',
         data: {'request_token': approvedRequestToken},
       );
       final token = r.data['access_token'] as String?;
-      final accountIdRaw = r.data['account_id'];
-      final accountId = accountIdRaw is int
-          ? accountIdRaw
-          : int.tryParse(accountIdRaw?.toString() ?? '');
-      if (token == null || accountId == null) {
-        throw const TmdbAccountException(
-          'TMDB did not return both access_token and account_id',
-        );
+      if (token == null || token.isEmpty) {
+        throw const TmdbAccountException('TMDB did not return an access_token');
       }
-      return (accessToken: token, accountId: accountId);
+      return token;
     } on DioException catch (e) {
       if (e.response?.statusCode == 401) {
         throw const TmdbAccountException(
@@ -115,10 +113,13 @@ class TmdbAccountService {
     }
   }
 
-  /// Returns the signed-in user's account: numeric `id`, `username`, etc.
-  /// Bearer auth identifies the user — no session_id parameter needed.
-  Future<TmdbAccount> getAccount(int accountId) async {
-    final r = await _dio.get('/3/account/$accountId');
+  /// Returns the signed-in user's account: numeric `id` (v3 integer,
+  /// needed for `/3/account/{id}/...` mutation paths), `username`, etc.
+  ///
+  /// Bearer auth identifies the user — calling `/3/account` without a
+  /// path id is the documented way to get the *current* user's info.
+  Future<TmdbAccount> getAccount() async {
+    final r = await _dio.get('/3/account');
     return TmdbAccount.fromJson(r.data as Map<String, dynamic>);
   }
 

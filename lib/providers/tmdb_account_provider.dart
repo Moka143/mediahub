@@ -107,30 +107,32 @@ class TmdbSessionNotifier extends Notifier<TmdbSession?> {
   }
 
   /// Finish sign-in after the user has approved the token in their browser.
-  /// Exchanges the request token for a user access token + account_id,
-  /// fetches the account profile, and persists everything.
+  /// Exchanges the request token for a user access token, fetches the
+  /// account profile (including the v3 integer account id needed for
+  /// `/3/account/{id}/...` endpoints), and persists everything.
   Future<void> completeSignIn(String approvedRequestToken) async {
-    // OAuth must run with the app/read token, not a user token. The
-    // service provider naturally has the right Bearer here because the
-    // user isn't signed in yet (session == null → falls back to read).
+    // OAuth itself runs with the app/read token (Bearer). The user isn't
+    // signed in yet, so tmdbAccountServiceProvider already has the right
+    // Bearer.
     final svc = ref.read(tmdbAccountServiceProvider);
-    final exchange = await svc.createAccessToken(approvedRequestToken);
+    final accessToken = await svc.createAccessToken(approvedRequestToken);
 
-    // Once we have the user token, build a temporary service authenticated
-    // as the user to fetch their account profile.
-    final userSvc = TmdbAccountService(accessToken: exchange.accessToken);
-    final account = await userSvc.getAccount(exchange.accountId);
+    // Build a fresh service authenticated as the user to look up their
+    // v3 integer account id — TMDB v4's response gives back a v4-style
+    // string id that doesn't fit /3/account/{int}/... endpoints.
+    final userSvc = TmdbAccountService(accessToken: accessToken);
+    final account = await userSvc.getAccount();
 
     final session = TmdbSession(
-      accessToken: exchange.accessToken,
-      accountId: exchange.accountId,
+      accessToken: accessToken,
+      accountId: account.id,
       account: account,
     );
     state = session;
 
     final prefs = ref.read(sharedPreferencesProvider);
-    await prefs.setString(_accessTokenKey, exchange.accessToken);
-    await prefs.setInt(_accountIdKey, exchange.accountId);
+    await prefs.setString(_accessTokenKey, accessToken);
+    await prefs.setInt(_accountIdKey, account.id);
     await prefs.setString(_accountKey, jsonEncode(account.toJson()));
   }
 
