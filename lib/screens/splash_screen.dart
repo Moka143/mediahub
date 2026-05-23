@@ -46,11 +46,18 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     _controller.forward().whenComplete(() async {
       await Future.delayed(const Duration(milliseconds: 400));
       if (!mounted) return;
+      // Show onboarding on the very first launch (no key + no completion flag)
+      // AND when a bundled key is in place but the user hasn't been past the
+      // sign-in invitation yet. `markCompleted` is set when the user signs in,
+      // saves their own key, or explicitly skips.
+      final hasOnboarded = ref.read(hasCompletedOnboardingProvider);
       final hasKey = ref.read(hasTmdbApiKeyProvider);
+      final goHome = hasOnboarded && hasKey;
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) =>
-              hasKey ? const MainNavigationScreen() : const OnboardingScreen(),
+          pageBuilder: (context, animation, secondaryAnimation) => goHome
+              ? const MainNavigationScreen()
+              : const OnboardingScreen(),
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
             return FadeTransition(opacity: animation, child: child);
           },

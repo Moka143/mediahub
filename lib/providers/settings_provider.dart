@@ -277,6 +277,36 @@ final isUsingBundledTmdbKeyProvider = Provider<bool>((ref) {
   return userKey.isEmpty && bundledTmdbApiKey.isNotEmpty;
 });
 
+const _onboardedKey = 'has_completed_onboarding';
+
+/// Tracks whether the user has been past the onboarding screen at least once.
+/// Set to true when the user signs in, saves their own key, OR explicitly
+/// skips. Used by [SplashScreen] to decide whether to route to onboarding.
+class OnboardingCompletedNotifier extends Notifier<bool> {
+  @override
+  bool build() {
+    final prefs = ref.watch(sharedPreferencesProvider);
+    return prefs.getBool(_onboardedKey) ?? false;
+  }
+
+  Future<void> markCompleted() async {
+    final prefs = ref.read(sharedPreferencesProvider);
+    await prefs.setBool(_onboardedKey, true);
+    state = true;
+  }
+
+  Future<void> reset() async {
+    final prefs = ref.read(sharedPreferencesProvider);
+    await prefs.remove(_onboardedKey);
+    state = false;
+  }
+}
+
+final hasCompletedOnboardingProvider =
+    NotifierProvider<OnboardingCompletedNotifier, bool>(
+      OnboardingCompletedNotifier.new,
+    );
+
 /// Provider for binge watching enabled
 final bingeWatchingEnabledProvider = Provider<bool>((ref) {
   return ref.watch(settingsProvider).bingeWatchingEnabled;
