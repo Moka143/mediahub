@@ -377,7 +377,11 @@ class StreamingService {
       );
 
       if (torrent == null) {
-        // Torrent not found yet, might still be adding
+        // Torrent not found yet, might still be adding. Emit a heartbeat
+        // so the UI listener sees activity (otherwise the initial overlay
+        // text just sits there until metadata arrives, which can take
+        // 30+ s on a low-peer torrent and looks like a freeze).
+        _updateSession(sessionId, bufferProgress: 0);
         if (DateTime.now().difference(session.createdAt) > metadataTimeout) {
           _updateSession(
             sessionId,
@@ -388,8 +392,14 @@ class StreamingService {
         return;
       }
 
-      // Update content path
-      _updateSession(sessionId, contentPath: torrent.contentPath);
+      // Heartbeat: refresh content path AND bufferProgress on every poll
+      // so the listener sees forward motion during the metadata→file-
+      // selection phases, even when state itself hasn't changed yet.
+      _updateSession(
+        sessionId,
+        contentPath: torrent.contentPath,
+        bufferProgress: torrent.progress,
+      );
 
       // Handle based on current state
       switch (session.state) {
