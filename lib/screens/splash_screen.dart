@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_torrent_client/screens/main_navigation_screen.dart';
 import '../design/app_tokens.dart';
 import '../providers/settings_provider.dart';
+import '../providers/tmdb_account_provider.dart';
 import '../utils/constants.dart';
 import 'onboarding_screen.dart';
 
@@ -46,13 +47,18 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     _controller.forward().whenComplete(() async {
       await Future.delayed(const Duration(milliseconds: 400));
       if (!mounted) return;
-      // Show onboarding on the very first launch (no key + no completion flag)
-      // AND when a bundled key is in place but the user hasn't been past the
-      // sign-in invitation yet. `markCompleted` is set when the user signs in,
-      // saves their own key, or explicitly skips.
+      // Routing rules:
+      //   - If the user is already TMDB-signed-in (from a previous version
+      //     or session), skip onboarding regardless of the flag — they've
+      //     clearly been past the sign-in invitation before.
+      //   - Else, show onboarding when there's no key OR when the user
+      //     hasn't been past it yet (so existing users with just an API
+      //     key get the one-time sign-in invitation).
+      //   - Otherwise, home.
+      final isSignedIn = ref.read(isTmdbSignedInProvider);
       final hasOnboarded = ref.read(hasCompletedOnboardingProvider);
       final hasKey = ref.read(hasTmdbApiKeyProvider);
-      final goHome = hasOnboarded && hasKey;
+      final goHome = isSignedIn || (hasOnboarded && hasKey);
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(
           pageBuilder: (context, animation, secondaryAnimation) => goHome

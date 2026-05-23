@@ -143,13 +143,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final hasKey = ref.watch(hasTmdbApiKeyProvider);
     final usingBundled = ref.watch(isUsingBundledTmdbKeyProvider);
 
-    // If sign-in completed mid-build (e.g. via deep link), bail out.
-    if (ref.watch(isTmdbSignedInProvider)) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _navigateToHome();
-      });
-    }
-
     return Scaffold(
       body: Center(
         child: ConstrainedBox(
