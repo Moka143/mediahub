@@ -941,8 +941,9 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
                   const SizedBox(width: AppSpacing.xs),
                   Consumer(
                     builder: (context, ref, _) {
-                      final onWatchlist =
-                          ref.watch(isOnWatchlistProvider(show.id));
+                      final onWatchlist = ref.watch(
+                        isOnWatchlistProvider(show.id),
+                      );
                       return Material(
                         color: Colors.white.withAlpha(20),
                         shape: const CircleBorder(),

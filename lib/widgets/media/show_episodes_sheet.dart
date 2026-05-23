@@ -59,9 +59,7 @@ class ShowEpisodesSheet extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final posterAsync = ref.watch(showPosterProvider(showData.showName));
-    final initial = showData.showName.isNotEmpty
-        ? showData.showName[0]
-        : null;
+    final initial = showData.showName.isNotEmpty ? showData.showName[0] : null;
     final hasMultipleSeasons = showData.seasons.length > 1;
 
     return SafeArea(

@@ -156,11 +156,7 @@ class WatchlistNotifier extends Notifier<WatchlistState> {
         accountId: s.account.id,
         sessionId: s.sessionId,
       );
-      state = state.copyWith(
-        showIds: tv,
-        movieIds: movies,
-        isSyncing: false,
-      );
+      state = state.copyWith(showIds: tv, movieIds: movies, isSyncing: false);
       await _saveTv();
       await _saveMovies();
     } catch (e) {
@@ -169,8 +165,9 @@ class WatchlistNotifier extends Notifier<WatchlistState> {
   }
 }
 
-final watchlistProvider =
-    NotifierProvider<WatchlistNotifier, WatchlistState>(WatchlistNotifier.new);
+final watchlistProvider = NotifierProvider<WatchlistNotifier, WatchlistState>(
+  WatchlistNotifier.new,
+);
 
 final isOnWatchlistProvider = Provider.family<bool, int>((ref, id) {
   return ref.watch(watchlistProvider).showIds.contains(id);

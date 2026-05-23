@@ -142,18 +142,13 @@ class _TvFavoritesTab extends ConsumerWidget {
           ),
           child: Row(
             children: [
-              Icon(
-                Icons.schedule_rounded,
-                color: appColors.warning,
-                size: 20,
-              ),
+              Icon(Icons.schedule_rounded, color: appColors.warning, size: 20),
               const SizedBox(width: AppSpacing.md),
               Text(
                 'Upcoming Episodes',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleLarge
-                    ?.copyWith(fontWeight: FontWeight.bold),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -277,8 +272,9 @@ class _WatchlistTab extends ConsumerWidget {
                 ),
                 child: Text(
                   'TV Shows (${wl.showIds.length})',
-                  style: theme.textTheme.titleLarge
-                      ?.copyWith(fontWeight: FontWeight.bold),
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
               shows.when(
@@ -301,8 +297,9 @@ class _WatchlistTab extends ConsumerWidget {
                 ),
                 child: Text(
                   'Movies (${wl.movieIds.length})',
-                  style: theme.textTheme.titleLarge
-                      ?.copyWith(fontWeight: FontWeight.bold),
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
               movies.when(
@@ -365,15 +362,17 @@ class _EmptyTab extends StatelessWidget {
             const SizedBox(height: AppSpacing.xl),
             Text(
               title,
-              style: theme.textTheme.headlineSmall
-                  ?.copyWith(fontWeight: FontWeight.bold),
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: AppSpacing.sm),
             Text(
               subtitle,
-              style: theme.textTheme.bodyLarge
-                  ?.copyWith(color: appColors.mutedText),
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: appColors.mutedText,
+              ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: AppSpacing.xxl),
@@ -420,9 +419,7 @@ class _ShowsGrid extends StatelessWidget {
           show: show,
           onTap: () {
             Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => ShowDetailsScreen(show: show),
-              ),
+              MaterialPageRoute(builder: (_) => ShowDetailsScreen(show: show)),
             );
           },
         );
@@ -514,8 +511,10 @@ class _UpcomingEpisodeItem extends StatelessWidget {
           vertical: AppSpacing.xs,
         ),
         decoration: BoxDecoration(
-          color: _getTimeColor(upcoming.daysUntilAir, appColors)
-              .withAlpha(AppOpacity.light),
+          color: _getTimeColor(
+            upcoming.daysUntilAir,
+            appColors,
+          ).withAlpha(AppOpacity.light),
           borderRadius: BorderRadius.circular(AppRadius.xs),
         ),
         child: Text(

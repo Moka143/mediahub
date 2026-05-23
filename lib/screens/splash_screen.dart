@@ -61,9 +61,8 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       final goHome = isSignedIn || (hasOnboarded && hasKey);
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) => goHome
-              ? const MainNavigationScreen()
-              : const OnboardingScreen(),
+          pageBuilder: (context, animation, secondaryAnimation) =>
+              goHome ? const MainNavigationScreen() : const OnboardingScreen(),
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
             return FadeTransition(opacity: animation, child: child);
           },

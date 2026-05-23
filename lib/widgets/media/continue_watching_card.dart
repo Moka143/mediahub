@@ -30,7 +30,8 @@ class ContinueWatchingCard extends ConsumerWidget {
         (progress.seasonNumber != null || progress.episodeNumber != null)) {
       return ref.watch(showPosterProvider(progress.showName!));
     }
-    final searchName = progress.showName ?? _extractMovieName(progress.displayTitle);
+    final searchName =
+        progress.showName ?? _extractMovieName(progress.displayTitle);
     if (searchName.isNotEmpty) {
       return ref.watch(moviePosterProvider(searchName));
     }
@@ -60,26 +61,32 @@ class ContinueWatchingCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final actions = <MediaCardAction>[];
     if (onMarkWatched != null) {
-      actions.add(MediaCardAction(
-        icon: Icons.check_circle_outline_rounded,
-        label: 'Mark as watched',
-        onSelected: onMarkWatched!,
-      ));
+      actions.add(
+        MediaCardAction(
+          icon: Icons.check_circle_outline_rounded,
+          label: 'Mark as watched',
+          onSelected: onMarkWatched!,
+        ),
+      );
     }
     if (onRemove != null) {
-      actions.add(MediaCardAction(
-        icon: Icons.remove_circle_outline_rounded,
-        label: 'Remove from Continue Watching',
-        onSelected: onRemove!,
-      ));
+      actions.add(
+        MediaCardAction(
+          icon: Icons.remove_circle_outline_rounded,
+          label: 'Remove from Continue Watching',
+          onSelected: onRemove!,
+        ),
+      );
     }
     if (onDelete != null) {
-      actions.add(MediaCardAction(
-        icon: Icons.delete_outline_rounded,
-        label: 'Delete file',
-        onSelected: onDelete!,
-        destructive: true,
-      ));
+      actions.add(
+        MediaCardAction(
+          icon: Icons.delete_outline_rounded,
+          label: 'Delete file',
+          onSelected: onDelete!,
+          destructive: true,
+        ),
+      );
     }
 
     return Padding(

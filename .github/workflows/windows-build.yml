@@ -33,7 +33,13 @@ jobs:
         run: flutter test
 
       - name: Build Windows release
-        run: flutter build windows --release
+        env:
+          # When set in repo secrets, the build bundles a default TMDB key so
+          # release users can skip the onboarding paste step. If unset, the
+          # secret evaluates to an empty string and the app falls back to
+          # asking for an API key on first launch.
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: flutter build windows --release --dart-define=TMDB_API_KEY=$env:TMDB_API_KEY
 
       - name: Package MSIX installer
         run: dart run msix:create --sign-msix false --install-certificate false

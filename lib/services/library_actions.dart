@@ -60,9 +60,9 @@ Future<LibraryDeleteResult> deleteLibraryItem(
   final hash = _findTorrentHashForFile(ref, file);
   if (hash != null) {
     try {
-      final ok = await ref
-          .read(torrentListProvider.notifier)
-          .deleteTorrents([hash], deleteFiles: true);
+      final ok = await ref.read(torrentListProvider.notifier).deleteTorrents([
+        hash,
+      ], deleteFiles: true);
       if (ok) {
         // Torrent delete already invalidates media providers + cleans stale
         // watch progress entries (see TorrentListNotifier.deleteTorrents).
@@ -86,10 +86,7 @@ Future<LibraryDeleteResult> deleteLibraryItem(
     ref.invalidate(localMediaStreamProvider);
     ref.invalidate(localMediaFilesProvider);
     await ref.read(watchProgressProvider.notifier).cleanupStaleEntries();
-    return LibraryDeleteResult(
-      fileRemoved: true,
-      torrentRemoved: hash != null,
-    );
+    return LibraryDeleteResult(fileRemoved: true, torrentRemoved: hash != null);
   } catch (e) {
     debugPrint('[LibraryActions] File delete failed for ${file.path}: $e');
     return LibraryDeleteResult(

@@ -251,8 +251,10 @@ class SettingsNotifier extends Notifier<AppSettings> {
 ///   flutter run --dart-define=TMDB_API_KEY=<key>
 /// or set it in a CI release pipeline. If empty, the user must enter their
 /// own key via Settings or onboarding.
-const String bundledTmdbApiKey =
-    String.fromEnvironment('TMDB_API_KEY', defaultValue: '');
+const String bundledTmdbApiKey = String.fromEnvironment(
+  'TMDB_API_KEY',
+  defaultValue: '',
+);
 
 /// The TMDB API key that should actually be used for catalog requests:
 /// a non-empty user-entered key wins over the bundled default. When the user

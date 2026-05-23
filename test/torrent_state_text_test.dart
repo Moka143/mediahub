@@ -33,10 +33,7 @@ void main() {
     });
 
     test('unrecognised state still falls back to "Unknown"', () {
-      expect(
-        _torrentWithState('madeUpFutureState').statusText,
-        'Unknown',
-      );
+      expect(_torrentWithState('madeUpFutureState').statusText, 'Unknown');
     });
   });
 }

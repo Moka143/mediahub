@@ -540,17 +540,14 @@ class StreamingService {
     // stopped after completion). Skip the buffer wait — and crucially skip
     // toggling file priorities, which can re-trigger a qBit recheck on a
     // completed torrent and starve the next sync update.
-    final isAlreadyComplete =
-        torrent.isCompleted || torrent.progress >= 0.99;
+    final isAlreadyComplete = torrent.isCompleted || torrent.progress >= 0.99;
 
     // For season packs, disable all other files to save bandwidth — but only
     // while the torrent is still downloading. Setting priorities on a
     // completed torrent can flip qBittorrent into a recheck state that
     // briefly reports progress=0 on the file, which then never recovers in
     // the sync delta (see Fix 1 in plan).
-    if (session.stream.isSeasonPack &&
-        files.length > 1 &&
-        !isAlreadyComplete) {
+    if (session.stream.isSeasonPack && files.length > 1 && !isAlreadyComplete) {
       debugPrint(
         '[StreamingService] Disabling non-target files in season pack',
       );
@@ -680,8 +677,7 @@ class StreamingService {
     // Completion short-circuit: if qBit reports the torrent fully done,
     // promote immediately even if our local byte threshold isn't met
     // (small files can be done at <50 MB).
-    final torrentDone =
-        torrent.isCompleted || torrent.progress >= 0.99;
+    final torrentDone = torrent.isCompleted || torrent.progress >= 0.99;
     final readyNow = bytesOk || (torrentDone && fileProgress >= 0.95);
 
     if (readyNow) {

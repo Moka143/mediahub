@@ -13,8 +13,7 @@ class TmdbAccountSection extends ConsumerStatefulWidget {
   const TmdbAccountSection({super.key});
 
   @override
-  ConsumerState<TmdbAccountSection> createState() =>
-      _TmdbAccountSectionState();
+  ConsumerState<TmdbAccountSection> createState() => _TmdbAccountSectionState();
 }
 
 class _TmdbAccountSectionState extends ConsumerState<TmdbAccountSection> {
@@ -28,9 +27,7 @@ class _TmdbAccountSectionState extends ConsumerState<TmdbAccountSection> {
       _error = null;
     });
     try {
-      final token = await ref
-          .read(tmdbSessionProvider.notifier)
-          .beginSignIn();
+      final token = await ref.read(tmdbSessionProvider.notifier).beginSignIn();
       if (mounted) setState(() => _pendingToken = token);
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());

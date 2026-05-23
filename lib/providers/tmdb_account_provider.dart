@@ -35,10 +35,9 @@ final tmdbAccountServiceProvider = Provider<TmdbAccountService>((ref) {
   return TmdbAccountService(apiKey: apiKey);
 });
 
-final tmdbSessionProvider =
-    NotifierProvider<TmdbSessionNotifier, TmdbSession?>(
-      TmdbSessionNotifier.new,
-    );
+final tmdbSessionProvider = NotifierProvider<TmdbSessionNotifier, TmdbSession?>(
+  TmdbSessionNotifier.new,
+);
 
 /// True when there's a stored TMDB session — used to gate sync UI.
 final isTmdbSignedInProvider = Provider<bool>(

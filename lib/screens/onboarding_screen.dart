@@ -72,9 +72,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       _error = null;
     });
     try {
-      final token = await ref
-          .read(tmdbSessionProvider.notifier)
-          .beginSignIn();
+      final token = await ref.read(tmdbSessionProvider.notifier).beginSignIn();
       if (!mounted) return;
       setState(() => _pendingToken = token);
     } catch (e) {
@@ -154,11 +152,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               children: [
                 ClipRRect(
                   borderRadius: BorderRadius.circular(AppRadius.lg),
-                  child: Image.asset(
-                    'assets/icon.png',
-                    width: 96,
-                    height: 96,
-                  ),
+                  child: Image.asset('assets/icon.png', width: 96, height: 96),
                 ),
                 const SizedBox(height: AppSpacing.lg),
                 Text(
@@ -180,10 +174,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                     onCancel: () => setState(() => _pendingToken = null),
                   )
                 else if (hasKey) ...[
-                  _PrimarySignInButton(
-                    busy: _busy,
-                    onPressed: _startSignIn,
-                  ),
+                  _PrimarySignInButton(busy: _busy, onPressed: _startSignIn),
                   const SizedBox(height: AppSpacing.sm),
                   TextButton(
                     onPressed: _busy ? null : _skip,
@@ -349,8 +340,10 @@ class _PendingApprovalCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.open_in_browser_rounded,
-                  color: theme.colorScheme.primary),
+              Icon(
+                Icons.open_in_browser_rounded,
+                color: theme.colorScheme.primary,
+              ),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Text(
@@ -421,9 +414,7 @@ class _AdvancedSection extends StatelessWidget {
     final theme = Theme.of(context);
     return Container(
       decoration: BoxDecoration(
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant,
-        ),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
         borderRadius: BorderRadius.circular(AppRadius.md),
       ),
       child: Column(
@@ -547,9 +538,7 @@ class _ApiKeyEntry extends StatelessWidget {
         border: const OutlineInputBorder(),
         suffixIcon: IconButton(
           icon: Icon(
-            obscure
-                ? Icons.visibility_rounded
-                : Icons.visibility_off_rounded,
+            obscure ? Icons.visibility_rounded : Icons.visibility_off_rounded,
           ),
           tooltip: obscure ? 'Show' : 'Hide',
           onPressed: onObscureToggle,

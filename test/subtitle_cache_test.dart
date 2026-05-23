@@ -71,10 +71,7 @@ void main() {
     });
 
     test('episode context without S/E returns null', () {
-      final ctx = const SubtitleContext(
-        imdbId: 'tt0944947',
-        isMovie: false,
-      );
+      final ctx = const SubtitleContext(imdbId: 'tt0944947', isMovie: false);
       expect(cacheKeyFromContext(ctx), isNull);
     });
   });
@@ -99,9 +96,7 @@ void main() {
         lang: 'en',
         langName: 'English',
       );
-      final notifier = container.read(
-        currentExternalSubtitleProvider.notifier,
-      );
+      final notifier = container.read(currentExternalSubtitleProvider.notifier);
 
       await notifier.persist('movie:tt0111161', sub);
       final loaded = notifier.loadFor('movie:tt0111161');
@@ -114,9 +109,7 @@ void main() {
     });
 
     test('loadFor returns null for unknown cache key', () {
-      final notifier = container.read(
-        currentExternalSubtitleProvider.notifier,
-      );
+      final notifier = container.read(currentExternalSubtitleProvider.notifier);
       expect(notifier.loadFor('movie:never-saved'), isNull);
     });
   });

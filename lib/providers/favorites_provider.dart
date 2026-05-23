@@ -98,7 +98,10 @@ class FavoritesNotifier extends Notifier<FavoritesState> {
 
   Future<void> _saveTv() async {
     final prefs = ref.read(sharedPreferencesProvider);
-    await prefs.setString(_favoritesKey, jsonEncode(state.favoriteIds.toList()));
+    await prefs.setString(
+      _favoritesKey,
+      jsonEncode(state.favoriteIds.toList()),
+    );
   }
 
   Future<void> _saveMovies() async {
@@ -147,10 +150,7 @@ class FavoritesNotifier extends Notifier<FavoritesState> {
     final newCache = movie != null
         ? (Map<int, Movie>.from(state.cachedMovies)..[movieId] = movie)
         : null;
-    state = state.copyWith(
-      favoriteMovieIds: newIds,
-      cachedMovies: newCache,
-    );
+    state = state.copyWith(favoriteMovieIds: newIds, cachedMovies: newCache);
     await _saveMovies();
     _pushToTmdb(TmdbMediaType.movie, movieId, true);
   }
@@ -158,10 +158,7 @@ class FavoritesNotifier extends Notifier<FavoritesState> {
   Future<void> removeMovieFavorite(int movieId) async {
     final newIds = Set<int>.from(state.favoriteMovieIds)..remove(movieId);
     final newCache = Map<int, Movie>.from(state.cachedMovies)..remove(movieId);
-    state = state.copyWith(
-      favoriteMovieIds: newIds,
-      cachedMovies: newCache,
-    );
+    state = state.copyWith(favoriteMovieIds: newIds, cachedMovies: newCache);
     await _saveMovies();
     _pushToTmdb(TmdbMediaType.movie, movieId, false);
   }
@@ -174,8 +171,7 @@ class FavoritesNotifier extends Notifier<FavoritesState> {
     }
   }
 
-  bool isMovieFavorite(int movieId) =>
-      state.favoriteMovieIds.contains(movieId);
+  bool isMovieFavorite(int movieId) => state.favoriteMovieIds.contains(movieId);
 
   // ---------------- TMDB push & sync ----------------
 

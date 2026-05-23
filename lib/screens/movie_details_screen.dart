@@ -566,17 +566,12 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
                             child: IconButton(
                               onPressed: () => ref
                                   .read(favoritesProvider.notifier)
-                                  .toggleMovieFavorite(
-                                    movie.id,
-                                    movie: movie,
-                                  ),
+                                  .toggleMovieFavorite(movie.id, movie: movie),
                               icon: Icon(
                                 fav
                                     ? Icons.favorite_rounded
                                     : Icons.favorite_outline_rounded,
-                                color: fav
-                                    ? Colors.redAccent
-                                    : Colors.white,
+                                color: fav ? Colors.redAccent : Colors.white,
                               ),
                               tooltip: fav
                                   ? 'Remove from favorites'
@@ -602,9 +597,7 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
                                 wl
                                     ? Icons.bookmark_rounded
                                     : Icons.bookmark_outline_rounded,
-                                color: wl
-                                    ? Colors.amberAccent
-                                    : Colors.white,
+                                color: wl ? Colors.amberAccent : Colors.white,
                               ),
                               tooltip: wl
                                   ? 'Remove from watchlist'
