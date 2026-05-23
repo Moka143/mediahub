@@ -34,12 +34,21 @@ jobs:
 
       - name: Build Windows release
         env:
-          # When set in repo secrets, the build bundles a default TMDB key so
-          # release users can skip the onboarding paste step. If unset, the
-          # secret evaluates to an empty string and the app falls back to
-          # asking for an API key on first launch.
+          # When set in repo secrets, the build bundles a default TMDB v4
+          # Read Access Token so release users can skip the onboarding paste
+          # step. If unset, the secret evaluates to an empty string and the
+          # app falls back to asking for one on first launch.
+          #
+          # The new secret name is `TMDB_READ_ACCESS_TOKEN`; the legacy
+          # `TMDB_API_KEY` name is also read for backward compatibility, but
+          # a v3 api_key won't authenticate as a v4 Bearer — store a v4
+          # Read Access Token (JWT) under either secret.
+          TMDB_READ_ACCESS_TOKEN: ${{ secrets.TMDB_READ_ACCESS_TOKEN }}
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
-        run: flutter build windows --release --dart-define=TMDB_API_KEY=$env:TMDB_API_KEY
+        run: >
+          flutter build windows --release
+          --dart-define=TMDB_READ_ACCESS_TOKEN=$env:TMDB_READ_ACCESS_TOKEN
+          --dart-define=TMDB_API_KEY=$env:TMDB_API_KEY
 
       - name: Package MSIX installer
         run: dart run msix:create --sign-msix false --install-certificate false

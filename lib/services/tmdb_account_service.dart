@@ -2,82 +2,112 @@ import 'package:dio/dio.dart';
 
 /// What TMDB lets a signed-in user mutate from the API.
 ///
-/// All mutation endpoints round-trip in this service so the caller can
-/// optimistically update local state and reconcile with the server's response.
+/// **v4 Bearer auth.** Requests use `Authorization: Bearer <accessToken>` —
+/// no `api_key` query param, no `session_id`. The token itself identifies
+/// the user (for user-scoped operations) or the app (for catalog reads).
+///
+/// All read/write endpoints stay on the `/3/...` namespace (TMDB accepts
+/// v4 Bearer auth on v3 endpoints); only the OAuth flow uses `/4/auth/...`
+/// endpoints, which is what gives us the user-scoped access token in the
+/// first place.
 class TmdbAccountService {
-  static const String _baseUrl = 'https://api.themoviedb.org/3';
+  static const String _baseUrl = 'https://api.themoviedb.org';
 
   final Dio _dio;
-  final String apiKey;
+  final String accessToken;
 
-  TmdbAccountService({required this.apiKey})
+  TmdbAccountService({required this.accessToken})
     : _dio = Dio(
         BaseOptions(
           baseUrl: _baseUrl,
           connectTimeout: const Duration(seconds: 10),
           receiveTimeout: const Duration(seconds: 15),
-          headers: {'content-type': 'application/json'},
+          headers: {
+            'Authorization': 'Bearer $accessToken',
+            'Content-Type': 'application/json;charset=utf-8',
+            'Accept': 'application/json',
+          },
         ),
       );
 
-  Map<String, dynamic> get _key => {'api_key': apiKey};
-
   // ============================================================================
-  // Authentication (v3 session flow)
+  // Authentication (v4 access token flow)
   // ============================================================================
 
-  /// Step 1: ask TMDB for a fresh request token. Valid for ~60 minutes; user
-  /// must approve it in their browser before it can be exchanged.
+  /// Step 1: ask TMDB for a fresh v4 request token. Valid for ~60 minutes;
+  /// user must approve it in their browser before it can be exchanged.
+  ///
+  /// Uses Bearer = the app's read access token (the currently configured
+  /// token on this service instance).
   Future<String> createRequestToken() async {
-    final r = await _dio.get(
-      '/authentication/token/new',
-      queryParameters: _key,
-    );
-    final token = r.data['request_token'] as String?;
-    if (token == null) {
-      throw const TmdbAccountException('TMDB did not return a request_token');
+    try {
+      final r = await _dio.post('/4/auth/request_token');
+      final token = r.data['request_token'] as String?;
+      if (token == null) {
+        throw const TmdbAccountException('TMDB did not return a request_token');
+      }
+      return token;
+    } on DioException catch (e) {
+      throw TmdbAccountException(
+        e.response?.data is Map
+            ? (e.response!.data['status_message']?.toString() ??
+                  'Failed to create request token')
+            : 'Failed to create request token: ${e.message}',
+      );
     }
-    return token;
   }
 
   /// URL the user opens in their browser to approve the request token.
-  /// On TMDB's confirmation page they accept, then can close the tab.
   String authorizeUrl(String requestToken) =>
-      'https://www.themoviedb.org/authenticate/$requestToken';
+      'https://www.themoviedb.org/auth/access?request_token=$requestToken';
 
-  /// Step 3: exchange an approved request token for a session_id. Throws
-  /// [TmdbAccountException] if the user hasn't approved it yet.
-  Future<String> createSession(String approvedRequestToken) async {
+  /// Step 3: exchange an approved request token for a v4 user access token
+  /// + account_id. Throws [TmdbAccountException] if the user hasn't
+  /// approved it yet (401).
+  Future<({String accessToken, int accountId})> createAccessToken(
+    String approvedRequestToken,
+  ) async {
     try {
       final r = await _dio.post(
-        '/authentication/session/new',
-        queryParameters: _key,
+        '/4/auth/access_token',
         data: {'request_token': approvedRequestToken},
       );
-      final id = r.data['session_id'] as String?;
-      if (id == null) {
-        throw const TmdbAccountException('TMDB did not return a session_id');
+      final token = r.data['access_token'] as String?;
+      final accountIdRaw = r.data['account_id'];
+      final accountId = accountIdRaw is int
+          ? accountIdRaw
+          : int.tryParse(accountIdRaw?.toString() ?? '');
+      if (token == null || accountId == null) {
+        throw const TmdbAccountException(
+          'TMDB did not return both access_token and account_id',
+        );
       }
-      return id;
+      return (accessToken: token, accountId: accountId);
     } on DioException catch (e) {
-      // 401 = token not yet authorized. Surface a friendlier message.
       if (e.response?.statusCode == 401) {
         throw const TmdbAccountException(
           'Token not yet approved — confirm in the browser, then try again.',
         );
       }
-      rethrow;
+      throw TmdbAccountException(
+        e.response?.data is Map
+            ? (e.response!.data['status_message']?.toString() ??
+                  'Failed to create access token')
+            : 'Failed to create access token: ${e.message}',
+      );
     }
   }
 
-  /// Revoke a session on the TMDB side. Best-effort: returns false on
-  /// failure rather than throwing (we still drop it locally either way).
-  Future<bool> deleteSession(String sessionId) async {
+  /// Revoke a v4 user access token on the TMDB side. Best-effort: returns
+  /// false on failure rather than throwing (we still drop it locally).
+  ///
+  /// The Dio instance must be configured with this same `accessToken` as
+  /// its Bearer for the call to succeed.
+  Future<bool> deleteAccessToken(String token) async {
     try {
       final r = await _dio.delete(
-        '/authentication/session',
-        queryParameters: _key,
-        data: {'session_id': sessionId},
+        '/4/auth/access_token',
+        data: {'access_token': token},
       );
       return r.data['success'] == true;
     } catch (_) {
@@ -85,13 +115,10 @@ class TmdbAccountService {
     }
   }
 
-  /// Returns the user's account: numeric `id` (used in mutation paths),
-  /// `username`, etc.
-  Future<TmdbAccount> getAccount(String sessionId) async {
-    final r = await _dio.get(
-      '/account',
-      queryParameters: {..._key, 'session_id': sessionId},
-    );
+  /// Returns the signed-in user's account: numeric `id`, `username`, etc.
+  /// Bearer auth identifies the user — no session_id parameter needed.
+  Future<TmdbAccount> getAccount(int accountId) async {
+    final r = await _dio.get('/3/account/$accountId');
     return TmdbAccount.fromJson(r.data as Map<String, dynamic>);
   }
 
@@ -102,14 +129,12 @@ class TmdbAccountService {
   /// Mark or unmark a TV show or movie as favorite for [accountId].
   Future<void> setFavorite({
     required int accountId,
-    required String sessionId,
     required TmdbMediaType mediaType,
     required int mediaId,
     required bool favorite,
   }) async {
     await _dio.post(
-      '/account/$accountId/favorite',
-      queryParameters: {..._key, 'session_id': sessionId},
+      '/3/account/$accountId/favorite',
       data: {
         'media_type': mediaType.api,
         'media_id': mediaId,
@@ -121,14 +146,12 @@ class TmdbAccountService {
   /// Add or remove a TV show or movie from the watchlist for [accountId].
   Future<void> setWatchlist({
     required int accountId,
-    required String sessionId,
     required TmdbMediaType mediaType,
     required int mediaId,
     required bool watchlist,
   }) async {
     await _dio.post(
-      '/account/$accountId/watchlist',
-      queryParameters: {..._key, 'session_id': sessionId},
+      '/3/account/$accountId/watchlist',
       data: {
         'media_type': mediaType.api,
         'media_id': mediaId,
@@ -142,62 +165,34 @@ class TmdbAccountService {
   // ============================================================================
 
   /// Returns every favorited TV id across all pages.
-  Future<Set<int>> getFavoriteShowIds({
-    required int accountId,
-    required String sessionId,
-  }) =>
-      _collectAllPages('/account/$accountId/favorite/tv', sessionId: sessionId);
+  Future<Set<int>> getFavoriteShowIds({required int accountId}) =>
+      _collectAllPages('/3/account/$accountId/favorite/tv');
 
   /// Returns every favorited movie id across all pages.
-  Future<Set<int>> getFavoriteMovieIds({
-    required int accountId,
-    required String sessionId,
-  }) => _collectAllPages(
-    '/account/$accountId/favorite/movies',
-    sessionId: sessionId,
-  );
+  Future<Set<int>> getFavoriteMovieIds({required int accountId}) =>
+      _collectAllPages('/3/account/$accountId/favorite/movies');
 
-  Future<Set<int>> getWatchlistShowIds({
-    required int accountId,
-    required String sessionId,
-  }) => _collectAllPages(
-    '/account/$accountId/watchlist/tv',
-    sessionId: sessionId,
-  );
+  Future<Set<int>> getWatchlistShowIds({required int accountId}) =>
+      _collectAllPages('/3/account/$accountId/watchlist/tv');
 
-  Future<Set<int>> getWatchlistMovieIds({
-    required int accountId,
-    required String sessionId,
-  }) => _collectAllPages(
-    '/account/$accountId/watchlist/movies',
-    sessionId: sessionId,
-  );
+  Future<Set<int>> getWatchlistMovieIds({required int accountId}) =>
+      _collectAllPages('/3/account/$accountId/watchlist/movies');
 
   /// Per-item check used when opening a details screen so the heart/bookmark
   /// state reflects the *current* server truth, not a stale local cache.
   Future<TmdbAccountStates> getAccountStates({
     required TmdbMediaType mediaType,
     required int mediaId,
-    required String sessionId,
   }) async {
-    final r = await _dio.get(
-      '/${mediaType.api}/$mediaId/account_states',
-      queryParameters: {..._key, 'session_id': sessionId},
-    );
+    final r = await _dio.get('/3/${mediaType.api}/$mediaId/account_states');
     return TmdbAccountStates.fromJson(r.data as Map<String, dynamic>);
   }
 
-  Future<Set<int>> _collectAllPages(
-    String path, {
-    required String sessionId,
-  }) async {
+  Future<Set<int>> _collectAllPages(String path) async {
     final ids = <int>{};
     int page = 1;
     while (true) {
-      final r = await _dio.get(
-        path,
-        queryParameters: {..._key, 'session_id': sessionId, 'page': page},
-      );
+      final r = await _dio.get(path, queryParameters: {'page': page});
       final results = (r.data['results'] as List<dynamic>?) ?? const [];
       for (final item in results) {
         final id = (item as Map<String, dynamic>)['id'];

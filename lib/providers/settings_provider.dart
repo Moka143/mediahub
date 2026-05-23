@@ -247,36 +247,65 @@ class SettingsNotifier extends Notifier<AppSettings> {
   }
 }
 
-/// Build-time TMDB key bundled with the release. Pass via:
-///   flutter run --dart-define=TMDB_API_KEY=<key>
-/// or set it in a CI release pipeline. If empty, the user must enter their
-/// own key via Settings or onboarding.
-const String bundledTmdbApiKey = String.fromEnvironment(
+/// Build-time TMDB v4 Read Access Token bundled with the release. Pass via:
+///   flutter build … --dart-define=TMDB_READ_ACCESS_TOKEN=<token>
+/// or set it in a CI release pipeline. Falls back to the older
+/// `TMDB_API_KEY` define for repos that haven't updated their secret yet,
+/// but expects a v4 Bearer token (JWT) — a v3 32-char hex key won't
+/// authenticate as Bearer.
+const String _bundledTokenNew = String.fromEnvironment(
+  'TMDB_READ_ACCESS_TOKEN',
+  defaultValue: '',
+);
+const String _bundledTokenLegacy = String.fromEnvironment(
   'TMDB_API_KEY',
   defaultValue: '',
 );
+final String bundledTmdbReadAccessToken = _bundledTokenNew.isNotEmpty
+    ? _bundledTokenNew
+    : _bundledTokenLegacy;
 
-/// The TMDB API key that should actually be used for catalog requests:
-/// a non-empty user-entered key wins over the bundled default. When the user
-/// hasn't set one, fall back to the bundled key (which may itself be empty
-/// in source builds — in that case onboarding asks for one).
-final effectiveTmdbApiKeyProvider = Provider<String>((ref) {
-  final userKey = ref.watch(settingsProvider).tmdbApiKey.trim();
-  if (userKey.isNotEmpty) return userKey;
-  return bundledTmdbApiKey;
+/// Heuristic: a v4 access token is a JWT and starts with the `eyJ`
+/// base64-encoded header. v3 api_keys are 32 hex chars and don't.
+bool _looksLikeV4Token(String value) => value.startsWith('eyJ');
+
+/// The TMDB Bearer token that should actually be used for requests.
+///
+/// Resolution priority:
+///   1. User access token (from v4 OAuth — picked up via [tmdbSessionProvider]
+///      and applied by tmdb_account_provider's service provider).
+///   2. User-pasted read access token from Settings (the existing
+///      `settings.tmdbApiKey` field, now semantically a v4 read token).
+///   3. Bundled read access token from `--dart-define`.
+///
+/// Note: when signed in, the user token overrides the read token —
+/// tmdb_account_provider's [TmdbSessionNotifier] persists the user token
+/// to its own pref keys; [tmdbAccountServiceProvider] selects the right
+/// Bearer at request time.
+final effectiveTmdbAccessTokenProvider = Provider<String>((ref) {
+  // We don't pull the session here to avoid a dependency cycle
+  // (tmdb_account_provider already imports this file). The session-aware
+  // service provider lives in tmdb_account_provider and picks the user
+  // token explicitly.
+  final userOverride = ref.watch(settingsProvider).tmdbApiKey.trim();
+  if (userOverride.isNotEmpty && _looksLikeV4Token(userOverride)) {
+    return userOverride;
+  }
+  return bundledTmdbReadAccessToken;
 });
 
-/// True when *any* TMDB key is available (user override OR bundled default).
-/// Drives the onboarding gate and the "Connect TMDB account" enable check.
+/// True when *any* TMDB Bearer token is available (user override OR
+/// bundled default). Drives onboarding and account-section gating.
 final hasTmdbApiKeyProvider = Provider<bool>((ref) {
-  return ref.watch(effectiveTmdbApiKeyProvider).isNotEmpty;
+  return ref.watch(effectiveTmdbAccessTokenProvider).isNotEmpty;
 });
 
-/// True when the app is running with the bundled default key (no user
+/// True when the app is running with the bundled token (no valid user
 /// override). Used in Settings to label the field.
 final isUsingBundledTmdbKeyProvider = Provider<bool>((ref) {
-  final userKey = ref.watch(settingsProvider).tmdbApiKey.trim();
-  return userKey.isEmpty && bundledTmdbApiKey.isNotEmpty;
+  final override = ref.watch(settingsProvider).tmdbApiKey.trim();
+  final hasValidOverride = override.isNotEmpty && _looksLikeV4Token(override);
+  return !hasValidOverride && bundledTmdbReadAccessToken.isNotEmpty;
 });
 
 const _onboardedKey = 'has_completed_onboarding';

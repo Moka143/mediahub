@@ -15,12 +15,13 @@ import 'main_navigation_screen.dart';
 /// First-run screen.
 ///
 /// Leads with TMDB browser sign-in (so the user can sync favorites and
-/// watchlist across devices) instead of a raw API-key paste. When a bundled
-/// API key is present (set at build time via `--dart-define=TMDB_API_KEY=…`)
-/// users can also skip sign-in entirely and just browse locally.
+/// watchlist across devices) instead of a raw token paste. When a bundled
+/// read access token is present (set at build time via
+/// `--dart-define=TMDB_READ_ACCESS_TOKEN=…`) users can also skip sign-in
+/// entirely and just browse locally.
 ///
-/// The API-key paste field stays available under an "Advanced" expander —
-/// useful when there's no bundled key, or when the user wants to use their
+/// The token paste field stays available under an "Advanced" expander —
+/// useful when there's no bundled token, or when the user wants their
 /// own quota.
 class OnboardingScreen extends ConsumerStatefulWidget {
   const OnboardingScreen({super.key});
@@ -110,11 +111,15 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   Future<void> _saveApiKeyAndContinue() async {
     final value = _keyController.text.trim();
     if (value.isEmpty) {
-      setState(() => _error = 'API key cannot be empty');
+      setState(() => _error = 'Token cannot be empty');
       return;
     }
-    if (value.length < 16) {
-      setState(() => _error = 'Key looks too short');
+    if (!value.startsWith('eyJ')) {
+      setState(
+        () => _error =
+            'That doesn\'t look like a TMDB v4 Read Access Token '
+            '(should start with "eyJ"). Get one from your TMDB settings page.',
+      );
       return;
     }
     setState(() {
@@ -219,7 +224,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                         child: OutlinedButton.icon(
                           onPressed: () => _openUrl(_tmdbApiUrl),
                           icon: const Icon(Icons.key_rounded),
-                          label: const Text('Get key'),
+                          label: const Text('Get token'),
                         ),
                       ),
                     ],
@@ -278,7 +283,8 @@ class _IntroCopy extends StatelessWidget {
     final text = hasKey
         ? 'Sign in with TMDB to sync your favorites and watchlist across '
               'devices. You can also skip and just browse locally.'
-        : 'To discover shows and movies, paste your free TMDB API key.';
+        : 'To discover shows and movies, paste your free TMDB Read Access '
+              'Token.';
     return Text(
       text,
       textAlign: TextAlign.center,
@@ -439,7 +445,7 @@ class _AdvancedSection extends StatelessWidget {
                   ),
                   const SizedBox(width: AppSpacing.xs),
                   Text(
-                    'Advanced: use your own TMDB API key',
+                    'Advanced: use your own TMDB Read Access Token',
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
@@ -493,7 +499,7 @@ class _AdvancedSection extends StatelessWidget {
                         child: TextButton.icon(
                           onPressed: onOpenKeyPage,
                           icon: const Icon(Icons.key_rounded, size: 18),
-                          label: const Text('Get key'),
+                          label: const Text('Get token'),
                         ),
                       ),
                     ],
@@ -533,7 +539,7 @@ class _ApiKeyEntry extends StatelessWidget {
       textInputAction: TextInputAction.done,
       inputFormatters: [FilteringTextInputFormatter.deny(RegExp(r'\s'))],
       decoration: InputDecoration(
-        labelText: 'TMDB API Key (v3 auth)',
+        labelText: 'TMDB Read Access Token (v4)',
         hintText: 'e.g. 0123456789abcdef…',
         border: const OutlineInputBorder(),
         suffixIcon: IconButton(

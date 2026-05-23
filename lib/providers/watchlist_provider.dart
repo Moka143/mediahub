@@ -105,8 +105,7 @@ class WatchlistNotifier extends Notifier<WatchlistState> {
     () async {
       try {
         await _accountService.setWatchlist(
-          accountId: s.account.id,
-          sessionId: s.sessionId,
+          accountId: s.accountId,
           mediaType: type,
           mediaId: id,
           watchlist: on,
@@ -127,8 +126,7 @@ class WatchlistNotifier extends Notifier<WatchlistState> {
         for (final id in state.showIds) {
           try {
             await _accountService.setWatchlist(
-              accountId: s.account.id,
-              sessionId: s.sessionId,
+              accountId: s.accountId,
               mediaType: TmdbMediaType.tv,
               mediaId: id,
               watchlist: true,
@@ -138,8 +136,7 @@ class WatchlistNotifier extends Notifier<WatchlistState> {
         for (final id in state.movieIds) {
           try {
             await _accountService.setWatchlist(
-              accountId: s.account.id,
-              sessionId: s.sessionId,
+              accountId: s.accountId,
               mediaType: TmdbMediaType.movie,
               mediaId: id,
               watchlist: true,
@@ -149,12 +146,10 @@ class WatchlistNotifier extends Notifier<WatchlistState> {
       }
 
       final tv = await _accountService.getWatchlistShowIds(
-        accountId: s.account.id,
-        sessionId: s.sessionId,
+        accountId: s.accountId,
       );
       final movies = await _accountService.getWatchlistMovieIds(
-        accountId: s.account.id,
-        sessionId: s.sessionId,
+        accountId: s.accountId,
       );
       state = state.copyWith(showIds: tv, movieIds: movies, isSyncing: false);
       await _saveTv();

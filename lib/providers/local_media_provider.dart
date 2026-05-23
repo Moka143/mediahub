@@ -8,6 +8,7 @@ import '../models/watch_progress.dart';
 import '../services/local_media_scanner.dart';
 import '../services/tmdb_api_service.dart';
 import 'settings_provider.dart';
+import 'tmdb_account_provider.dart';
 import 'watch_progress_provider.dart';
 
 /// Provider for download save path from settings
@@ -15,12 +16,18 @@ final downloadPathProvider = Provider<String>((ref) {
   return ref.watch(settingsProvider).defaultSavePath;
 });
 
-/// Provider for TMDB API service — uses the effective key (user override or
+/// Provider for TMDB API service — uses the effective access token (user
+/// access token when signed in, otherwise user-pasted read token or the
 /// bundled default), so users who don't manually enter a key still get
 /// catalog access in release builds.
 final tmdbServiceProvider = Provider<TmdbApiService>((ref) {
-  final apiKey = ref.watch(effectiveTmdbApiKeyProvider);
-  return TmdbApiService(apiKey: apiKey);
+  // Defer to tmdbAccountServiceProvider's logic by reading the session
+  // directly: when signed in, the user token takes precedence over
+  // the read token.
+  final session = ref.watch(tmdbSessionProvider);
+  final String token =
+      session?.accessToken ?? ref.watch(effectiveTmdbAccessTokenProvider);
+  return TmdbApiService(accessToken: token);
 });
 
 /// Cache for show poster lookups

@@ -4,12 +4,16 @@ import '../models/season.dart';
 import '../models/episode.dart';
 import '../services/tmdb_api_service.dart';
 import 'settings_provider.dart';
+import 'tmdb_account_provider.dart';
 
-/// Provider for TMDB API service — uses the effective key (user override or
-/// bundled default). Rebuilt whenever the user updates their key.
+/// Provider for TMDB API service — uses the effective Bearer token (user
+/// access token when signed in, otherwise the bundled / user-pasted read
+/// token). Rebuilt whenever the token source changes.
 final tmdbApiServiceProvider = Provider<TmdbApiService>((ref) {
-  final apiKey = ref.watch(effectiveTmdbApiKeyProvider);
-  return TmdbApiService(apiKey: apiKey);
+  final session = ref.watch(tmdbSessionProvider);
+  final String token =
+      session?.accessToken ?? ref.watch(effectiveTmdbAccessTokenProvider);
+  return TmdbApiService(accessToken: token);
 });
 
 /// Search query notifier

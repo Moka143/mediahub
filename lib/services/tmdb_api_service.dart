@@ -4,35 +4,43 @@ import '../models/show.dart';
 import '../models/season.dart';
 import '../models/episode.dart';
 
-/// Service for interacting with TMDB (The Movie Database) API
+/// Service for interacting with TMDB (The Movie Database) API.
 ///
-/// API keys are provided by the user via onboarding / settings — we do not
-/// ship a shared key in source. Get one free at
-/// https://www.themoviedb.org/settings/api
+/// Auth uses TMDB v4 Bearer tokens (the modern auth scheme). v3 endpoints
+/// accept v4 Bearer auth, so we still hit `/3/...` paths — only the auth
+/// header differs from the legacy v3 query-param `api_key=…` flow.
+///
+/// `accessToken` may be either a v4 Read Access Token (app-scoped, bundled
+/// at build time or pasted by the user) or a v4 User Access Token (returned
+/// by [TmdbAccountService.createAccessToken] after browser sign-in). The
+/// effective-token provider picks the user token when signed in, otherwise
+/// the read token.
 class TmdbApiService {
   static const String _baseUrl = 'https://api.themoviedb.org/3';
   static const String _imageBaseUrl = 'https://image.tmdb.org/t/p';
 
   final Dio _dio;
-  final String apiKey;
+  final String accessToken;
 
-  TmdbApiService({required this.apiKey})
+  TmdbApiService({required this.accessToken})
     : _dio = Dio(
         BaseOptions(
           baseUrl: _baseUrl,
           connectTimeout: const Duration(seconds: 10),
           receiveTimeout: const Duration(seconds: 10),
+          headers: {
+            'Authorization': 'Bearer $accessToken',
+            'Accept': 'application/json',
+          },
         ),
       );
 
-  /// True when a non-empty API key is configured.
-  bool get isConfigured => apiKey.isNotEmpty;
+  /// True when a non-empty access token is configured.
+  bool get isConfigured => accessToken.isNotEmpty;
 
-  /// Get common query parameters
-  Map<String, dynamic> get _defaultParams => {
-    'api_key': apiKey,
-    'language': 'en-US',
-  };
+  /// Get common query parameters. Auth is sent in the Authorization header,
+  /// so only the language stays here.
+  Map<String, dynamic> get _defaultParams => {'language': 'en-US'};
 
   /// Search for TV shows by query
   Future<List<Show>> searchShows(String query, {int page = 1}) async {

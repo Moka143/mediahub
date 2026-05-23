@@ -636,9 +636,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
         const SizedBox(height: AppSpacing.sectionSpacing),
 
-        // TMDB API Key
+        // TMDB Read Access Token
         const SettingsSectionHeader(
-          title: 'TMDB API Key',
+          title: 'TMDB Read Access Token',
           icon: Icons.movie_filter_rounded,
         ),
         Card(
@@ -660,8 +660,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                         const SizedBox(width: AppSpacing.xs),
                         Expanded(
                           child: Text(
-                            'Using the bundled TMDB key. Enter your own '
-                            'below to use a personal quota.',
+                            'Using the bundled TMDB Read Access Token. '
+                            'Enter your own below to use a personal quota.',
                             style: Theme.of(context).textTheme.bodySmall
                                 ?.copyWith(color: appColors.mutedText),
                           ),
@@ -675,7 +675,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                   enableSuggestions: false,
                   autocorrect: false,
                   decoration: InputDecoration(
-                    labelText: 'API Key (v3 auth) — override',
+                    labelText: 'Read Access Token (v4) — override',
                     hintText: 'e.g. 0123456789abcdef…',
                     prefixIcon: Icon(
                       Icons.key_rounded,
@@ -722,7 +722,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                   alignment: Alignment.centerLeft,
                   child: TextButton.icon(
                     icon: const Icon(Icons.open_in_new_rounded, size: 16),
-                    label: const Text('Get a free key at themoviedb.org'),
+                    label: const Text('Get a free token at themoviedb.org'),
                     onPressed: () async {
                       final url = Uri.parse(
                         'https://www.themoviedb.org/settings/api',

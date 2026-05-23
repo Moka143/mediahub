@@ -182,8 +182,7 @@ class FavoritesNotifier extends Notifier<FavoritesState> {
     () async {
       try {
         await _accountService.setFavorite(
-          accountId: s.account.id,
-          sessionId: s.sessionId,
+          accountId: s.accountId,
           mediaType: type,
           mediaId: id,
           favorite: favorite,
@@ -207,8 +206,7 @@ class FavoritesNotifier extends Notifier<FavoritesState> {
         for (final id in state.favoriteIds) {
           try {
             await _accountService.setFavorite(
-              accountId: s.account.id,
-              sessionId: s.sessionId,
+              accountId: s.accountId,
               mediaType: TmdbMediaType.tv,
               mediaId: id,
               favorite: true,
@@ -218,8 +216,7 @@ class FavoritesNotifier extends Notifier<FavoritesState> {
         for (final id in state.favoriteMovieIds) {
           try {
             await _accountService.setFavorite(
-              accountId: s.account.id,
-              sessionId: s.sessionId,
+              accountId: s.accountId,
               mediaType: TmdbMediaType.movie,
               mediaId: id,
               favorite: true,
@@ -229,12 +226,10 @@ class FavoritesNotifier extends Notifier<FavoritesState> {
       }
 
       final tvIds = await _accountService.getFavoriteShowIds(
-        accountId: s.account.id,
-        sessionId: s.sessionId,
+        accountId: s.accountId,
       );
       final movieIds = await _accountService.getFavoriteMovieIds(
-        accountId: s.account.id,
-        sessionId: s.sessionId,
+        accountId: s.accountId,
       );
       // Drop cache entries that disappeared server-side; keep ones still
       // favorited so the UI doesn't have to re-fetch metadata.

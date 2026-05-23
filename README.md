@@ -42,7 +42,7 @@ Browse the TMDB catalog, pick a torrent, and stream it directly in the built-in 
 - Status indicators on the Favorites screen
 
 ### Settings
-- First-launch TMDB API key onboarding
+- First-launch TMDB onboarding with browser sign-in (favorites & watchlist sync)
 - qBittorrent host / port / credentials
 - Auto-start qBittorrent
 - Speed limits
@@ -52,7 +52,7 @@ Browse the TMDB catalog, pick a torrent, and stream it directly in the built-in 
 ## Requirements
 
 - **qBittorrent** with Web UI enabled — the app drives qBittorrent as its torrent backend and can launch it for you
-- **TMDB API key** — free, grab one at [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api). The first-launch onboarding prompts for it.
+- **TMDB Read Access Token (v4)** — free, grab one from your TMDB [API settings page](https://www.themoviedb.org/settings/api) (the "API Read Access Token" field). The first-launch onboarding prompts for it, OR you can sign in to TMDB via your browser to use your account's token — both work, the latter also syncs your favorites/watchlist. Release builds may ship with a bundled token via `--dart-define=TMDB_READ_ACCESS_TOKEN=…` so users can skip onboarding entirely.
 - **Flutter SDK 3.10+** — only needed for building from source
 
 ### Installing qBittorrent
@@ -148,7 +148,7 @@ lib/
 | Video playback | media_kit + media_kit_video + libmpv |
 | HTTP | dio |
 | Torrent control | qBittorrent Web API v2 |
-| Metadata | TMDB v3 |
+| Metadata | TMDB API (v4 Bearer auth) |
 | Persistence | shared_preferences |
 | Window chrome | window_manager |
 | Posters | cached_network_image |

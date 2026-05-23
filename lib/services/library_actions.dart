@@ -123,8 +123,7 @@ Future<void> markAsWatched(
   try {
     if (tmdbMovieId != null) {
       await accountService.setWatchlist(
-        sessionId: session.sessionId,
-        accountId: session.account.id,
+        accountId: session.accountId,
         mediaType: TmdbMediaType.movie,
         mediaId: tmdbMovieId,
         watchlist: false,
@@ -133,8 +132,7 @@ Future<void> markAsWatched(
       // Only sync the *show* (not individual episodes) — TMDB v3 has no
       // episode-level state.
       await accountService.setWatchlist(
-        sessionId: session.sessionId,
-        accountId: session.account.id,
+        accountId: session.accountId,
         mediaType: TmdbMediaType.tv,
         mediaId: tmdbShowId,
         watchlist: false,
