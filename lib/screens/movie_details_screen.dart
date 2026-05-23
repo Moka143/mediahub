@@ -19,6 +19,7 @@ import '../providers/navigation_provider.dart';
 import '../providers/streaming_provider.dart';
 import '../providers/torrentio_provider.dart';
 import '../services/streaming_service.dart';
+import '../utils/formatters.dart';
 import '../widgets/mediahub_backdrop_hero.dart';
 import '../widgets/mediahub_torrent_drawer.dart';
 import '../widgets/movie_card.dart';
@@ -284,11 +285,15 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
         final titlePrefix = session.state == StreamingState.buffering
             ? 'Buffering'
             : 'Preparing';
+        final speed = session.downloadRateBytesPerSec;
+        final speedSuffix = speed > 0
+            ? ' • ${Formatters.formatSpeed(speed)}'
+            : '';
         _streamingOverlayData?.value = StreamingOverlayData(
           title: '$titlePrefix "${movie.title}"',
           subtitle: pct > 0
-              ? '${pct.toStringAsFixed(1)}% ready'
-              : 'Connecting…',
+              ? '${pct.toStringAsFixed(1)}% ready$speedSuffix'
+              : 'Connecting…$speedSuffix',
           progress: pct > 0 ? session.bufferProgress : null,
           isIndeterminate: pct == 0,
         );
@@ -314,6 +319,7 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
                 streamingTorrentHash: session.torrentHash,
                 streamingFileIndex: session.selectedFileIndex,
                 streamingProxyUrl: session.streamUrl,
+                initialBufferedRatio: session.bufferProgress,
               ),
             ),
           );

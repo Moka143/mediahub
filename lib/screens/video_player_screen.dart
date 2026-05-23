@@ -62,6 +62,12 @@ class VideoPlayerScreen extends ConsumerStatefulWidget {
   /// the zero-padded sparse regions of the partial file on disk.
   final String? streamingProxyUrl;
 
+  /// File download fraction (0.0–1.0) at the moment we navigate to the
+  /// player. Used to seed the seek-bar's buffered track immediately so
+  /// the user sees how much is downloaded as soon as the player opens,
+  /// instead of waiting ~2 s for the first health-poll to land.
+  final double? initialBufferedRatio;
+
   const VideoPlayerScreen({
     super.key,
     required this.file,
@@ -72,6 +78,7 @@ class VideoPlayerScreen extends ConsumerStatefulWidget {
     this.streamingTorrentHash,
     this.streamingFileIndex,
     this.streamingProxyUrl,
+    this.initialBufferedRatio,
   });
 
   @override
@@ -197,6 +204,13 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   @override
   void initState() {
     super.initState();
+    // Seed the buffered-ratio from whatever the streaming session knew at
+    // navigation time so the seek-bar's buffered track is populated on the
+    // first frame instead of going dark for ~2 s until the first health
+    // poll lands. Updated continuously thereafter by _runHealthCheck.
+    if (widget.isStreaming && widget.initialBufferedRatio != null) {
+      _streamingDownloadedRatio = widget.initialBufferedRatio!.clamp(0.0, 1.0);
+    }
     // Delay initialization to after widget tree is built
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializePlayer();
@@ -1552,8 +1566,15 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
                       controls: NoVideoControls,
                     ),
 
-                    // Buffering indicator
-                    if (isBuffering) const _BufferingIndicator(),
+                    // Buffering indicator — in streaming mode, surface the
+                    // download progress so a long pause-for-cache shows the
+                    // user the torrent is actually progressing.
+                    if (isBuffering)
+                      _BufferingIndicator(
+                        label: widget.isStreaming
+                            ? _bufferingLabel(_streamingDownloadedRatio)
+                            : null,
+                      ),
 
                     // Skip backward indicator (left side)
                     if (_showSkipBackward)
@@ -1666,6 +1687,15 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         _streamingProgress = null;
       });
     }
+  }
+
+  /// Compose the chip text shown under the buffering spinner during
+  /// streaming. Falls back to a plain "Buffering…" when we don't have
+  /// the download ratio yet (very first frames after open).
+  String _bufferingLabel(double? downloadedRatio) {
+    if (downloadedRatio == null) return 'Buffering…';
+    final pct = (downloadedRatio * 100).clamp(0, 100).toStringAsFixed(1);
+    return 'Buffering — $pct% downloaded';
   }
 
   void _showStreamingStatus({

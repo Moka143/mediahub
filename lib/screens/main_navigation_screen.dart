@@ -122,6 +122,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
               streamingTorrentHash: next.torrentHash,
               streamingFileIndex: next.selectedFileIndex,
               streamingProxyUrl: next.streamUrl,
+              initialBufferedRatio: next.bufferProgress,
             ),
           ),
         );

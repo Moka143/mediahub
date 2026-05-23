@@ -1173,13 +1173,27 @@ class _ContinueWatchingStrip extends ConsumerWidget {
                 ? null
                 : () {
                     final f = _fileFor(ref, progress);
-                    if (f != null) onMarkWatched!(f);
+                    if (f != null) {
+                      onMarkWatched!(f);
+                    } else {
+                      AppSnackBar.showInfo(
+                        context,
+                        message: 'File missing on disk — rescan to clean up',
+                      );
+                    }
                   },
             onDelete: onDelete == null
                 ? null
                 : () {
                     final f = _fileFor(ref, progress);
-                    if (f != null) onDelete!(f);
+                    if (f != null) {
+                      onDelete!(f);
+                    } else {
+                      AppSnackBar.showInfo(
+                        context,
+                        message: 'File missing on disk — rescan to clean up',
+                      );
+                    }
                   },
           );
         },

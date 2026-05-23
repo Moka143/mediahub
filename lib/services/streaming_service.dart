@@ -66,6 +66,12 @@ class StreamingSession {
   /// fully downloaded and direct file playback is fine).
   String? streamUrl;
 
+  /// Latest qBittorrent download rate for this torrent in bytes/second.
+  /// Refreshed on every monitoring poll. Drives the "X MB/s" hint in the
+  /// prep overlay so the user can tell whether the torrent has peers vs.
+  /// is stuck waiting on metadata.
+  int downloadRateBytesPerSec;
+
   StreamingSession({
     required this.id,
     required this.stream,
@@ -84,6 +90,7 @@ class StreamingSession {
     this.errorMessage,
     this.videoFile,
     this.streamUrl,
+    this.downloadRateBytesPerSec = 0,
   }) : createdAt = DateTime.now();
 
   bool get isActive =>
@@ -104,6 +111,7 @@ class StreamingSession {
     String? errorMessage,
     LocalMediaFile? videoFile,
     String? streamUrl,
+    int? downloadRateBytesPerSec,
   }) {
     return StreamingSession(
       id: id,
@@ -123,6 +131,8 @@ class StreamingSession {
       errorMessage: errorMessage,
       videoFile: videoFile ?? this.videoFile,
       streamUrl: streamUrl ?? this.streamUrl,
+      downloadRateBytesPerSec:
+          downloadRateBytesPerSec ?? this.downloadRateBytesPerSec,
     );
   }
 }
@@ -175,14 +185,16 @@ class StreamingService {
   /// Minimum absolute buffer (bytes) before streaming is ready.
   /// Scales with file size — see [minBufferBytesFor].
   ///
-  /// Drastically lowered (was 50/100/200 MB) because the LocalStreamingServer
-  /// never serves bytes past the current download head — a gap turns into a
-  /// brief mpv pause-for-cache rather than a frozen demuxer. 5 MB is enough
-  /// for MKV/MP4 headers + a few seconds of initial frames so the player can
-  /// start; the player handles further buffering itself.
-  static const int _minBufferSmall = 5 * 1024 * 1024; // 5 MB  (files < 1 GB)
-  static const int _minBufferMedium = 10 * 1024 * 1024; // 10 MB (files 1–4 GB)
-  static const int _minBufferLarge = 20 * 1024 * 1024; // 20 MB (files > 4 GB)
+  /// Conservative thresholds: the proxy + mpv's network cache will keep
+  /// playback alive even if download stalls, but the user-facing
+  /// experience is much better when the player opens with ~30–60 sec of
+  /// video already on disk. With 5–20 MB the player visibly buffered
+  /// after navigation; ~50–200 MB ensures the first scene plays through
+  /// without a visible mpv pause-for-cache.
+  static const int _minBufferSmall = 50 * 1024 * 1024; // 50 MB  (files < 1 GB)
+  static const int _minBufferMedium =
+      100 * 1024 * 1024; // 100 MB (files 1–4 GB)
+  static const int _minBufferLarge = 200 * 1024 * 1024; // 200 MB (files > 4 GB)
 
   /// Maximum time to wait for metadata
   static const Duration metadataTimeout = Duration(minutes: 2);
@@ -404,6 +416,7 @@ class StreamingService {
         sessionId,
         contentPath: torrent.contentPath,
         bufferProgress: torrent.progress,
+        downloadRateBytesPerSec: torrent.dlspeed,
       );
 
       // Handle based on current state
@@ -801,6 +814,7 @@ class StreamingService {
     String? errorMessage,
     LocalMediaFile? videoFile,
     String? streamUrl,
+    int? downloadRateBytesPerSec,
   }) {
     final session = _sessions[sessionId];
     if (session == null) return;
@@ -815,6 +829,7 @@ class StreamingService {
       errorMessage: errorMessage,
       videoFile: videoFile,
       streamUrl: streamUrl,
+      downloadRateBytesPerSec: downloadRateBytesPerSec,
     );
 
     _notifySession(sessionId);
