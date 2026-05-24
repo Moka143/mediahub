@@ -18,6 +18,7 @@ import '../providers/watchlist_provider.dart';
 import '../providers/navigation_provider.dart';
 import '../providers/streaming_provider.dart';
 import '../providers/torrentio_provider.dart';
+import '../providers/watch_progress_provider.dart';
 import '../services/streaming_service.dart';
 import '../utils/feedback_utils.dart';
 import '../utils/formatters.dart';
@@ -490,6 +491,14 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
         ? null
         : ref.watch(movieLocalFileProvider(movie.title));
 
+    // Watched flag — surfaced as a green "WATCHED" pill next to the
+    // runtime / rating row so the user knows at-a-glance that they've
+    // seen this movie, even when it's not currently downloaded.
+    final isWatched = ref
+        .watch(watchProgressProvider)
+        .values
+        .any((p) => p.isCompleted && p.movieId == movie.id);
+
     return Stack(
       children: [
         CustomScrollView(
@@ -510,6 +519,12 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
                     ? movie.tagline
                     : movie.overview,
                 metaPills: [
+                  if (isWatched)
+                    const MediaHubMetaPill(
+                      label: 'WATCHED',
+                      color: Color(0xFF10B981),
+                      icon: Icons.check_circle_rounded,
+                    ),
                   if (movie.runtimeFormatted != null)
                     MediaHubMetaPill(
                       label: movie.runtimeFormatted!,

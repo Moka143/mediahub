@@ -8,6 +8,7 @@ import '../design/app_tokens.dart';
 import '../models/movie.dart';
 import '../providers/movies_provider.dart';
 import '../providers/shows_provider.dart' show tmdbApiServiceProvider;
+import '../providers/watch_progress_provider.dart';
 import '../widgets/common/browse_filter_bar.dart';
 import '../widgets/common/browse_pagination_footer.dart';
 import '../widgets/common/browse_sort_picker.dart';
@@ -49,6 +50,10 @@ class _MoviesScreenState extends ConsumerState<MoviesScreen> {
 
   String _genre = 'All';
   _MoviesFeed _feed = _MoviesFeed.trending;
+
+  /// Snapshot of TMDB movie ids the user has watched. Recomputed each
+  /// build from `watchProgressProvider`, used to flag movie cards.
+  Set<int> _watchedMovieIds = const {};
 
   /// Local controller for the search field — debounced so we don't fire a
   /// TMDB search on every keystroke. Empty query falls back to the feed.
@@ -178,6 +183,16 @@ class _MoviesScreenState extends ConsumerState<MoviesScreen> {
   Widget build(BuildContext context) {
     final searchQuery = ref.watch(movieSearchQueryProvider);
     final isSearching = searchQuery.isNotEmpty;
+
+    // Watched-movies set — drives the "WATCHED" ribbon on each card.
+    // Computed in build so a mark/unmark triggers a rebuild and the
+    // ribbon appears/disappears live.
+    _watchedMovieIds = ref
+        .watch(watchProgressProvider)
+        .values
+        .where((p) => p.isCompleted && p.movieId != null)
+        .map((p) => p.movieId!)
+        .toSet();
     return RefreshIndicator(
       onRefresh: () async => _resetAndLoad(),
       child: Align(
@@ -353,6 +368,7 @@ class _MoviesScreenState extends ConsumerState<MoviesScreen> {
           ? '★ ${movie.voteAverage.toStringAsFixed(1)}'
           : null,
       overlayRatingTone: movie.voteAverage >= 8 ? AppColors.accent : null,
+      isWatched: _watchedMovieIds.contains(movie.id),
       width: null,
     );
   }

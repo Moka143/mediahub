@@ -11,7 +11,8 @@ class WatchProgress {
   final int? episodeNumber; // Episode number (nullable)
   final String? episodeCode; // "S01E05" format
   final String? episodeTitle; // Episode title
-  final String? posterPath; // Show poster for display
+  final int? movieId; // TMDB movie ID (nullable; only set for movies)
+  final String? posterPath; // Show / movie poster for display
   final Duration position; // Current playback position
   final Duration duration; // Total video duration
   final DateTime lastWatched; // Last watch timestamp
@@ -26,6 +27,7 @@ class WatchProgress {
     this.episodeNumber,
     this.episodeCode,
     this.episodeTitle,
+    this.movieId,
     this.posterPath,
     required this.position,
     required this.duration,
@@ -101,6 +103,7 @@ class WatchProgress {
       episodeNumber: json['episode_number'] as int?,
       episodeCode: json['episode_code'] as String?,
       episodeTitle: json['episode_title'] as String?,
+      movieId: json['movie_id'] as int?,
       posterPath: json['poster_path'] as String?,
       position: Duration(milliseconds: json['position_ms'] as int? ?? 0),
       duration: Duration(milliseconds: json['duration_ms'] as int? ?? 0),
@@ -121,6 +124,7 @@ class WatchProgress {
       'episode_number': episodeNumber,
       'episode_code': episodeCode,
       'episode_title': episodeTitle,
+      'movie_id': movieId,
       'poster_path': posterPath,
       'position_ms': position.inMilliseconds,
       'duration_ms': duration.inMilliseconds,
@@ -138,6 +142,7 @@ class WatchProgress {
     int? episodeNumber,
     String? episodeCode,
     String? episodeTitle,
+    int? movieId,
     String? posterPath,
     Duration? position,
     Duration? duration,
@@ -153,6 +158,7 @@ class WatchProgress {
       episodeNumber: episodeNumber ?? this.episodeNumber,
       episodeCode: episodeCode ?? this.episodeCode,
       episodeTitle: episodeTitle ?? this.episodeTitle,
+      movieId: movieId ?? this.movieId,
       posterPath: posterPath ?? this.posterPath,
       position: position ?? this.position,
       duration: duration ?? this.duration,

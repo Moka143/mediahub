@@ -367,23 +367,30 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
 
   Future<void> _pushWatchedToTmdb(WatchProgress p) async {
     if (!ref.read(isTmdbSignedInProvider)) return;
-    final showId = p.showId;
-    final season = p.seasonNumber;
-    final episode = p.episodeNumber;
-    if (showId == null || season == null || episode == null) {
-      // Movies / un-parsed files: no structured key to push. The next
-      // reconcile pass picks this up after a show-name → id lookup.
-      return;
-    }
+    final acct = ref.read(tmdbAccountServiceProvider);
     try {
-      await ref
-          .read(tmdbAccountServiceProvider)
-          .rateEpisode(
-            seriesId: showId,
-            seasonNumber: season,
-            episodeNumber: episode,
-            value: TmdbAccountService.watchedRatingValue,
-          );
+      final showId = p.showId;
+      final season = p.seasonNumber;
+      final episode = p.episodeNumber;
+      final movieId = p.movieId;
+
+      if (showId != null && season != null && episode != null) {
+        await acct.rateEpisode(
+          seriesId: showId,
+          seasonNumber: season,
+          episodeNumber: episode,
+          value: TmdbAccountService.watchedRatingValue,
+        );
+      } else if (movieId != null) {
+        await acct.rateMovie(
+          movieId: movieId,
+          value: TmdbAccountService.watchedRatingValue,
+        );
+      }
+      // Items without enough metadata to push (no movieId, no
+      // showId/season/episode) are picked up by the next
+      // reconcileWatchedWithTmdb pass once the filename → TMDB id
+      // lookup resolves.
     } catch (e) {
       debugPrint('[WatchProgress] auto-push to TMDB failed: $e');
     }
@@ -461,15 +468,21 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
     int? showId,
     int? seasonNumber,
     int? episodeNumber,
+    int? movieId,
     String? posterPath,
   }) async {
     final hash = WatchProgress.generateHash(filePath);
     final existing = state[hash];
 
     if (existing != null) {
+      // Upsert: if the caller supplied a movieId / showId we didn't have
+      // before, persist it so the reconcile + UI matchers can use the
+      // structured key on future passes.
       final updated = existing.copyWith(
         isCompleted: true,
         lastWatched: DateTime.now(),
+        movieId: movieId ?? existing.movieId,
+        showId: showId ?? existing.showId,
       );
       state = {...state, hash: updated};
     } else {
@@ -484,6 +497,7 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
             ? 'S${seasonNumber.toString().padLeft(2, '0')}'
                   'E${episodeNumber.toString().padLeft(2, '0')}'
             : null,
+        movieId: movieId,
         posterPath: posterPath,
         position: Duration.zero,
         duration: Duration.zero,

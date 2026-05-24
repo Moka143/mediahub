@@ -350,7 +350,11 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
               ),
             ),
 
-          if (widget.isWatched && !_isHovered) _watchedCheckmark(),
+          // Browse / overlay layout: a diagonal corner ribbon reads
+          // "watched" at a glance, even when the poster has a busy
+          // background that hides the small checkmark. Hidden on hover
+          // so the play prompt + rating badge stay legible.
+          if (widget.isWatched && !_isHovered) _watchedRibbon(theme),
 
           // Title overlay bottom.
           Positioned(
@@ -473,6 +477,60 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
           shape: BoxShape.circle,
         ),
         child: const Icon(Icons.check_rounded, size: 14, color: Colors.white),
+      ),
+    );
+  }
+
+  /// Diagonal "WATCHED" ribbon stretched across the top-right corner.
+  /// Used on the [CardTitleStyle.overlay] layout (browse posters) where
+  /// a tiny checkmark gets lost against busy poster art.
+  ///
+  /// Implementation: a custom `ClipPath` cuts the card's stack to the
+  /// rounded-rect bounds (the parent `Material.clipBehavior` would
+  /// otherwise leak the ribbon's rotated overhang) and we then draw a
+  /// solid green band rotated 45° in the top-right corner.
+  Widget _watchedRibbon(ThemeData theme) {
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          child: Stack(
+            children: [
+              Positioned(
+                top: 18,
+                right: -36,
+                child: Transform.rotate(
+                  angle: 0.7853981633974483, // π/4 — 45°
+                  alignment: Alignment.center,
+                  child: Container(
+                    width: 130,
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    alignment: Alignment.center,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF10B981),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Color(0x66000000),
+                          blurRadius: 6,
+                          offset: Offset(0, 1),
+                        ),
+                      ],
+                    ),
+                    child: Text(
+                      'WATCHED',
+                      style: AppType.mono(
+                        size: 9,
+                        color: Colors.white,
+                        weight: FontWeight.w800,
+                        letterSpacing: 0.16,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

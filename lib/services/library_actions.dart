@@ -16,6 +16,9 @@ import 'tmdb_account_service.dart';
 /// entry is also cached so we don't retry a confirmed miss either.
 final Map<String, int?> _showIdCache = {};
 
+/// Same idea as [_showIdCache] but for movies — `/search/movie`.
+final Map<String, int?> _movieIdCache = {};
+
 /// Look up a TMDB show id by name. Returns null on miss / network failure
 /// (the local mark already succeeded, so a missing id just means we skip
 /// the TMDB push for this item).
@@ -31,6 +34,46 @@ Future<int?> _resolveShowId(WidgetRef ref, String? showName) async {
     _showIdCache[showName] = null;
     return null;
   }
+}
+
+/// Look up a TMDB movie id by name. Same null-cache pattern as
+/// [_resolveShowId]. Used by movie-watched sync + the
+/// reconcile push step for `LocalMediaFile`s with no `seasonNumber`.
+Future<int?> _resolveMovieId(WidgetRef ref, String? movieName) async {
+  if (movieName == null || movieName.isEmpty) return null;
+  if (_movieIdCache.containsKey(movieName)) return _movieIdCache[movieName];
+  try {
+    final movies =
+        await ref.read(tmdbServiceProvider).searchMovies(movieName);
+    final id = movies.isNotEmpty ? movies.first.id : null;
+    _movieIdCache[movieName] = id;
+    return id;
+  } catch (_) {
+    _movieIdCache[movieName] = null;
+    return null;
+  }
+}
+
+/// Clean a torrent-style filename into something `searchMovies` will hit.
+/// Mirrors the same logic the library card UI uses for poster lookups.
+String _cleanMovieName(String filename) {
+  var name = filename.replaceAll(
+    RegExp(r'\.(mp4|mkv|avi|mov|wmv|flv|webm|m4v|mpg|mpeg|ts|3gp)$',
+        caseSensitive: false),
+    '',
+  );
+  name = name.replaceAll(
+    RegExp(
+      r'[\.\s]?(1080p|720p|480p|2160p|4K|HDRip|BluRay|WEB-DL|WEBRip|BRRip|DVDRip|HDTV).*',
+      caseSensitive: false,
+    ),
+    '',
+  );
+  name = name.replaceAll(RegExp(r'\s*\(\d{4}\)\s*'), ' ');
+  name = name.replaceAll(RegExp(r'\s*\d{4}\s*$'), '');
+  name = name.replaceAll(RegExp(r'[\._]'), ' ');
+  name = name.replaceAll(RegExp(r'\s+'), ' ').trim();
+  return name;
 }
 
 /// Outcome of a delete action — lets the UI surface a useful toast.
@@ -140,6 +183,24 @@ Future<void> markAsWatched(
   int? tmdbMovieId,
   int? tmdbShowId,
 }) async {
+  // Resolve up-front so the local WatchProgress entry carries the
+  // structured key (showId / movieId). That lets reconcile + UI
+  // matchers use the id directly on subsequent passes instead of
+  // re-resolving from the filename.
+  final isEpisodeFile =
+      file.seasonNumber != null && file.episodeNumber != null;
+  int? resolvedShowId = file.showId ?? tmdbShowId;
+  int? resolvedMovieId = tmdbMovieId;
+  if (ref.read(isTmdbSignedInProvider)) {
+    if (isEpisodeFile && resolvedShowId == null) {
+      resolvedShowId = await _resolveShowId(ref, file.showName);
+    } else if (!isEpisodeFile && resolvedMovieId == null) {
+      // Movie path — resolve a movie id from a cleaned filename.
+      final movieName = file.showName ?? _cleanMovieName(file.fileName);
+      resolvedMovieId = await _resolveMovieId(ref, movieName);
+    }
+  }
+
   // Forward enough metadata that the notifier can synthesise a fresh
   // `WatchProgress` entry if none exists yet (the common case for items
   // the user has downloaded but never opened). Without this, "Mark as
@@ -150,9 +211,10 @@ Future<void> markAsWatched(
       .markCompleted(
         file.path,
         showName: file.showName,
-        showId: file.showId ?? tmdbShowId,
+        showId: resolvedShowId,
         seasonNumber: file.seasonNumber,
         episodeNumber: file.episodeNumber,
+        movieId: resolvedMovieId,
         posterPath: file.posterPath,
       );
 
@@ -162,48 +224,42 @@ Future<void> markAsWatched(
   final session = ref.read(tmdbSessionProvider);
   if (session == null) return;
 
-  final showId =
-      file.showId ?? tmdbShowId ?? await _resolveShowId(ref, file.showName);
-  final isEpisode =
-      showId != null &&
-      file.seasonNumber != null &&
-      file.episodeNumber != null;
-
   try {
-    if (isEpisode) {
+    if (isEpisodeFile && resolvedShowId != null) {
       // Rate the specific episode — TMDB's only per-episode persistence.
       await accountService.rateEpisode(
-        seriesId: showId,
+        seriesId: resolvedShowId,
         seasonNumber: file.seasonNumber!,
         episodeNumber: file.episodeNumber!,
         value: TmdbAccountService.watchedRatingValue,
       );
-    } else if (tmdbMovieId != null) {
+    } else if (!isEpisodeFile && resolvedMovieId != null) {
       // Movie: rate it AND drop it from the watchlist.
       await Future.wait([
         accountService.rateMovie(
-          movieId: tmdbMovieId,
+          movieId: resolvedMovieId,
           value: TmdbAccountService.watchedRatingValue,
         ),
         accountService.setWatchlist(
           accountId: session.accountId,
           mediaType: TmdbMediaType.movie,
-          mediaId: tmdbMovieId,
+          mediaId: resolvedMovieId,
           watchlist: false,
         ),
       ]);
-    } else if (showId != null && file.seasonNumber == null) {
+    } else if (resolvedShowId != null && file.seasonNumber == null) {
       // Whole-show entry (no season/episode metadata): rate the show AND
-      // drop it from the watchlist.
+      // drop it from the watchlist. Reached only when the file looks
+      // show-shaped but has no S/E (rare; auto-download grab folder).
       await Future.wait([
         accountService.rateShow(
-          seriesId: showId,
+          seriesId: resolvedShowId,
           value: TmdbAccountService.watchedRatingValue,
         ),
         accountService.setWatchlist(
           accountId: session.accountId,
           mediaType: TmdbMediaType.tv,
-          mediaId: showId,
+          mediaId: resolvedShowId,
           watchlist: false,
         ),
       ]);
@@ -224,6 +280,12 @@ Future<void> markAsNotWatched(
   int? tmdbMovieId,
   int? tmdbShowId,
 }) async {
+  // Prefer an id we already persisted on the WatchProgress entry — set
+  // by an earlier markAsWatched or the reconcile push. Falls back to
+  // the file's parsed showId / explicit caller id / on-the-fly resolve.
+  final existing =
+      ref.read(watchProgressProvider)[WatchProgress.generateHash(file.path)];
+
   await ref.read(watchProgressProvider.notifier).markNotCompleted(file.path);
 
   if (!ref.read(isTmdbSignedInProvider)) return;
@@ -232,22 +294,29 @@ Future<void> markAsNotWatched(
   final session = ref.read(tmdbSessionProvider);
   if (session == null) return;
 
-  final showId =
-      file.showId ?? tmdbShowId ?? await _resolveShowId(ref, file.showName);
-  final isEpisode =
-      showId != null &&
-      file.seasonNumber != null &&
-      file.episodeNumber != null;
+  final isEpisodeFile =
+      file.seasonNumber != null && file.episodeNumber != null;
+  final showId = isEpisodeFile
+      ? (file.showId ?? existing?.showId ?? tmdbShowId ??
+          await _resolveShowId(ref, file.showName))
+      : null;
+  final movieId = !isEpisodeFile
+      ? (tmdbMovieId ?? existing?.movieId ??
+          await _resolveMovieId(
+            ref,
+            file.showName ?? _cleanMovieName(file.fileName),
+          ))
+      : null;
 
   try {
-    if (isEpisode) {
+    if (isEpisodeFile && showId != null) {
       await accountService.deleteEpisodeRating(
         seriesId: showId,
         seasonNumber: file.seasonNumber!,
         episodeNumber: file.episodeNumber!,
       );
-    } else if (tmdbMovieId != null) {
-      await accountService.deleteMovieRating(movieId: tmdbMovieId);
+    } else if (!isEpisodeFile && movieId != null) {
+      await accountService.deleteMovieRating(movieId: movieId);
     } else if (showId != null && file.seasonNumber == null) {
       await accountService.deleteShowRating(seriesId: showId);
     }
@@ -410,6 +479,90 @@ Future<void> reconcileWatchedWithTmdb(
         showId: ep.showId,
         seasonNumber: ep.seasonNumber,
         episodeNumber: ep.episodeNumber,
+      );
+    }
+
+    // ── 5. Movies: same shape, simpler key ──────────────────────────
+    // TMDB has separate /rated/movies and /rated/tv/episodes endpoints.
+    // For movies we just need the movie id — no season/episode key.
+    final ratedMovieIds = await accountService.getRatedMovieIds(
+      accountId: session.accountId,
+    );
+
+    // Push step (sign-in only) for movies.
+    if (pushLocalFirst) {
+      for (final p in progressMap.values) {
+        if (!p.isCompleted) continue;
+        if (p.seasonNumber != null || p.episodeNumber != null) continue;
+        var movieId = p.movieId;
+        if (movieId == null) {
+          // Try to resolve from filename — same as the watch_screen
+          // mark-watched path. Cached so we don't hit TMDB twice.
+          final name = p.showName ?? _cleanMovieName(
+            p.filePath.split('/').last,
+          );
+          movieId = await _resolveMovieId(ref, name);
+        }
+        if (movieId == null) continue;
+        if (ratedMovieIds.contains(movieId)) continue;
+        try {
+          await accountService.rateMovie(
+            movieId: movieId,
+            value: TmdbAccountService.watchedRatingValue,
+          );
+          ratedMovieIds.add(movieId);
+        } catch (e) {
+          debugPrint('[reconcile] movie push failed for $movieId: $e');
+          ratedMovieIds.add(movieId);
+        }
+      }
+    }
+
+    // Pull step for movies: align every local movie file + orphan with TMDB.
+    final coveredMovieIds = <int>{};
+    for (final path in unionPaths) {
+      final file = filesByPath[path];
+      final existing = progressMap[WatchProgress.generateHash(path)];
+
+      final isEpisode =
+          (file?.seasonNumber ?? existing?.seasonNumber) != null ||
+          (file?.episodeNumber ?? existing?.episodeNumber) != null;
+      if (isEpisode) continue;
+      // Skip TMDB-episode synthetics (they live under tmdb:rated:…).
+      if (path.startsWith('tmdb:rated:')) continue;
+
+      var movieId = existing?.movieId;
+      if (movieId == null) {
+        final name =
+            file?.showName ??
+            existing?.showName ??
+            _cleanMovieName(file?.fileName ?? path.split('/').last);
+        movieId = await _resolveMovieId(ref, name);
+      }
+      if (movieId == null) continue;
+      coveredMovieIds.add(movieId);
+
+      final ratedOnTmdb = ratedMovieIds.contains(movieId);
+      final localWatched = existing?.isCompleted == true;
+
+      if (ratedOnTmdb && !localWatched) {
+        await progressNotifier.markCompleted(
+          path,
+          showName: file?.showName ?? existing?.showName,
+          movieId: movieId,
+          posterPath: file?.posterPath ?? existing?.posterPath,
+        );
+      } else if (!ratedOnTmdb && localWatched) {
+        await progressNotifier.markNotCompleted(path);
+      }
+    }
+
+    // Synthetic entries for TMDB-rated movies not present locally.
+    for (final id in ratedMovieIds) {
+      if (coveredMovieIds.contains(id)) continue;
+      await progressNotifier.markCompleted(
+        'tmdb:rated-movie:$id',
+        movieId: id,
       );
     }
   } catch (e) {

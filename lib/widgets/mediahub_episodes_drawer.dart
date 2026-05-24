@@ -452,48 +452,59 @@ class _EpisodePill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isWatched = status == _EpisodeStatus.watched;
+    final hasStatus = status != _EpisodeStatus.none;
+
+    // Three visual classes for the picker pill:
+    //   - none         → surface fill, hairline border
+    //   - watched      → soft tinted fill, status-colored border + number
+    //     (no corner badge: the whole pill says "done" at a glance)
+    //   - downloading / downloaded
+    //                  → surface fill, faint status border, thin status
+    //     stripe along the bottom edge (replaces the floating green dot
+    //     that was visually misaligned inside the rounded rect)
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: Container(
-        width: 36,
-        height: 28,
-        decoration: BoxDecoration(
-          color: AppColors.bgSurface,
-          border: Border.all(
-            color: status == _EpisodeStatus.none
-                ? AppColors.line
-                : status.color.withAlpha(0x66),
-          ),
-          borderRadius: BorderRadius.circular(AppRadius.sm),
-        ),
-        alignment: Alignment.center,
-        child: Stack(
-          alignment: Alignment.center,
-          clipBehavior: Clip.none,
-          children: [
-            Text(
-              episode.episodeNumber.toString().padLeft(2, '0'),
-              style: AppType.mono(
-                size: 12,
-                color: isWatched ? AppColors.fg2 : AppColors.fg1,
-                weight: FontWeight.w700,
-              ),
+      child: ClipRRect(
+        // Bottom stripe needs hard clipping so the rounded corners
+        // don't leak the accent color past the radius.
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        child: Container(
+          width: 36,
+          height: 28,
+          decoration: BoxDecoration(
+            color: isWatched
+                ? status.color.withAlpha(0x26) // ~15% tint
+                : AppColors.bgSurface,
+            border: Border.all(
+              color: hasStatus
+                  ? status.color.withAlpha(isWatched ? 0x80 : 0x4D)
+                  : AppColors.line,
+              width: 1,
             ),
-            if (status != _EpisodeStatus.none)
-              Positioned(
-                top: 2,
-                right: 2,
-                child: Container(
-                  width: 5,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: status.color,
-                    shape: BoxShape.circle,
-                  ),
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+          ),
+          alignment: Alignment.center,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Text(
+                episode.episodeNumber.toString().padLeft(2, '0'),
+                style: AppType.mono(
+                  size: 12,
+                  color: isWatched ? status.color : AppColors.fg1,
+                  weight: FontWeight.w700,
                 ),
               ),
-          ],
+              if (hasStatus && !isWatched)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: Container(height: 2, color: status.color),
+                ),
+            ],
+          ),
         ),
       ),
     );
