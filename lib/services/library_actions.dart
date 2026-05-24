@@ -349,6 +349,10 @@ Future<void> reconcileWatchedWithTmdb(
       for (final p in progressMap.values) p.filePath,
     };
 
+    // Track which (showId, season, episode) keys we've already
+    // covered so the synthetic-entry pass below knows what's missing.
+    final coveredKeys = <String>{};
+
     for (final path in unionPaths) {
       final file = filesByPath[path];
       final existing = progressMap[WatchProgress.generateHash(path)];
@@ -364,7 +368,9 @@ Future<void> reconcileWatchedWithTmdb(
           file?.showId ?? existing?.showId ?? await _resolveShowId(ref, showName);
       if (showId == null) continue;
 
-      final ratedOnTmdb = ratedKeys.contains(keyFor(showId, season, episode));
+      final k = keyFor(showId, season, episode);
+      coveredKeys.add(k);
+      final ratedOnTmdb = ratedKeys.contains(k);
       final localWatched = existing?.isCompleted == true;
 
       if (ratedOnTmdb && !localWatched) {
@@ -380,6 +386,31 @@ Future<void> reconcileWatchedWithTmdb(
         // TMDB says not watched — another device unwatched it. Follow.
         await progressNotifier.markNotCompleted(path);
       }
+    }
+
+    // ── 4. Synthetic entries for TMDB-only ratings ──────────────────
+    // An episode you watched + marked on another device, but never
+    // downloaded here, has no local file and no WatchProgress entry,
+    // so the loop above can't surface it. Create a synthetic entry
+    // keyed on a fake path so the episodes drawer's watched check
+    // finds it. The drawer matches by (showId, season, episode), not
+    // by file path, so this works without touching drawer code.
+    //
+    // Synthetics are cleaned up on the next reconcile naturally: if
+    // the TMDB rating gets deleted (e.g. user unmarks on another
+    // device), the `!ratedOnTmdb && localWatched` branch above runs
+    // for the synthetic's path and marks it not-completed.
+    for (final ep in ratedEpisodes) {
+      final k = keyFor(ep.showId, ep.seasonNumber, ep.episodeNumber);
+      if (coveredKeys.contains(k)) continue;
+      final syntheticPath =
+          'tmdb:rated:${ep.showId}/${ep.seasonNumber}/${ep.episodeNumber}';
+      await progressNotifier.markCompleted(
+        syntheticPath,
+        showId: ep.showId,
+        seasonNumber: ep.seasonNumber,
+        episodeNumber: ep.episodeNumber,
+      );
     }
   } catch (e) {
     debugPrint('[LibraryActions] TMDB watched reconcile failed: $e');
