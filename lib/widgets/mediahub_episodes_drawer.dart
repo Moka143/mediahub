@@ -105,13 +105,26 @@ class _MediaHubEpisodesDrawerState
         'E${ep.episodeNumber.toString().padLeft(2, '0')}';
     final showName = widget.show.name.toLowerCase();
 
-    final progress = ref.read(continueWatchingProvider);
-    final hasWatched = progress.any(
-      (p) =>
-          p.isCompleted &&
-          (p.episodeCode?.toLowerCase() == code.toLowerCase()) &&
-          (p.showName?.toLowerCase().contains(showName) ?? false),
-    );
+    // Read the raw WatchProgress map — not `continueWatchingProvider`
+    // (which strips out `isCompleted` items) and not
+    // `watchedItemsProvider` (which requires the file to still exist).
+    // The watched mark is meant to persist across file deletion and
+    // re-download, so we look it up directly. Prefer structured
+    // matching by TMDB show id + season + episode where the entry has
+    // those fields; fall back to filename matching for older entries.
+    final allProgress = ref.read(watchProgressProvider);
+    final hasWatched = allProgress.values.any((p) {
+      if (!p.isCompleted) return false;
+      if (p.showId != null &&
+          p.seasonNumber != null &&
+          p.episodeNumber != null) {
+        return p.showId == widget.show.id &&
+            p.seasonNumber == ep.seasonNumber &&
+            p.episodeNumber == ep.episodeNumber;
+      }
+      return p.episodeCode?.toLowerCase() == code.toLowerCase() &&
+          (p.showName?.toLowerCase().contains(showName) ?? false);
+    });
     if (hasWatched) return _EpisodeStatus.watched;
 
     final torrents = ref.read(torrentListProvider).torrents;
