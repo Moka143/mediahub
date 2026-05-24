@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -34,7 +35,7 @@ class LocalMediaScanner {
       }
     } catch (e) {
       // Handle permission errors or other issues
-      print('Error scanning directory: $e');
+      debugPrint('Error scanning directory: $e');
     }
 
     // Sort by modified date (newest first)
@@ -67,16 +68,10 @@ class LocalMediaScanner {
         _streamController?.add(files);
       });
     } catch (e) {
-      print('Error setting up file watcher: $e');
+      debugPrint('Error setting up file watcher: $e');
     }
 
     return _streamController!.stream;
-  }
-
-  /// Check if a path is a video file
-  bool _isVideoFile(String path) {
-    final ext = path.split('.').last.toLowerCase();
-    return videoExtensions.contains(ext);
   }
 
   /// Stop watching directory
@@ -175,7 +170,7 @@ class LocalMediaScanner {
         }
       }
     } catch (e) {
-      print('Error finding subtitles: $e');
+      debugPrint('Error finding subtitles: $e');
     }
 
     return subtitles;

@@ -9,9 +9,9 @@ import '../models/show.dart';
 import '../providers/favorites_provider.dart';
 import '../providers/navigation_provider.dart';
 import '../providers/watchlist_provider.dart';
+import '../design/app_colors.dart';
 import '../widgets/common/empty_state.dart';
-import '../widgets/movie_card.dart';
-import '../widgets/show_card.dart';
+import '../widgets/media/media_poster_card.dart';
 import 'movie_details_screen.dart';
 import 'show_details_screen.dart';
 
@@ -62,7 +62,6 @@ class _TvFavoritesTab extends ConsumerWidget {
     final favoritesState = ref.watch(favoritesProvider);
     final favoriteShows = ref.watch(favoriteShowsProvider);
     final upcomingEpisodes = ref.watch(upcomingEpisodesProvider);
-    final appColors = context.appColors;
     final theme = Theme.of(context);
 
     if (favoritesState.favoriteIds.isEmpty) {
@@ -95,7 +94,7 @@ class _TvFavoritesTab extends ConsumerWidget {
                 padding: EdgeInsets.all(AppSpacing.xxl),
                 child: Center(child: CircularProgressIndicator()),
               ),
-              error: (_, __) => const SizedBox.shrink(),
+              error: (_, _) => const SizedBox.shrink(),
             ),
             Padding(
               padding: const EdgeInsets.symmetric(
@@ -415,13 +414,21 @@ class _ShowsGrid extends StatelessWidget {
       itemCount: shows.length,
       itemBuilder: (context, index) {
         final show = shows[index];
-        return ShowCard(
-          show: show,
+        return MediaPosterCard(
+          title: show.name,
           onTap: () {
             Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => ShowDetailsScreen(show: show)),
             );
           },
+          posterAsync: AsyncValue.data(show.posterUrl),
+          titleStyle: CardTitleStyle.overlay,
+          overlayYear: show.year,
+          overlayRating: show.voteAverage > 0
+              ? '★ ${show.voteAverage.toStringAsFixed(1)}'
+              : null,
+          overlayRatingTone: show.voteAverage >= 8 ? AppColors.accent : null,
+          width: null,
         );
       },
     );
@@ -449,8 +456,8 @@ class _MoviesGrid extends StatelessWidget {
       itemCount: movies.length,
       itemBuilder: (context, index) {
         final movie = movies[index];
-        return MovieCard(
-          movie: movie,
+        return MediaPosterCard(
+          title: movie.title,
           onTap: () {
             Navigator.of(context).push(
               MaterialPageRoute(
@@ -458,6 +465,14 @@ class _MoviesGrid extends StatelessWidget {
               ),
             );
           },
+          posterAsync: AsyncValue.data(movie.posterUrl),
+          titleStyle: CardTitleStyle.overlay,
+          overlayYear: movie.year,
+          overlayRating: movie.voteAverage > 0
+              ? '★ ${movie.voteAverage.toStringAsFixed(1)}'
+              : null,
+          overlayRatingTone: movie.voteAverage >= 8 ? AppColors.accent : null,
+          width: null,
         );
       },
     );
@@ -485,7 +500,7 @@ class _UpcomingEpisodeItem extends StatelessWidget {
               ? Image.network(
                   upcoming.show.posterUrl!,
                   fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Container(
+                  errorBuilder: (_, _, _) => Container(
                     color: theme.colorScheme.surfaceContainerHighest,
                     child: const Icon(Icons.tv),
                   ),

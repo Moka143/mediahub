@@ -5,6 +5,8 @@ import 'package:intl/intl.dart';
 
 import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
+import '../design/app_typography.dart';
+import '../widgets/editorial/editorial.dart';
 import '../models/auto_download_event.dart';
 import '../providers/auto_download_events_provider.dart';
 import '../providers/auto_download_provider.dart';
@@ -282,7 +284,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                   child: Center(
                     child: Text(
                       'Nothing airing this week.',
-                      style: TextStyle(color: Color(0xFF7A7A92)),
+                      style: TextStyle(color: AppColors.fg2),
                     ),
                   ),
                 )
@@ -458,26 +460,14 @@ class _CalendarWeekHeader extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                range,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.44,
-                  color: Color(0xFFF4F4F8),
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
+              SerifTitle(range, size: 48, height: 1.0, letterSpacing: -0.01),
+              const SizedBox(height: 6),
+              MonoLabel(
                 airingCount == 1
                     ? 'NEXT 7 DAYS · 1 AIRING'
                     : 'NEXT 7 DAYS · $airingCount AIRING',
-                style: const TextStyle(
-                  fontSize: 12,
-                  letterSpacing: 0.4,
-                  color: Color(0xFF7A7A92),
-                  fontFamily: 'monospace',
-                ),
+                color: AppColors.fg2,
+                letterSpacing: 0.1,
               ),
             ],
           ),
@@ -551,7 +541,7 @@ class _WeekColumn extends StatelessWidget {
         border: Border.all(
           color: isToday
               ? AppColors.seedColor.withAlpha(0x66)
-              : const Color(0x0FFFFFFF),
+              : AppColors.line,
         ),
         borderRadius: BorderRadius.circular(AppRadius.lg),
       ),
@@ -562,29 +552,17 @@ class _WeekColumn extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.baseline,
             textBaseline: TextBaseline.alphabetic,
             children: [
-              Text(
+              MonoLabel(
                 DateFormat('E').format(date).toUpperCase(),
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.66,
-                  fontFamily: 'monospace',
-                  color: isToday
-                      ? AppColors.seedColor
-                      : const Color(0xFF7A7A92),
-                ),
+                color: isToday ? AppColors.accent : AppColors.fg3,
+                letterSpacing: 0.14,
               ),
               const Spacer(),
-              Text(
+              SerifTitle(
                 '${date.day}',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.44,
-                  color: isToday
-                      ? AppColors.seedColor
-                      : const Color(0xFFF4F4F8),
-                ),
+                size: 36,
+                height: 1.0,
+                color: isToday ? AppColors.accent : AppColors.fg,
               ),
             ],
           ),
@@ -601,7 +579,7 @@ class _WeekColumn extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 10,
                   fontFamily: 'monospace',
-                  color: Color(0xFF7A7A92),
+                  color: AppColors.fg2,
                 ),
               ),
             ),
@@ -647,25 +625,22 @@ class _DayEpisodeChip extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            MonoLabel(
+              episode.episodeCode,
+              color: AppColors.accent,
+              letterSpacing: 0.12,
+              maxLines: 1,
+            ),
+            const SizedBox(height: 4),
             Text(
               episode.showName,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: Colors.white,
+              style: AppType.ui(
+                size: 12,
+                color: AppColors.fg,
+                weight: FontWeight.w500,
                 height: 1.2,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              episode.episodeCode,
-              style: TextStyle(
-                fontSize: 9,
-                fontFamily: 'monospace',
-                letterSpacing: 0.4,
-                color: Colors.white.withAlpha(178),
               ),
             ),
           ],
@@ -681,29 +656,12 @@ class _AiringHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      children: [
-        Container(
-          width: 24,
-          height: 24,
-          decoration: BoxDecoration(
-            color: AppColors.accentTertiary.withAlpha(36),
-            borderRadius: BorderRadius.circular(AppRadius.sm),
-          ),
-          child: const Icon(
-            Icons.local_fire_department_rounded,
-            size: 14,
-            color: AppColors.accentTertiary,
-          ),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        const Text(
-          'Airing this week',
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-            color: Color(0xFFF4F4F8),
-          ),
-        ),
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: const [
+        SerifTitle('Airing this week', size: 22, height: 1.0),
+        SizedBox(width: 12),
+        MonoLabel('AUTO-GRAB', color: AppColors.fg3, letterSpacing: 0.14),
       ],
     );
   }
@@ -744,7 +702,7 @@ class _AiringRow extends StatelessWidget {
           border: Border.all(
             color: isLive
                 ? AppColors.accentTertiary.withAlpha(0x66)
-                : const Color(0x0FFFFFFF),
+                : AppColors.line,
           ),
           borderRadius: BorderRadius.circular(AppRadius.md),
         ),
@@ -762,7 +720,7 @@ class _AiringRow extends StatelessWidget {
                       fontSize: 10,
                       fontWeight: FontWeight.w700,
                       letterSpacing: 0.66,
-                      color: Color(0xFF7A7A92),
+                      color: AppColors.fg2,
                       fontFamily: 'monospace',
                     ),
                   ),
@@ -771,7 +729,7 @@ class _AiringRow extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFFF4F4F8),
+                      color: AppColors.fg,
                       height: 1,
                     ),
                   ),
@@ -811,7 +769,7 @@ class _AiringRow extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
-                      color: Color(0xFFF4F4F8),
+                      color: AppColors.fg,
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -821,7 +779,7 @@ class _AiringRow extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontSize: 11,
-                      color: Color(0xFF7A7A92),
+                      color: AppColors.fg2,
                       fontFamily: 'monospace',
                     ),
                   ),
@@ -857,7 +815,7 @@ class _AiringRow extends StatelessWidget {
                       vertical: 3,
                     ),
                     decoration: BoxDecoration(
-                      color: const Color(0x14FFFFFF),
+                      color: Colors.white.withAlpha(AppOpacity.subtle),
                       borderRadius: BorderRadius.circular(AppRadius.xs),
                     ),
                     child: const Text(
@@ -866,7 +824,7 @@ class _AiringRow extends StatelessWidget {
                         fontSize: 10,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0.5,
-                        color: Color(0xFF7A7A92),
+                        color: AppColors.fg2,
                         fontFamily: 'monospace',
                       ),
                     ),

@@ -92,8 +92,9 @@ class EztvTorrent {
   /// Get formatted file size
   String get sizeFormatted {
     if (sizeBytes < 1024) return '$sizeBytes B';
-    if (sizeBytes < 1024 * 1024)
+    if (sizeBytes < 1024 * 1024) {
       return '${(sizeBytes / 1024).toStringAsFixed(1)} KB';
+    }
     if (sizeBytes < 1024 * 1024 * 1024) {
       return '${(sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB';
     }
@@ -108,10 +109,12 @@ class EztvTorrent {
     if (filename_.contains('720p')) return '720p';
     if (filename_.contains('480p')) return '480p';
     if (filename_.contains('hdtv')) return 'HDTV';
-    if (filename_.contains('webrip') || filename_.contains('web-rip'))
+    if (filename_.contains('webrip') || filename_.contains('web-rip')) {
       return 'WEBRip';
-    if (filename_.contains('webdl') || filename_.contains('web-dl'))
+    }
+    if (filename_.contains('webdl') || filename_.contains('web-dl')) {
       return 'WEB-DL';
+    }
     return 'Unknown';
   }
 

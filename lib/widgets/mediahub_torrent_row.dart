@@ -6,7 +6,7 @@ import '../design/app_tokens.dart';
 import '../models/torrent.dart';
 import '../utils/constants.dart';
 import '../utils/formatters.dart';
-import 'common/status_badge.dart';
+import 'editorial/editorial.dart';
 
 /// Pull a short display quality token (`4K` / `1080p` / `720p` / `SD`)
 /// out of a release name. The full name is what we want to render
@@ -54,7 +54,7 @@ class MediaHubTorrentHeader extends StatelessWidget {
     return Container(
       decoration: const BoxDecoration(
         color: AppColors.bgPage,
-        border: Border(bottom: BorderSide(color: Color(0x0FFFFFFF), width: 1)),
+        border: Border(bottom: BorderSide(color: AppColors.line, width: 1)),
       ),
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.xxl,
@@ -73,7 +73,7 @@ class MediaHubTorrentHeader extends StatelessWidget {
 
   Widget _buildCell(_HeaderCol col) {
     final active = col.key != null && col.key == sortKey;
-    final color = active ? AppColors.seedColor : const Color(0xFF7A7A92);
+    final color = active ? AppColors.seedColor : AppColors.fg2;
     final child = GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: col.key == null ? null : () => onSortKeyTap(col.key!),
@@ -209,7 +209,7 @@ class _MediaHubTorrentRowState extends State<MediaHubTorrentRow>
                           ? Colors.white.withAlpha(10)
                           : Colors.transparent),
                 border: const Border(
-                  bottom: BorderSide(color: Color(0x0FFFFFFF), width: 1),
+                  bottom: BorderSide(color: AppColors.line, width: 1),
                 ),
               ),
               padding: const EdgeInsets.symmetric(
@@ -250,9 +250,15 @@ class _MediaHubTorrentRowState extends State<MediaHubTorrentRow>
                           },
                         ),
                         const SizedBox(width: AppSpacing.sm),
-                        StatusBadge.quality(
-                          quality: _qualityFromName(t.name),
-                          size: StatusBadgeSize.small,
+                        Builder(
+                          builder: (_) {
+                            final q = _qualityFromName(t.name);
+                            return EditorialBadge(
+                              q,
+                              compact: true,
+                              tone: q.qualityColor,
+                            );
+                          },
                         ),
                         const SizedBox(width: AppSpacing.sm),
                         Expanded(
@@ -264,7 +270,7 @@ class _MediaHubTorrentRowState extends State<MediaHubTorrentRow>
                               fontSize: 12,
                               fontFamily: 'monospace',
                               fontWeight: FontWeight.w500,
-                              color: Color(0xFFF4F4F8),
+                              color: AppColors.fg,
                             ),
                           ),
                         ),
@@ -280,7 +286,7 @@ class _MediaHubTorrentRowState extends State<MediaHubTorrentRow>
                       style: const TextStyle(
                         fontSize: 11,
                         fontFamily: 'monospace',
-                        color: Color(0xFFB4B4C8),
+                        color: AppColors.fg1,
                       ),
                     ),
                   ),
@@ -346,7 +352,7 @@ class _MediaHubTorrentRowState extends State<MediaHubTorrentRow>
                         fontFamily: 'monospace',
                         color: t.dlspeed > 0
                             ? ac.downloading
-                            : const Color(0xFF54546A),
+                            : AppColors.fg3,
                       ),
                     ),
                   ),
@@ -361,7 +367,7 @@ class _MediaHubTorrentRowState extends State<MediaHubTorrentRow>
                           fontFamily: 'monospace',
                           color: t.upspeed > 0
                               ? ac.seeding
-                              : const Color(0xFF54546A),
+                              : AppColors.fg3,
                         ),
                       ),
                     ),
@@ -375,7 +381,7 @@ class _MediaHubTorrentRowState extends State<MediaHubTorrentRow>
                         style: const TextStyle(
                           fontSize: 11,
                           fontFamily: 'monospace',
-                          color: Color(0xFFB4B4C8),
+                          color: AppColors.fg1,
                         ),
                       ),
                     ),
@@ -400,10 +406,12 @@ class _MediaHubTorrentRowState extends State<MediaHubTorrentRow>
                                 : widget.onPause,
                           ),
                           const SizedBox(width: 2),
-                          _RowIconButton(
-                            icon: Icons.more_horiz_rounded,
-                            tooltip: 'More',
-                            onPressed: widget.onLongPress,
+                          _RowOverflowMenu(
+                            isPaused: t.isPaused,
+                            onPause: widget.onPause,
+                            onResume: widget.onResume,
+                            onDelete: widget.onDelete,
+                            onSelect: widget.onLongPress,
                           ),
                         ],
                       ),
@@ -475,7 +483,7 @@ class _RowIconButtonState extends State<_RowIconButton> {
               child: Icon(
                 widget.icon,
                 size: 14,
-                color: const Color(0xFFB4B4C8),
+                color: AppColors.fg1,
               ),
             ),
           ),
@@ -484,3 +492,89 @@ class _RowIconButtonState extends State<_RowIconButton> {
     );
   }
 }
+
+/// Overflow popup for the dense row — pause/resume + delete + select.
+/// Replaces the bare "More" button that previously fired onLongPress
+/// (entering selection mode) but didn't expose delete inline.
+class _RowOverflowMenu extends StatelessWidget {
+  const _RowOverflowMenu({
+    required this.isPaused,
+    required this.onPause,
+    required this.onResume,
+    required this.onDelete,
+    required this.onSelect,
+  });
+
+  final bool isPaused;
+  final VoidCallback? onPause;
+  final VoidCallback? onResume;
+  final VoidCallback? onDelete;
+  final VoidCallback? onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<_RowAction>(
+      tooltip: 'More',
+      color: AppColors.bgSurfaceHi,
+      padding: EdgeInsets.zero,
+      icon: const Icon(
+        Icons.more_horiz_rounded,
+        size: 14,
+        color: AppColors.fg1,
+      ),
+      onSelected: (a) {
+        switch (a) {
+          case _RowAction.pauseResume:
+            (isPaused ? onResume : onPause)?.call();
+          case _RowAction.select:
+            onSelect?.call();
+          case _RowAction.delete:
+            onDelete?.call();
+        }
+      },
+      itemBuilder: (_) => [
+        PopupMenuItem(
+          value: _RowAction.pauseResume,
+          child: _menuItem(
+            icon: isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+            label: isPaused ? 'Resume' : 'Pause',
+          ),
+        ),
+        PopupMenuItem(
+          value: _RowAction.select,
+          child: _menuItem(
+            icon: Icons.check_box_outlined,
+            label: 'Select',
+          ),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem(
+          value: _RowAction.delete,
+          child: _menuItem(
+            icon: Icons.delete_outline,
+            label: 'Delete',
+            destructive: true,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _menuItem({
+    required IconData icon,
+    required String label,
+    bool destructive = false,
+  }) {
+    final color = destructive ? AppColors.err : AppColors.fg1;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: color),
+        const SizedBox(width: AppSpacing.sm),
+        Text(label, style: TextStyle(fontSize: 12, color: color)),
+      ],
+    );
+  }
+}
+
+enum _RowAction { pauseResume, select, delete }

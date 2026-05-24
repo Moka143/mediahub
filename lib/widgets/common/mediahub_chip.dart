@@ -2,13 +2,12 @@ import 'package:flutter/material.dart';
 
 import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
+import '../../design/app_typography.dart';
 
-/// Pill-shaped filter chip styled to match the MediaHub design.
-///
-/// When `selected`, the chip uses a soft accent background, an accent
-/// foreground color, and a hairline accent border. Optional `dotColor`
-/// renders a status dot on the left, and `count` renders a small mono
-/// count badge on the right (e.g. "Downloading · 3").
+/// Editorial filter chip — pill shape, hairline border. When selected,
+/// it switches to a white fill with dark text (the prototype's
+/// `filter === id` rule). Optional [dotColor] LED on the left,
+/// optional mono [count] on the right.
 class MediaHubFilterChip extends StatefulWidget {
   const MediaHubFilterChip({
     super.key,
@@ -17,15 +16,17 @@ class MediaHubFilterChip extends StatefulWidget {
     required this.onTap,
     this.dotColor,
     this.count,
-    this.accentColor,
   });
 
   final String label;
   final bool selected;
-  final VoidCallback onTap;
+
+  /// When null the chip is disabled — pointer reverts to default,
+  /// taps are ignored, but the chip still renders at full opacity
+  /// (callers can wrap in `Opacity` if they want a visual dim).
+  final VoidCallback? onTap;
   final Color? dotColor;
   final int? count;
-  final Color? accentColor;
 
   @override
   State<MediaHubFilterChip> createState() => _MediaHubFilterChipState();
@@ -36,17 +37,18 @@ class _MediaHubFilterChipState extends State<MediaHubFilterChip> {
 
   @override
   Widget build(BuildContext context) {
-    final accent = widget.accentColor ?? widget.dotColor ?? AppColors.seedColor;
     final isSel = widget.selected;
     final bg = isSel
-        ? accent.withAlpha(0x24)
-        : (_hover ? Colors.white.withAlpha(10) : Colors.transparent);
-    final fg = isSel ? accent : const Color(0xFFB4B4C8);
-    final borderColor = isSel ? accent.withAlpha(0x66) : Colors.transparent;
+        ? AppColors.fg
+        : (_hover ? AppColors.bgSurface : Colors.transparent);
+    final fg = isSel ? AppColors.bgPage : AppColors.fg1;
+    final borderColor = isSel ? AppColors.fg1 : AppColors.line;
 
+    final enabled = widget.onTap != null;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
+      cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
       child: GestureDetector(
         onTap: widget.onTap,
         behavior: HitTestBehavior.opaque,
@@ -54,12 +56,12 @@ class _MediaHubFilterChipState extends State<MediaHubFilterChip> {
           duration: const Duration(milliseconds: 150),
           padding: const EdgeInsets.symmetric(
             horizontal: AppSpacing.md,
-            vertical: 6,
+            vertical: AppSpacing.xs,
           ),
           decoration: BoxDecoration(
             color: bg,
             borderRadius: BorderRadius.circular(AppRadius.full),
-            border: Border.all(color: borderColor),
+            border: Border.all(color: borderColor, width: 1),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -71,39 +73,33 @@ class _MediaHubFilterChipState extends State<MediaHubFilterChip> {
                   decoration: BoxDecoration(
                     color: widget.dotColor,
                     shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: widget.dotColor!.withValues(alpha: 0.5),
+                        blurRadius: 4,
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 6),
+                const SizedBox(width: 7),
               ],
               Text(
                 widget.label,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
+                style: AppType.ui(
+                  size: 12,
                   color: fg,
+                  weight: FontWeight.w500,
+                  height: 1.0,
                 ),
               ),
               if (widget.count != null) ...[
-                const SizedBox(width: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 5,
-                    vertical: 1,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isSel
-                        ? accent.withAlpha(0x40)
-                        : AppColors.bgSurfaceHi,
-                    borderRadius: BorderRadius.circular(AppRadius.xs),
-                  ),
-                  child: Text(
-                    '${widget.count}',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: isSel ? accent : const Color(0xFF7A7A92),
-                      fontFamily: 'monospace',
-                    ),
+                const SizedBox(width: 7),
+                Text(
+                  '${widget.count}',
+                  style: AppType.mono(
+                    size: 10,
+                    color: fg.withValues(alpha: 0.6),
+                    letterSpacing: 0.04,
                   ),
                 ),
               ],

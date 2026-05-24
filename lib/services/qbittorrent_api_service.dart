@@ -444,16 +444,19 @@ class QBittorrentApiService {
         formData.fields.add(MapEntry('paused', paused.toString()));
         formData.fields.add(MapEntry('stopped', paused.toString()));
       }
-      if (skipChecking != null)
+      if (skipChecking != null) {
         formData.fields.add(MapEntry('skip_checking', skipChecking.toString()));
-      if (sequentialDownload != null)
+      }
+      if (sequentialDownload != null) {
         formData.fields.add(
           MapEntry('sequentialDownload', sequentialDownload.toString()),
         );
-      if (firstLastPiecePrio != null)
+      }
+      if (firstLastPiecePrio != null) {
         formData.fields.add(
           MapEntry('firstLastPiecePrio', firstLastPiecePrio.toString()),
         );
+      }
 
       final response = await _dio.post('/api/v2/torrents/add', data: formData);
 

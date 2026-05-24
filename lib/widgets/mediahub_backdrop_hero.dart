@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
-import 'common/status_badge.dart';
+import '../design/app_typography.dart';
+import 'editorial/editorial.dart';
 
 /// Cinematic backdrop hero for the Show / Movie detail screens.
 ///
@@ -44,7 +45,6 @@ class MediaHubBackdropHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return SizedBox(
       height: height,
       child: Stack(
@@ -62,7 +62,7 @@ class MediaHubBackdropHero extends StatelessWidget {
               fit: BoxFit.cover,
               loadingBuilder: (_, child, progress) =>
                   progress == null ? child : _backdropFallback(),
-              errorBuilder: (_, e, __) {
+              errorBuilder: (_, e, _) {
                 debugPrint(
                   '[Hero] backdrop load failed for "$title": $backdropUrl ($e)',
                 );
@@ -128,7 +128,7 @@ class MediaHubBackdropHero extends StatelessWidget {
                       fit: BoxFit.cover,
                       loadingBuilder: (_, child, progress) =>
                           progress == null ? child : _posterFallback(),
-                      errorBuilder: (_, e, __) {
+                      errorBuilder: (_, e, _) {
                         debugPrint(
                           '[Hero] poster load failed for "$title": $posterUrl ($e)',
                         );
@@ -159,44 +159,29 @@ class MediaHubBackdropHero extends StatelessWidget {
                         runSpacing: AppSpacing.xs,
                         children: [
                           for (final p in metaPills)
-                            StatusBadge(
-                              label: p.label,
-                              textColor: p.color,
-                              size: StatusBadgeSize.small,
+                            EditorialBadge(
+                              p.label,
+                              compact: true,
+                              tone: p.color,
                               icon: p.icon,
                             ),
                         ],
                       ),
                       const SizedBox(height: AppSpacing.md),
-                      Text(
+                      SerifTitle(
                         title,
+                        size: 84,
+                        height: 0.92,
+                        letterSpacing: -0.02,
+                        color: AppColors.fg,
                         maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 52,
-                          fontWeight: FontWeight.w800,
-                          height: 0.95,
-                          letterSpacing: -1.6,
-                          color: Colors.white,
-                          shadows: [
-                            Shadow(
-                              color: Colors.black.withAlpha(102),
-                              blurRadius: 24,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
                       ),
                       if (year != null) ...[
                         const SizedBox(height: AppSpacing.sm),
-                        Text(
-                          year!.toUpperCase(),
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: Color(0xFF7A7A92),
-                            letterSpacing: 0.5,
-                            fontFamily: 'monospace',
-                          ),
+                        MonoLabel(
+                          year!,
+                          color: AppColors.fg2,
+                          letterSpacing: 0.08,
                         ),
                       ],
                       if (description != null && description!.isNotEmpty) ...[
@@ -207,10 +192,10 @@ class MediaHubBackdropHero extends StatelessWidget {
                             description!,
                             maxLines: 3,
                             overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              fontSize: 14,
+                            style: AppType.ui(
+                              size: 14,
+                              color: AppColors.fg1,
                               height: 1.6,
-                              color: const Color(0xFFB4B4C8),
                             ),
                           ),
                         ),

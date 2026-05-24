@@ -1,36 +1,34 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../design/app_colors.dart';
-import '../../design/app_tokens.dart';
+import '../../design/app_typography.dart';
+import '../editorial/mono_label.dart';
+import '../editorial/serif_title.dart';
 
-/// MediaHub-styled in-page header — large display title, secondary
-/// subtitle, optional center search field, and a row of trailing
-/// actions on the right. Matches the `TopBar` component from the
-/// design's `components.jsx`.
-///
-/// Implements [PreferredSizeWidget] so it can drop into Scaffold's
-/// `appBar` slot without ceremony.
+/// Editorial topbar — italic serif title, mono "crumb" on a hairline
+/// vertical divider, optional search field, trailing actions.
+/// Matches the `.tb` rule in the prototype.
 class MediaHubTopBar extends StatelessWidget implements PreferredSizeWidget {
   const MediaHubTopBar({
     super.key,
     required this.title,
     this.subtitle,
     this.showSearch = true,
-    this.searchHint = 'Search across everything — titles, actors, file names…',
+    this.searchHint = 'Search shows, movies, magnet links…',
     this.onSearchChanged,
     this.searchController,
     this.actions = const [],
   });
 
   @override
-  Size get preferredSize {
-    // 16+16 vertical padding + ~46px content (title + optional subtitle)
-    final hasSubtitle = subtitle != null && subtitle!.isNotEmpty;
-    return Size.fromHeight(hasSubtitle ? 78 : 64);
-  }
+  Size get preferredSize => const Size.fromHeight(64);
 
   final String title;
+
+  /// Rendered as the editorial "crumb" — uppercase mono on a divider.
   final String? subtitle;
+
   final bool showSearch;
   final String searchHint;
   final ValueChanged<String>? onSearchChanged;
@@ -39,81 +37,67 @@ class MediaHubTopBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.xxl,
-        vertical: AppSpacing.lg,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 28),
       decoration: const BoxDecoration(
         color: AppColors.bgPage,
-        border: Border(bottom: BorderSide(color: Color(0x0FFFFFFF), width: 1)),
+        border: Border(bottom: BorderSide(color: AppColors.line, width: 1)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Title + subtitle stack — `Expanded` so the title soaks up
-          // all leftover horizontal space, which pins the actions row
-          // to the true right edge regardless of title length. (Using
-          // Flexible+Spacer here split the row 50/50 and made actions
-          // float toward the middle.)
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          Flexible(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.44,
-                    height: 1.15,
-                    color: theme.colorScheme.onSurface,
+                Flexible(
+                  child: SerifTitle(
+                    title,
+                    size: 28,
+                    height: 1.0,
+                    letterSpacing: -0.01,
+                    maxLines: 1,
                   ),
                 ),
-                if (subtitle != null && subtitle!.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text(
+                if (subtitle != null && subtitle!.isNotEmpty) ...[
+                  const SizedBox(width: 14),
+                  Container(
+                    width: 1,
+                    height: 14,
+                    color: AppColors.line,
+                  ),
+                  const SizedBox(width: 14),
+                  Flexible(
+                    child: MonoLabel(
                       subtitle!,
+                      color: AppColors.fg3,
+                      letterSpacing: 0.12,
                       maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF7A7A92),
-                      ),
                     ),
                   ),
+                ],
               ],
             ),
           ),
-
+          const Spacer(),
           if (showSearch) ...[
-            const SizedBox(width: AppSpacing.lg),
             ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 480),
+              constraints: const BoxConstraints(maxWidth: 320, minWidth: 220),
               child: _SearchField(
                 hint: searchHint,
                 controller: searchController,
                 onChanged: onSearchChanged,
               ),
             ),
+            const SizedBox(width: 10),
           ],
-
-          if (actions.isNotEmpty) ...[
-            const SizedBox(width: AppSpacing.md),
-            // Actions can wrap onto a tighter row but keep their
-            // intrinsic widths — avoids the Row overflow we hit when
-            // the action list grew with connection status etc.
+          if (actions.isNotEmpty)
             Wrap(
-              spacing: AppSpacing.sm,
+              spacing: 8,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: actions,
             ),
-          ],
         ],
       ),
     );
@@ -130,25 +114,23 @@ class _SearchField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      height: 32,
       decoration: BoxDecoration(
         color: AppColors.bgSurface,
-        border: Border.all(color: const Color(0x0FFFFFFF), width: 1),
-        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: AppColors.line, width: 1),
+        borderRadius: BorderRadius.circular(6),
       ),
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: 6,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
         children: [
-          const Icon(Icons.search_rounded, size: 14, color: Color(0xFF7A7A92)),
-          const SizedBox(width: AppSpacing.sm),
+          const Icon(Icons.search_rounded, size: 14, color: AppColors.fg3),
+          const SizedBox(width: 8),
           Expanded(
             child: TextField(
               controller: controller,
               onChanged: onChanged,
-              cursorColor: AppColors.seedColor,
-              style: const TextStyle(fontSize: 13, color: Color(0xFFF4F4F8)),
+              cursorColor: AppColors.accent,
+              style: AppType.ui(size: 12, color: AppColors.fg),
               decoration: InputDecoration(
                 isDense: true,
                 contentPadding: EdgeInsets.zero,
@@ -156,19 +138,22 @@ class _SearchField extends StatelessWidget {
                 enabledBorder: InputBorder.none,
                 focusedBorder: InputBorder.none,
                 hintText: hint,
-                hintStyle: const TextStyle(
-                  fontSize: 13,
-                  color: Color(0x66B4B4C8),
-                ),
+                hintStyle: AppType.ui(size: 12, color: AppColors.fg3),
                 filled: false,
               ),
             ),
           ),
-          const SizedBox(width: AppSpacing.sm),
-          const _Kbd(label: '⌘K'),
+          const SizedBox(width: 6),
+          _Kbd(label: _isMac() ? '⌘K' : 'Ctrl+K'),
         ],
       ),
     );
+  }
+
+  static bool _isMac() {
+    // Best-effort — defaults to Mac if unknown so UI looks right on
+    // the primary dev target. Doesn't affect functionality.
+    return defaultTargetPlatform == TargetPlatform.macOS;
   }
 }
 
@@ -180,27 +165,24 @@ class _Kbd extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
       decoration: BoxDecoration(
-        color: AppColors.bgSurfaceHi,
-        border: Border.all(color: const Color(0x0FFFFFFF)),
-        borderRadius: BorderRadius.circular(AppRadius.xxs),
+        border: Border.all(color: AppColors.line, width: 1),
+        borderRadius: BorderRadius.circular(3),
       ),
       child: Text(
         label,
-        style: const TextStyle(
-          fontSize: 10,
-          color: Color(0xFF7A7A92),
-          fontFamily: 'monospace',
+        style: AppType.mono(
+          size: 10,
+          color: AppColors.fg3,
+          letterSpacing: 0.04,
         ),
       ),
     );
   }
 }
 
-/// Compact 34×34 icon button used in the TopBar action row. Subtle
-/// ghost background that lights up on hover, matches the design's
-/// `IconBtn` component from `components.jsx`.
+/// 32×32 ghost icon button. Used in the topbar action row.
 class MediaHubIconButton extends StatefulWidget {
   const MediaHubIconButton({
     super.key,
@@ -228,27 +210,29 @@ class _MediaHubIconButtonState extends State<MediaHubIconButton> {
 
   @override
   Widget build(BuildContext context) {
-    final dotColor = widget.dotColor ?? AppColors.accentTertiary;
+    final dotColor = widget.dotColor ?? AppColors.accent;
     return Tooltip(
       message: widget.tooltip,
       child: MouseRegion(
         onEnter: (_) => setState(() => _hover = true),
         onExit: (_) => setState(() => _hover = false),
+        cursor: SystemMouseCursors.click,
         child: GestureDetector(
           onTap: widget.onPressed,
           behavior: HitTestBehavior.opaque,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 120),
-            width: 34,
-            height: 34,
+            width: 32,
+            height: 32,
             decoration: BoxDecoration(
               color: widget.active
                   ? AppColors.bgSurfaceHi
-                  : (_hover ? Colors.white.withAlpha(10) : Colors.transparent),
-              borderRadius: BorderRadius.circular(AppRadius.md),
-              border: widget.active
-                  ? Border.all(color: const Color(0x1AFFFFFF))
-                  : null,
+                  : (_hover ? AppColors.bgSurface : Colors.transparent),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(
+                color: widget.active ? AppColors.lineStrong : AppColors.line,
+                width: 1,
+              ),
             ),
             child: Stack(
               clipBehavior: Clip.none,
@@ -256,14 +240,14 @@ class _MediaHubIconButtonState extends State<MediaHubIconButton> {
                 Center(
                   child: Icon(
                     widget.icon,
-                    size: 16,
-                    color: const Color(0xFFB4B4C8),
+                    size: 14,
+                    color: widget.active ? AppColors.fg : AppColors.fg1,
                   ),
                 ),
                 if (widget.hasDot)
                   Positioned(
-                    top: 8,
-                    right: 8,
+                    top: 7,
+                    right: 7,
                     child: Container(
                       width: 6,
                       height: 6,
@@ -272,8 +256,8 @@ class _MediaHubIconButtonState extends State<MediaHubIconButton> {
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: dotColor.withAlpha(120),
-                            blurRadius: 6,
+                            color: dotColor.withValues(alpha: 0.6),
+                            blurRadius: 5,
                           ),
                         ],
                       ),

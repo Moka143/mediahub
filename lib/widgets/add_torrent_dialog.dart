@@ -4,9 +4,12 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
+import '../design/app_typography.dart';
 import '../providers/settings_provider.dart';
 import '../providers/torrent_provider.dart';
+import 'editorial/editorial.dart';
 
 /// Dialog for adding a new torrent
 class AddTorrentDialog extends ConsumerStatefulWidget {
@@ -77,7 +80,6 @@ class _AddTorrentDialogState extends ConsumerState<AddTorrentDialog> {
   Future<void> _addTorrent() async {
     if (_isLoading) return;
 
-    // Validate
     final hasMagnet = _magnetController.text.isNotEmpty;
     final hasFile = _selectedFilePath != null;
 
@@ -131,259 +133,280 @@ class _AddTorrentDialogState extends ConsumerState<AddTorrentDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return AlertDialog(
+    return Dialog(
+      backgroundColor: AppColors.bgSurface,
+      elevation: 0,
+      insetPadding: const EdgeInsets.all(AppSpacing.xxl),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppRadius.lg),
+        side: BorderSide(color: AppColors.line, width: 1),
       ),
-      title: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.sm),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primaryContainer,
-              borderRadius: BorderRadius.circular(AppRadius.sm),
-            ),
-            child: Icon(
-              Icons.add_rounded,
-              color: theme.colorScheme.onPrimaryContainer,
-            ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 540),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.xxl,
+            AppSpacing.xl,
+            AppSpacing.xxl,
+            AppSpacing.lg,
           ),
-          const SizedBox(width: AppSpacing.md),
-          const Text('Add Torrent'),
-        ],
-      ),
-      content: SizedBox(
-        width: 500,
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Magnet link input
-              TextField(
-                controller: _magnetController,
-                decoration: InputDecoration(
-                  labelText: 'Magnet Link',
-                  hintText: 'magnet:?xt=urn:btih:...',
-                  prefixIcon: const Icon(Icons.link_rounded),
-                  enabled: _selectedFilePath == null,
-                ),
-                maxLines: 3,
-                minLines: 1,
-                onChanged: (_) {
-                  if (_selectedFilePath != null) {
-                    setState(() {
-                      _selectedFilePath = null;
-                    });
-                  }
-                },
-              ),
-              SizedBox(height: AppSpacing.lg),
-
-              // OR divider
-              Row(
-                children: [
-                  const Expanded(child: Divider()),
-                  Padding(
-                    padding: EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.sm,
-                        vertical: AppSpacing.xs,
-                      ),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(AppRadius.full),
-                      ),
-                      child: Text(
-                        'OR',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const Expanded(child: Divider()),
-                ],
-              ),
-              SizedBox(height: AppSpacing.lg),
-
-              // File picker
-              OutlinedButton.icon(
-                onPressed: _pickTorrentFile,
-                icon: const Icon(Icons.folder_open_rounded),
-                label: Text(
-                  _selectedFilePath != null
-                      ? _selectedFilePath!.split('/').last
-                      : 'Select .torrent file',
-                ),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.lg,
-                    vertical: AppSpacing.md,
-                  ),
-                ),
-              ),
-              SizedBox(height: AppSpacing.xl),
-
-              // Save path
-              Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.md,
-                        vertical: AppSpacing.sm,
-                      ),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(AppRadius.md),
-                        border: Border.all(
-                          color: theme.colorScheme.outline.withAlpha(64),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.folder_rounded,
-                            size: 20,
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                          const SizedBox(width: AppSpacing.sm),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Save to',
-                                  style: theme.textTheme.labelSmall?.copyWith(
-                                    color: theme.colorScheme.onSurfaceVariant,
-                                  ),
-                                ),
-                                Text(
-                                  _savePath ?? 'Default',
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.bodyMedium,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  SizedBox(width: AppSpacing.sm),
-                  FilledButton.tonalIcon(
-                    onPressed: _pickSavePath,
-                    icon: const Icon(Icons.folder_open_rounded),
-                    label: const Text('Browse'),
-                  ),
-                ],
-              ),
-              SizedBox(height: AppSpacing.lg),
-
-              // Start immediately toggle
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.sm,
-                  vertical: AppSpacing.xs,
-                ),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest.withAlpha(
-                    128,
-                  ),
-                  borderRadius: BorderRadius.circular(AppRadius.md),
-                ),
-                child: Row(
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Header
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Container(
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        color: _startImmediately
-                            ? theme.colorScheme.primary.withAlpha(32)
-                            : theme.colorScheme.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(AppRadius.sm),
-                      ),
-                      child: Icon(
-                        Icons.play_arrow_rounded,
-                        color: _startImmediately
-                            ? theme.colorScheme.primary
-                            : theme.colorScheme.onSurfaceVariant,
-                        size: 20,
-                      ),
+                    const Icon(
+                      Icons.add_rounded,
+                      color: AppColors.accent,
+                      size: AppIconSize.lg,
                     ),
                     const SizedBox(width: AppSpacing.md),
-                    Expanded(
-                      child: Text(
-                        'Start immediately',
-                        style: theme.textTheme.bodyMedium,
+                    const SerifTitle('Add torrent', size: 22, height: 1.05),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.xl),
+
+                // Magnet link input
+                TextField(
+                  controller: _magnetController,
+                  style: AppType.ui(size: 13, color: AppColors.fg),
+                  cursorColor: AppColors.accent,
+                  decoration: InputDecoration(
+                    labelText: 'Magnet link',
+                    labelStyle: AppType.mono(
+                      size: 11,
+                      color: AppColors.fg2,
+                      letterSpacing: 0.06,
+                    ),
+                    hintText: 'magnet:?xt=urn:btih:…',
+                    hintStyle: AppType.ui(size: 13, color: AppColors.fg3),
+                    prefixIcon: const Icon(
+                      Icons.link_rounded,
+                      color: AppColors.fg2,
+                      size: AppIconSize.sm,
+                    ),
+                    enabled: _selectedFilePath == null,
+                    filled: true,
+                    fillColor: AppColors.bgPage,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      borderSide: BorderSide(color: AppColors.line),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      borderSide: BorderSide(color: AppColors.line),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      borderSide: BorderSide(color: AppColors.accent),
+                    ),
+                  ),
+                  maxLines: 3,
+                  minLines: 1,
+                  onChanged: (_) {
+                    if (_selectedFilePath != null) {
+                      setState(() {
+                        _selectedFilePath = null;
+                      });
+                    }
+                  },
+                ),
+                const SizedBox(height: AppSpacing.lg),
+
+                // OR divider (mono tag between hairlines)
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Divider(color: AppColors.line, height: 1),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.md,
+                      ),
+                      child: MonoLabel(
+                        'OR',
+                        color: AppColors.fg3,
+                        letterSpacing: 0.12,
                       ),
                     ),
-                    Switch(
-                      value: _startImmediately,
-                      onChanged: (value) {
-                        setState(() {
-                          _startImmediately = value;
-                        });
-                      },
+                    const Expanded(
+                      child: Divider(color: AppColors.line, height: 1),
                     ),
                   ],
                 ),
-              ),
+                const SizedBox(height: AppSpacing.lg),
 
-              // Error message
-              if (_error != null) ...[
-                SizedBox(height: AppSpacing.lg),
+                // File picker
+                EditorialButton(
+                  label: _selectedFilePath != null
+                      ? _selectedFilePath!.split(Platform.pathSeparator).last
+                      : 'Select .torrent file',
+                  icon: Icons.folder_open_rounded,
+                  kind: EditorialButtonKind.ghost,
+                  expand: true,
+                  onPressed: _pickTorrentFile,
+                ),
+                const SizedBox(height: AppSpacing.xl),
+
+                // Save path row
+                Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.md,
+                          vertical: AppSpacing.sm,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.bgPage,
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                          border: Border.all(color: AppColors.line),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.folder_rounded,
+                              size: AppIconSize.sm,
+                              color: AppColors.fg2,
+                            ),
+                            const SizedBox(width: AppSpacing.sm),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  MonoLabel(
+                                    'SAVE TO',
+                                    color: AppColors.fg3,
+                                    letterSpacing: 0.08,
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    _savePath ?? 'Default',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: AppType.ui(
+                                      size: 13,
+                                      color: AppColors.fg,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    EditorialButton(
+                      label: 'Browse',
+                      icon: Icons.folder_open_rounded,
+                      kind: EditorialButtonKind.subtle,
+                      onPressed: _pickSavePath,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.lg),
+
+                // Start immediately toggle
                 Container(
-                  padding: EdgeInsets.all(AppSpacing.md),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md,
+                    vertical: AppSpacing.sm,
+                  ),
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.errorContainer,
-                    borderRadius: BorderRadius.circular(AppRadius.md),
+                    color: AppColors.bgPage,
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    border: Border.all(color: AppColors.line),
                   ),
                   child: Row(
                     children: [
-                      Icon(
-                        Icons.error_outline_rounded,
-                        color: theme.colorScheme.error,
-                        size: AppIconSize.md,
+                      const Icon(
+                        Icons.play_arrow_rounded,
+                        color: AppColors.fg1,
+                        size: AppIconSize.sm,
                       ),
-                      SizedBox(width: AppSpacing.sm),
+                      const SizedBox(width: AppSpacing.md),
                       Expanded(
                         child: Text(
-                          _error!,
-                          style: TextStyle(color: theme.colorScheme.error),
+                          'Start immediately',
+                          style: AppType.ui(size: 13, color: AppColors.fg),
                         ),
+                      ),
+                      Switch.adaptive(
+                        value: _startImmediately,
+                        activeThumbColor: AppColors.accent,
+                        onChanged: (value) {
+                          setState(() {
+                            _startImmediately = value;
+                          });
+                        },
                       ),
                     ],
                   ),
                 ),
+
+                // Error message
+                if (_error != null) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  Container(
+                    padding: const EdgeInsets.all(AppSpacing.md),
+                    decoration: BoxDecoration(
+                      color: AppColors.err.withValues(alpha: 0.12),
+                      border: Border.all(
+                        color: AppColors.err.withValues(alpha: 0.5),
+                      ),
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.error_outline_rounded,
+                          color: AppColors.err,
+                          size: AppIconSize.sm,
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Expanded(
+                          child: Text(
+                            _error!,
+                            style: AppType.ui(size: 12, color: AppColors.err),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+
+                const SizedBox(height: AppSpacing.xl),
+
+                // Actions
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    EditorialButton(
+                      label: 'Cancel',
+                      kind: EditorialButtonKind.ghost,
+                      onPressed: _isLoading
+                          ? null
+                          : () => Navigator.of(context).pop(false),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    EditorialButton(
+                      label: _isLoading ? 'Adding…' : 'Add',
+                      icon: _isLoading ? null : Icons.add_rounded,
+                      kind: EditorialButtonKind.accent,
+                      onPressed: _isLoading ? null : _addTorrent,
+                    ),
+                  ],
+                ),
               ],
-            ],
+            ),
           ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: _isLoading ? null : () => Navigator.of(context).pop(false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton.icon(
-          onPressed: _isLoading ? null : _addTorrent,
-          icon: _isLoading
-              ? SizedBox(
-                  width: AppIconSize.sm,
-                  height: AppIconSize.sm,
-                  child: const CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.add_rounded),
-          label: Text(_isLoading ? 'Adding...' : 'Add'),
-        ),
-      ],
     );
   }
 }

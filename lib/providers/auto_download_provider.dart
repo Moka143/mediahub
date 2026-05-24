@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -201,7 +202,7 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
       final json = jsonDecode(jsonString) as Map<String, dynamic>;
       return AutoDownloadState.fromJson(json);
     } catch (e) {
-      print('Error loading auto-download state: $e');
+      debugPrint('Error loading auto-download state: $e');
       return const AutoDownloadState();
     }
   }
@@ -211,7 +212,7 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
       final prefs = ref.read(sharedPreferencesProvider);
       await prefs.setString(_autoDownloadStateKey, jsonEncode(state.toJson()));
     } catch (e) {
-      print('Error saving auto-download state: $e');
+      debugPrint('Error saving auto-download state: $e');
     }
   }
 
@@ -311,18 +312,18 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
     required String currentQuality,
   }) async {
     if (!isAutoDownloadActiveForShow(showId)) {
-      print(
+      debugPrint(
         '[AutoDownload] onWatchProgress skipped: gate closed for showId=$showId',
       );
       return;
     }
     if (progress < state.progressThreshold) {
-      print(
+      debugPrint(
         '[AutoDownload] onWatchProgress skipped: progress=$progress < threshold=${state.progressThreshold}',
       );
       return;
     }
-    print(
+    debugPrint(
       '[AutoDownload] onWatchProgress: showId=$showId $showName S${season}E$episode progress=${progress.toStringAsFixed(2)}',
     );
 
@@ -345,14 +346,14 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
 
     // Check if already in queue
     if (state.downloadQueue.contains(queueKey)) {
-      print('[AutoDownload] $queueKey already in download queue — skipping');
+      debugPrint('[AutoDownload] $queueKey already in download queue — skipping');
       return;
     }
 
     // Update show quality preference from current episode
     await setShowQualityPreference(showId, currentQuality);
 
-    print('[AutoDownload] queueing download for $queueKey');
+    debugPrint('[AutoDownload] queueing download for $queueKey');
 
     // Trigger next episode download
     await _downloadNextEpisode(
@@ -467,12 +468,12 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
     required int currentEpisode,
     required String quality,
   }) async {
-    print(
+    debugPrint(
       '[AutoDownload] _downloadNextEpisode: showId=$showId imdbId=$imdbId '
       '$showName S${currentSeason}E$currentEpisode quality=$quality',
     );
     if (imdbId == null) {
-      print('[AutoDownload] aborting — no imdbId');
+      debugPrint('[AutoDownload] aborting — no imdbId');
       return false;
     }
 
@@ -524,7 +525,7 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
     );
 
     if (torrent == null) {
-      print(
+      debugPrint(
         '[AutoDownload] no torrent found for $showName ${nextEp.episodeCode} '
         '(quality=$quality)',
       );
@@ -544,7 +545,7 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
           );
       return false;
     }
-    print(
+    debugPrint(
       '[AutoDownload] torrent found: hash=${torrent.hash} '
       'quality=${torrent.quality}',
     );
@@ -557,7 +558,7 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
       infoHash: torrent.hash,
       fileIdx: torrent.fileIdx,
     );
-    print('[AutoDownload] addTorrent result: success=$success');
+    debugPrint('[AutoDownload] addTorrent result: success=$success');
 
     if (success) {
       // Add to queue and update tracking

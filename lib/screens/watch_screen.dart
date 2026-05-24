@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../design/app_theme.dart';
 import '../design/app_tokens.dart';
+import '../widgets/common/mediahub_confirm_dialog.dart';
 import '../models/local_media_file.dart';
 import '../models/watch_progress.dart';
 import '../providers/local_media_provider.dart';
@@ -265,35 +266,18 @@ class _WatchScreenState extends ConsumerState<WatchScreen> {
     );
   }
 
-  void _showRemoveProgressDialog(WatchProgress progress) {
-    showDialog(
+  Future<void> _showRemoveProgressDialog(WatchProgress progress) async {
+    final confirmed = await MediaHubConfirmDialog.show(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Remove from Continue Watching?'),
-        content: Text(
+      title: 'Remove from Continue Watching?',
+      message:
           'Remove "${progress.displayTitle}" from your continue watching list?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              ref
-                  .read(watchProgressProvider.notifier)
-                  .clearProgress(progress.filePath);
-              Navigator.pop(context);
-              AppSnackBar.showInfo(
-                context,
-                message: 'Removed from Continue Watching',
-              );
-            },
-            child: const Text('Remove'),
-          ),
-        ],
-      ),
+      confirmLabel: 'Remove',
+      destructive: true,
     );
+    if (confirmed != true || !mounted) return;
+    ref.read(watchProgressProvider.notifier).clearProgress(progress.filePath);
+    AppSnackBar.showInfo(context, message: 'Removed from Continue Watching');
   }
 
   Future<void> _markWatched(LocalMediaFile file) async {
@@ -315,28 +299,15 @@ class _WatchScreenState extends ConsumerState<WatchScreen> {
   }
 
   Future<void> _confirmAndDeleteFile(LocalMediaFile file) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await MediaHubConfirmDialog.show(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete file?'),
-        content: Text(
+      title: 'Delete file?',
+      message:
           'This deletes "${file.displayTitle}" from disk. '
           'If it was downloaded via the app, the torrent will also be removed.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(
-              foregroundColor: Theme.of(context).colorScheme.error,
-            ),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+      confirmLabel: 'Delete',
+      destructive: true,
+      icon: Icons.delete_outline,
     );
     if (confirmed != true) return;
 

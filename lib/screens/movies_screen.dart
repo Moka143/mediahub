@@ -8,11 +8,10 @@ import '../design/app_tokens.dart';
 import '../models/movie.dart';
 import '../providers/movies_provider.dart';
 import '../providers/shows_provider.dart' show tmdbApiServiceProvider;
-import '../widgets/common/browse_search_pill.dart';
+import '../widgets/common/browse_filter_bar.dart';
 import '../widgets/common/empty_state.dart';
-import '../widgets/common/mediahub_chip.dart';
+import '../widgets/media/media_poster_card.dart';
 import '../widgets/mediahub_spotlight.dart';
-import '../widgets/movie_card.dart';
 import 'movie_details_screen.dart';
 
 enum _MoviesFeed { trending, popular, topRated, upcoming }
@@ -158,10 +157,15 @@ class _MoviesScreenState extends ConsumerState<MoviesScreen> {
     );
   }
 
-  void _navigateToMovieDetails(Movie movie) {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => MovieDetailsScreen(movie: movie)));
+  void _navigateToMovieDetails(Movie movie, {bool autoOpenTorrentPicker = false}) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MovieDetailsScreen(
+          movie: movie,
+          autoOpenTorrentPicker: autoOpenTorrentPicker,
+        ),
+      ),
+    );
   }
 
   @override
@@ -180,66 +184,93 @@ class _MoviesScreenState extends ConsumerState<MoviesScreen> {
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
               // Spotlight is suppressed during search — the user is hunting
-              // a specific title, not browsing the trending feed.
-              if (!isSearching && _items.isNotEmpty)
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.xxl,
-                    AppSpacing.xl,
-                    AppSpacing.xxl,
-                    AppSpacing.md,
-                  ),
-                  sliver: SliverToBoxAdapter(
-                    child: MediaHubSpotlight(
-                      title: _items.first.title,
-                      year: _items.first.year,
-                      genre: _items.first.genres.isNotEmpty
-                          ? _items.first.genres.first
-                          : 'Drama',
-                      rating: _items.first.voteAverage,
-                      quality: '4K',
-                      hue: (_items.first.id * 53 % 360).toDouble(),
-                      backdropUrl: _items.first.backdropUrl,
-                      posterUrl: _items.first.posterUrl,
-                      metaSuffix:
-                          _items.first.runtimeFormatted?.toUpperCase() ??
-                          'FEATURE',
-                      onPrimaryTap: () => _navigateToMovieDetails(_items.first),
-                      onSecondaryTap: () =>
-                          _navigateToMovieDetails(_items.first),
-                    ),
-                  ),
-                ),
+              // a specific title, not browsing the trending feed. We always
+              // include the sliver and animate its height so the page
+              // doesn't snap-jump 500px the moment search becomes active.
               SliverToBoxAdapter(
-                child: _MoviesFilterBar(
+                key: const ValueKey('mh-movies-spotlight'),
+                child: AnimatedSize(
+                  duration: AppDuration.normal,
+                  curve: Curves.easeOutCubic,
+                  alignment: Alignment.topCenter,
+                  child: (!isSearching && _items.isNotEmpty)
+                      ? Padding(
+                          padding: const EdgeInsets.fromLTRB(
+                            AppSpacing.xxl,
+                            AppSpacing.xl,
+                            AppSpacing.xxl,
+                            AppSpacing.md,
+                          ),
+                          child: MediaHubSpotlight(
+                            title: _items.first.title,
+                            year: _items.first.year,
+                            genre: _items.first.genres.isNotEmpty
+                                ? _items.first.genres.first
+                                : 'Drama',
+                            rating: _items.first.voteAverage,
+                            quality: '4K',
+                            hue: (_items.first.id * 53 % 360).toDouble(),
+                            backdropUrl: _items.first.backdropUrl,
+                            posterUrl: _items.first.posterUrl,
+                            metaSuffix:
+                                _items.first.runtimeFormatted?.toUpperCase() ??
+                                'FEATURE',
+                            onPrimaryTap: () => _navigateToMovieDetails(
+                              _items.first,
+                              autoOpenTorrentPicker: true,
+                            ),
+                            onSecondaryTap: () =>
+                                _navigateToMovieDetails(_items.first),
+                          ),
+                        )
+                      : const SizedBox(width: double.infinity),
+                ),
+              ),
+              // Stable key — preserves the TextField's element (and focus)
+              // across rebuilds when conditional slivers above/below shift.
+              SliverToBoxAdapter(
+                key: const ValueKey('mh-movies-filter-bar'),
+                child: BrowseFilterBar(
                   genres: _genres,
                   selectedGenre: _genre,
                   onGenreSelected: (g) {
                     setState(() => _genre = g);
                     _resetAndLoad();
                   },
-                  feed: _feed,
-                  onFeedSelected: (f) {
-                    setState(() => _feed = f);
-                    _resetAndLoad();
-                  },
+                  sortPicker: _MoviesFeedSortPicker(
+                    value: _feed,
+                    onChanged: (f) {
+                      setState(() => _feed = f);
+                      _resetAndLoad();
+                    },
+                  ),
                   searchController: _searchController,
                   onSearchChanged: _onSearchChanged,
                   searchActive: isSearching,
+                  searchHint: 'Search movies…',
                 ),
               ),
               if (isSearching)
                 ..._buildSearchSlivers(searchQuery)
               else
                 ..._buildFeedSlivers(),
-              if (!isSearching)
-                SliverToBoxAdapter(
-                  child: _MoviesPaginationFooter(
-                    loading: _loading,
-                    exhausted: _exhausted && _items.isNotEmpty,
-                    hasItems: _items.isNotEmpty,
-                  ),
+              // Footer also animates its height so the bottom doesn't jump
+              // when search hides pagination state.
+              SliverToBoxAdapter(
+                key: const ValueKey('mh-movies-pagination-footer'),
+                child: AnimatedSize(
+                  duration: AppDuration.normal,
+                  curve: Curves.easeOutCubic,
+                  alignment: Alignment.topCenter,
+                  child: !isSearching
+                      ? _MoviesPaginationFooter(
+                          loading: _loading,
+                          exhausted: _exhausted && _items.isNotEmpty,
+                          hasItems: _items.isNotEmpty,
+                        )
+                      : const SizedBox(width: double.infinity),
                 ),
+              ),
             ],
           ),
         ),
@@ -278,7 +309,7 @@ class _MoviesScreenState extends ConsumerState<MoviesScreen> {
               padding: EdgeInsets.all(AppSpacing.huge),
               child: Text(
                 'No movies match this filter.',
-                style: TextStyle(color: Color(0xFF7A7A92)),
+                style: TextStyle(color: AppColors.fg2),
               ),
             ),
           ),
@@ -299,10 +330,7 @@ class _MoviesScreenState extends ConsumerState<MoviesScreen> {
             childAspectRatio: 2 / 3.2,
           ),
           delegate: SliverChildBuilderDelegate(
-            (context, i) => MovieCard(
-              movie: _items[i],
-              onTap: () => _navigateToMovieDetails(_items[i]),
-            ),
+            (context, i) => _movieCard(_items[i]),
             childCount: _items.length,
           ),
         ),
@@ -310,67 +338,95 @@ class _MoviesScreenState extends ConsumerState<MoviesScreen> {
     ];
   }
 
+  Widget _movieCard(Movie movie) {
+    return MediaPosterCard(
+      title: movie.title,
+      onTap: () => _navigateToMovieDetails(movie),
+      posterAsync: AsyncValue.data(movie.posterUrl),
+      titleStyle: CardTitleStyle.overlay,
+      overlayYear: movie.year,
+      overlayRating: movie.voteAverage > 0
+          ? '★ ${movie.voteAverage.toStringAsFixed(1)}'
+          : null,
+      overlayRatingTone: movie.voteAverage >= 8 ? AppColors.accent : null,
+      width: null,
+    );
+  }
+
   /// Slivers for the search-results path. Watches `movieSearchResultsProvider`
   /// directly — TMDB's search endpoint is not paginated here (single page is
   /// already plenty for the typical "I'm hunting one title" use case).
+  ///
+  /// We deliberately don't use `async.when` here — that would swap the grid
+  /// for a spinner on every keystroke. Instead we read `.value` (which in
+  /// Riverpod 3 retains the previous data while the new query is in flight)
+  /// so the previous results stay visible until the new ones arrive. Avoids
+  /// the "design flickers" symptom while typing.
   List<Widget> _buildSearchSlivers(String query) {
     final async = ref.watch(movieSearchResultsProvider);
-    return async.when(
-      loading: () => const [
-        SliverFillRemaining(
-          hasScrollBody: false,
-          child: Center(child: CircularProgressIndicator()),
-        ),
-      ],
-      error: (e, _) => [
+    final results = async.value;
+    final isInitialLoad = results == null && async.isLoading;
+    final hasErrorWithNoData = async.hasError && results == null;
+
+    if (hasErrorWithNoData) {
+      return [
         SliverFillRemaining(
           hasScrollBody: false,
           child: EmptyState.error(
-            message: e.toString(),
+            message: async.error.toString(),
             onRetry: () =>
                 ref.read(movieSearchQueryProvider.notifier).set(query),
           ),
         ),
-      ],
-      data: (results) {
-        if (results.isEmpty) {
-          return [
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(AppSpacing.huge),
-                  child: Text(
-                    'No movies match "$query".',
-                    style: const TextStyle(color: Color(0xFF7A7A92)),
-                  ),
-                ),
-              ),
-            ),
-          ];
-        }
-        return [
-          SliverPadding(
-            padding: const EdgeInsets.all(AppSpacing.xxl),
-            sliver: SliverGrid(
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 170,
-                mainAxisSpacing: AppSpacing.md,
-                crossAxisSpacing: AppSpacing.md,
-                childAspectRatio: 2 / 3.2,
-              ),
-              delegate: SliverChildBuilderDelegate(
-                (context, i) => MovieCard(
-                  movie: results[i],
-                  onTap: () => _navigateToMovieDetails(results[i]),
-                ),
-                childCount: results.length,
+      ];
+    }
+
+    if (isInitialLoad) {
+      return const [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      ];
+    }
+
+    // results is non-null here. Empty means TMDB came back with no matches
+    // for the *current* query — only show the "no matches" state once the
+    // request has actually settled (not while a new query is still loading).
+    if (results!.isEmpty && !async.isLoading) {
+      return [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.huge),
+              child: Text(
+                'No movies match "$query".',
+                style: const TextStyle(color: AppColors.fg2),
               ),
             ),
           ),
-        ];
-      },
-    );
+        ),
+      ];
+    }
+
+    return [
+      SliverPadding(
+        padding: const EdgeInsets.all(AppSpacing.xxl),
+        sliver: SliverGrid(
+          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 170,
+            mainAxisSpacing: AppSpacing.md,
+            crossAxisSpacing: AppSpacing.md,
+            childAspectRatio: 2 / 3.2,
+          ),
+          delegate: SliverChildBuilderDelegate(
+            (context, i) => _movieCard(results[i]),
+            childCount: results.length,
+          ),
+        ),
+      ),
+    ];
   }
 }
 
@@ -403,89 +459,9 @@ class _MoviesPaginationFooter extends StatelessWidget {
             : exhausted
             ? const Text(
                 'You\'ve reached the end.',
-                style: TextStyle(color: Color(0xFF54546A), fontSize: 12),
+                style: TextStyle(color: AppColors.fg3, fontSize: 12),
               )
             : const SizedBox.shrink(),
-      ),
-    );
-  }
-}
-
-class _MoviesFilterBar extends StatelessWidget {
-  const _MoviesFilterBar({
-    required this.genres,
-    required this.selectedGenre,
-    required this.onGenreSelected,
-    required this.feed,
-    required this.onFeedSelected,
-    required this.searchController,
-    required this.onSearchChanged,
-    required this.searchActive,
-  });
-
-  final List<String> genres;
-  final String selectedGenre;
-  final ValueChanged<String> onGenreSelected;
-  final _MoviesFeed feed;
-  final ValueChanged<_MoviesFeed> onFeedSelected;
-  final TextEditingController searchController;
-  final ValueChanged<String> onSearchChanged;
-
-  /// When true the genre chips + feed sort are visually de-emphasised —
-  /// they don't apply during a search and we don't want them to look
-  /// interactive.
-  final bool searchActive;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: AppColors.bgPage,
-        border: Border(bottom: BorderSide(color: Color(0x0FFFFFFF), width: 1)),
-      ),
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.xxl,
-        vertical: AppSpacing.sm,
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: AnimatedOpacity(
-              duration: AppDuration.fast,
-              opacity: searchActive ? 0.4 : 1.0,
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    for (final g in genres) ...[
-                      MediaHubFilterChip(
-                        label: g,
-                        selected: g == selectedGenre,
-                        onTap: searchActive ? () {} : () => onGenreSelected(g),
-                      ),
-                      const SizedBox(width: AppSpacing.xs),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          AnimatedOpacity(
-            duration: AppDuration.fast,
-            opacity: searchActive ? 0.4 : 1.0,
-            child: _MoviesFeedSortPicker(
-              value: feed,
-              onChanged: onFeedSelected,
-            ),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          BrowseSearchPill(
-            controller: searchController,
-            onChanged: onSearchChanged,
-            hint: 'Search movies…',
-          ),
-        ],
       ),
     );
   }
@@ -510,7 +486,7 @@ class _MoviesFeedSortPicker extends StatelessWidget {
               value: f,
               child: Text(
                 f.label,
-                style: const TextStyle(fontSize: 12, color: Color(0xFFF4F4F8)),
+                style: const TextStyle(fontSize: 12, color: AppColors.fg),
               ),
             ),
           )
@@ -522,27 +498,27 @@ class _MoviesFeedSortPicker extends StatelessWidget {
         ),
         decoration: BoxDecoration(
           color: AppColors.bgSurface,
-          border: Border.all(color: const Color(0x0FFFFFFF)),
+          border: Border.all(color: AppColors.line),
           borderRadius: BorderRadius.circular(AppRadius.md),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.sort_rounded, size: 12, color: Color(0xFF7A7A92)),
+            const Icon(Icons.sort_rounded, size: 12, color: AppColors.fg2),
             const SizedBox(width: 6),
             Text(
               value.label,
               style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: Color(0xFFF4F4F8),
+                color: AppColors.fg,
               ),
             ),
             const SizedBox(width: 4),
             const Icon(
               Icons.keyboard_arrow_down_rounded,
               size: 14,
-              color: Color(0xFF7A7A92),
+              color: AppColors.fg2,
             ),
           ],
         ),

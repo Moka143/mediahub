@@ -20,7 +20,10 @@ class BrowseSearchPill extends StatelessWidget {
   final TextEditingController controller;
   final ValueChanged<String> onChanged;
   final String hint;
-  final double width;
+
+  /// Fixed width in logical pixels. Pass `null` to let the pill fill
+  /// whatever width its parent gives it (useful inside `Expanded`).
+  final double? width;
 
   @override
   Widget build(BuildContext context) {
@@ -32,19 +35,19 @@ class BrowseSearchPill extends StatelessWidget {
       ),
       decoration: BoxDecoration(
         color: AppColors.bgSurface,
-        border: Border.all(color: const Color(0x0FFFFFFF)),
+        border: Border.all(color: AppColors.line),
         borderRadius: BorderRadius.circular(AppRadius.md),
       ),
       child: Row(
         children: [
-          const Icon(Icons.search_rounded, size: 12, color: Color(0xFF7A7A92)),
+          const Icon(Icons.search_rounded, size: 12, color: AppColors.fg2),
           const SizedBox(width: 6),
           Expanded(
             child: TextField(
               controller: controller,
               onChanged: onChanged,
               cursorColor: AppColors.seedColor,
-              style: const TextStyle(fontSize: 12, color: Color(0xFFF4F4F8)),
+              style: const TextStyle(fontSize: 12, color: AppColors.fg),
               decoration: InputDecoration(
                 isDense: true,
                 contentPadding: EdgeInsets.zero,
@@ -54,7 +57,7 @@ class BrowseSearchPill extends StatelessWidget {
                 hintText: hint,
                 hintStyle: const TextStyle(
                   fontSize: 12,
-                  color: Color(0x66B4B4C8),
+                  color: AppColors.fg3,
                 ),
                 filled: false,
               ),
@@ -72,7 +75,7 @@ class BrowseSearchPill extends StatelessWidget {
                 child: Icon(
                   Icons.close_rounded,
                   size: 12,
-                  color: Color(0xFF7A7A92),
+                  color: AppColors.fg2,
                 ),
               ),
             ),

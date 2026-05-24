@@ -168,12 +168,6 @@ class SettingsNotifier extends Notifier<AppSettings> {
     await _saveSettings();
   }
 
-  /// Update max connections
-  Future<void> setMaxConnections(int connections) async {
-    state = state.copyWith(maxConnections: connections);
-    await _saveSettings();
-  }
-
   /// Update theme mode
   Future<void> setThemeMode(ThemeMode mode) async {
     state = state.copyWith(themeMode: mode);
@@ -248,7 +242,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
 }
 
 /// Build-time TMDB v4 Read Access Token bundled with the release. Pass via:
-///   flutter build … --dart-define=TMDB_READ_ACCESS_TOKEN=<token>
+///   `flutter build … --dart-define=TMDB_READ_ACCESS_TOKEN=<token>`
 /// or set it in a CI release pipeline. Falls back to the older
 /// `TMDB_API_KEY` define for repos that haven't updated their secret yet,
 /// but expects a v4 Bearer token (JWT) — a v3 32-char hex key won't

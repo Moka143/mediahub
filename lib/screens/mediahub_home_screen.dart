@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../design/app_colors.dart';
 import '../design/app_theme.dart';
 import '../design/app_tokens.dart';
+import '../design/app_typography.dart';
 import '../models/local_media_file.dart';
 import '../models/show.dart';
 import '../models/torrent.dart';
@@ -19,7 +20,7 @@ import '../screens/movie_details_screen.dart';
 import '../screens/show_details_screen.dart';
 import '../screens/video_player_screen.dart';
 import '../utils/formatters.dart';
-import '../widgets/common/status_badge.dart';
+import '../widgets/editorial/editorial.dart';
 
 /// Build a TMDB image URL from a poster path (e.g. `/abc.jpg`).
 /// Returns null if the path is null or empty. If the input already
@@ -93,6 +94,102 @@ void _resumePlayback(
           VideoPlayerScreen(file: file, startPosition: progress.position),
     ),
   );
+}
+
+/// Build the hero's primary CTA: Resume the most recent in-progress
+/// episode, or send the user to Shows browse when no progress exists.
+VoidCallback _heroPrimaryTap(
+  BuildContext context,
+  WidgetRef ref,
+  List<WatchProgress> continueWatching,
+  List<LocalMediaFile> localFiles,
+) {
+  if (continueWatching.isNotEmpty) {
+    final hero = continueWatching.first;
+    return () => _resumePlayback(context, ref, hero, localFiles);
+  }
+  return () => ref.read(currentTabIndexProvider.notifier).set(2);
+}
+
+/// Build the hero's secondary CTA: "More info" — open ShowDetailsScreen
+/// for the in-progress title, or for the trending fallback when there's
+/// no progress yet.
+VoidCallback _heroSecondaryTap(
+  BuildContext context,
+  WidgetRef ref,
+  List<WatchProgress> continueWatching,
+  AsyncValue<List<Show>> trendingShows,
+) {
+  if (continueWatching.isNotEmpty) {
+    final hero = continueWatching.first;
+    return () => _openHeroDetails(context, ref, hero, trendingShows);
+  }
+  return () {
+    final fb = trendingShows.maybeWhen(
+      data: (s) => s.isEmpty ? null : s.first,
+      orElse: () => null,
+    );
+    if (fb != null) {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => ShowDetailsScreen(show: fb)),
+      );
+    } else {
+      ref.read(currentTabIndexProvider.notifier).set(2);
+    }
+  };
+}
+
+/// Resolve a WatchProgress entry to a full Show and push ShowDetailsScreen.
+/// Tries (1) TMDB id from the progress, (2) trending-shows cache by name,
+/// (3) TMDB search by name. Falls back to the Shows tab + snackbar if
+/// nothing resolves.
+Future<void> _openHeroDetails(
+  BuildContext context,
+  WidgetRef ref,
+  WatchProgress hero,
+  AsyncValue<List<Show>> trendingShows,
+) async {
+  Show? found;
+  if (hero.showId != null) {
+    try {
+      found = await ref.read(showDetailsProvider(hero.showId!).future);
+    } catch (_) {}
+  }
+  if (found == null) {
+    final name = hero.showName?.toLowerCase();
+    if (name != null && name.isNotEmpty) {
+      final cached = trendingShows.value ?? const <Show>[];
+      for (final s in cached) {
+        if (s.name.toLowerCase() == name) {
+          found = s;
+          break;
+        }
+      }
+    }
+  }
+  if (found == null && (hero.showName?.isNotEmpty ?? false)) {
+    try {
+      final tmdb = ref.read(tmdbApiServiceProvider);
+      final results = await tmdb.searchShows(hero.showName!);
+      if (results.isNotEmpty) found = results.first;
+    } catch (_) {}
+  }
+
+  if (!context.mounted) return;
+  if (found != null) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => ShowDetailsScreen(show: found!)),
+    );
+  } else {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          "Couldn't find details for ${hero.showName ?? 'this title'}",
+        ),
+      ),
+    );
+    ref.read(currentTabIndexProvider.notifier).set(2);
+  }
 }
 
 /// Procedural fallback when no real artwork is available — keeps the
@@ -190,14 +287,24 @@ class MediaHubHomeScreen extends ConsumerWidget {
                 data: (s) => s.isEmpty ? null : s.first,
                 orElse: () => null,
               ),
+              onPrimaryTap: _heroPrimaryTap(
+                context,
+                ref,
+                continueWatching,
+                localFiles,
+              ),
+              onSecondaryTap: _heroSecondaryTap(
+                context,
+                ref,
+                continueWatching,
+                trendingShows,
+              ),
             ),
             const SizedBox(height: AppSpacing.xxl),
 
             if (continueWatching.isNotEmpty) ...[
               _SectionHeader(
                 title: 'Continue Watching',
-                icon: Icons.play_arrow_rounded,
-                accent: AppColors.seedColor,
                 // Library tab is index 4 (Home, Transfers, TV Shows,
                 // Movies, Library, Calendar, Favorites).
                 onSeeAll: () =>
@@ -210,7 +317,7 @@ class MediaHubHomeScreen extends ConsumerWidget {
                   scrollDirection: Axis.horizontal,
                   physics: const ClampingScrollPhysics(),
                   itemCount: continueWatching.length,
-                  separatorBuilder: (_, __) =>
+                  separatorBuilder: (_, _) =>
                       const SizedBox(width: AppSpacing.md),
                   itemBuilder: (_, i) {
                     final p = continueWatching[i];
@@ -251,8 +358,6 @@ class MediaHubHomeScreen extends ConsumerWidget {
                       children: [
                         _SectionHeader(
                           title: 'Trending shows',
-                          icon: Icons.local_fire_department_rounded,
-                          accent: AppColors.accentTertiary,
                           // Jump to the TV Shows tab.
                           onSeeAll: () =>
                               ref.read(currentTabIndexProvider.notifier).set(2),
@@ -264,7 +369,7 @@ class MediaHubHomeScreen extends ConsumerWidget {
                             scrollDirection: Axis.horizontal,
                             physics: const ClampingScrollPhysics(),
                             itemCount: shows.length.clamp(0, 14),
-                            separatorBuilder: (_, __) =>
+                            separatorBuilder: (_, _) =>
                                 const SizedBox(width: AppSpacing.md),
                             itemBuilder: (_, i) => _PosterTile(
                               imageUrl: shows[i].posterUrl,
@@ -296,8 +401,6 @@ class MediaHubHomeScreen extends ConsumerWidget {
                       children: [
                         _SectionHeader(
                           title: 'Trending movies',
-                          icon: Icons.movie_rounded,
-                          accent: AppColors.accentPrimary,
                           // Jump to the Movies tab.
                           onSeeAll: () =>
                               ref.read(currentTabIndexProvider.notifier).set(3),
@@ -309,7 +412,7 @@ class MediaHubHomeScreen extends ConsumerWidget {
                             scrollDirection: Axis.horizontal,
                             physics: const ClampingScrollPhysics(),
                             itemCount: movies.length.clamp(0, 14),
-                            separatorBuilder: (_, __) =>
+                            separatorBuilder: (_, _) =>
                                 const SizedBox(width: AppSpacing.md),
                             itemBuilder: (_, i) => _PosterTile(
                               imageUrl: movies[i].posterUrl,
@@ -335,8 +438,6 @@ class MediaHubHomeScreen extends ConsumerWidget {
             if (freshlyCompleted.isNotEmpty) ...[
               _SectionHeader(
                 title: 'Freshly downloaded',
-                icon: Icons.auto_awesome_rounded,
-                accent: AppColors.seeding,
                 // Jump to the Transfers tab.
                 onSeeAll: () =>
                     ref.read(currentTabIndexProvider.notifier).set(1),
@@ -348,7 +449,7 @@ class MediaHubHomeScreen extends ConsumerWidget {
                   scrollDirection: Axis.horizontal,
                   physics: const ClampingScrollPhysics(),
                   itemCount: freshlyCompleted.length,
-                  separatorBuilder: (_, __) =>
+                  separatorBuilder: (_, _) =>
                       const SizedBox(width: AppSpacing.md),
                   itemBuilder: (_, i) => _FreshTile(
                     t: freshlyCompleted[i],
@@ -366,8 +467,6 @@ class MediaHubHomeScreen extends ConsumerWidget {
                 Expanded(
                   child: _MiniPanel(
                     title: 'Active downloads',
-                    icon: Icons.download_rounded,
-                    accent: AppColors.downloading,
                     count: activeDl.length,
                     child: activeDl.isEmpty
                         ? const _PanelEmpty(label: 'Nothing downloading')
@@ -383,8 +482,6 @@ class MediaHubHomeScreen extends ConsumerWidget {
                 Expanded(
                   child: _MiniPanel(
                     title: 'Airing tonight',
-                    icon: Icons.local_fire_department_rounded,
-                    accent: AppColors.accentTertiary,
                     count: 0,
                     child: const _PanelEmpty(
                       label: 'Auto-grab is quiet right now',
@@ -401,7 +498,12 @@ class MediaHubHomeScreen extends ConsumerWidget {
 }
 
 class _HeroCard extends StatelessWidget {
-  const _HeroCard({required this.continueWatching, this.fallbackShow});
+  const _HeroCard({
+    required this.continueWatching,
+    this.fallbackShow,
+    this.onPrimaryTap,
+    this.onSecondaryTap,
+  });
 
   final List<WatchProgress> continueWatching;
 
@@ -409,6 +511,9 @@ class _HeroCard extends StatelessWidget {
   /// pulls art + title from this trending show so the page never
   /// shows an empty gradient on first run.
   final Show? fallbackShow;
+
+  final VoidCallback? onPrimaryTap;
+  final VoidCallback? onSecondaryTap;
 
   @override
   Widget build(BuildContext context) {
@@ -478,38 +583,34 @@ class _HeroCard extends StatelessWidget {
                     spacing: AppSpacing.xs,
                     runSpacing: AppSpacing.xs,
                     children: [
-                      StatusBadge(
-                        label: hero != null
+                      EditorialBadge(
+                        hero != null
                             ? 'Continue Watching'
                             : (fb != null ? '▲ Trending' : 'Welcome'),
-                        textColor: hero != null
+                        compact: true,
+                        tone: hero != null
                             ? AppColors.seedColor
                             : AppColors.accentTertiary,
-                        size: StatusBadgeSize.small,
                       ),
                       if (hero?.episodeCode != null)
-                        StatusBadge(
-                          label: hero!.episodeCode!,
-                          textColor: const Color(0xFFB4B4C8),
-                          size: StatusBadgeSize.small,
+                        EditorialBadge(
+                          hero!.episodeCode!,
+                          compact: true,
+                          tone: AppColors.fg2,
                         ),
                     ],
                   ),
                   const SizedBox(height: AppSpacing.md),
-                  Text(
+                  SerifTitle(
                     hero?.showName ??
                         hero?.episodeTitle ??
                         fb?.name ??
                         'MediaHub',
+                    size: 64,
+                    height: 0.95,
+                    letterSpacing: -0.02,
+                    color: AppColors.fg,
                     maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 44,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -1.3,
-                      height: 1.05,
-                    ),
                   ),
                   const SizedBox(height: AppSpacing.md),
                   ConstrainedBox(
@@ -524,9 +625,9 @@ class _HeroCard extends StatelessWidget {
                                       'and start watching the moment it\'s ready.'),
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFFB4B4C8),
-                        fontSize: 14,
+                      style: AppType.ui(
+                        size: 14,
+                        color: AppColors.fg1,
                         height: 1.6,
                       ),
                     ),
@@ -548,31 +649,19 @@ class _HeroCard extends StatelessWidget {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      FilledButton.icon(
-                        onPressed: () {},
-                        icon: const Icon(Icons.play_arrow_rounded),
-                        label: Text(hero != null ? 'Resume' : 'Browse'),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: Colors.black,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: AppSpacing.xl,
-                            vertical: AppSpacing.md,
-                          ),
-                        ),
+                      EditorialButton(
+                        label: hero != null ? 'Resume' : 'Browse',
+                        icon: Icons.play_arrow_rounded,
+                        kind: EditorialButtonKind.accent,
+                        large: true,
+                        onPressed: onPrimaryTap ?? () {},
                       ),
                       const SizedBox(width: AppSpacing.sm),
-                      OutlinedButton(
-                        onPressed: () {},
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.white,
-                          side: const BorderSide(color: Color(0x33FFFFFF)),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: AppSpacing.xl,
-                            vertical: AppSpacing.md,
-                          ),
-                        ),
-                        child: const Text('More info'),
+                      EditorialButton(
+                        label: 'More info',
+                        kind: EditorialButtonKind.ghost,
+                        large: true,
+                        onPressed: onSecondaryTap ?? () {},
                       ),
                     ],
                   ),
@@ -630,56 +719,34 @@ class _ProgressBar extends StatelessWidget {
 }
 
 class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({
-    required this.title,
-    required this.icon,
-    required this.accent,
-    this.onSeeAll,
-  });
+  const _SectionHeader({required this.title, this.onSeeAll});
 
   final String title;
-  final IconData icon;
-  final Color accent;
-
-  /// Tap handler for the "See all" button — when null, the button is
-  /// hidden so we don't render a no-op control.
   final VoidCallback? onSeeAll;
 
   @override
   Widget build(BuildContext context) {
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
       children: [
-        Container(
-          width: 24,
-          height: 24,
-          decoration: BoxDecoration(
-            color: accent.withAlpha(36),
-            borderRadius: BorderRadius.circular(AppRadius.sm),
-          ),
-          child: Icon(icon, size: 14, color: accent),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        Text(
-          title,
-          style: const TextStyle(
-            color: Color(0xFFF4F4F8),
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -0.18,
-          ),
-        ),
+        SerifTitle(title, size: 24, height: 1.0),
         const Spacer(),
         if (onSeeAll != null)
-          TextButton.icon(
-            onPressed: onSeeAll,
-            icon: const Text(
-              'See all',
-              style: TextStyle(color: Color(0xFFB4B4C8), fontSize: 12),
-            ),
-            label: const Icon(
-              Icons.chevron_right_rounded,
-              size: 16,
-              color: Color(0xFFB4B4C8),
+          InkWell(
+            onTap: onSeeAll,
+            borderRadius: BorderRadius.circular(4),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              child: Text(
+                'see all →',
+                style: AppType.mono(
+                  size: 11,
+                  color: AppColors.fg2,
+                  letterSpacing: 0.06,
+                  weight: FontWeight.w500,
+                ),
+              ),
             ),
           ),
       ],
@@ -827,30 +894,23 @@ class _ContinueCard extends ConsumerWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: AppSpacing.sm),
-              Text(
+              const SizedBox(height: AppSpacing.sm + 2),
+              SerifTitle(
                 p.showName ?? p.episodeTitle ?? 'Untitled',
+                size: 18,
+                height: 1.1,
                 maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Color(0xFFF4F4F8),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
               ),
-              const SizedBox(height: 2),
-              Text(
+              const SizedBox(height: 4),
+              MonoLabel(
                 [
                   if (p.episodeCode != null) p.episodeCode!,
                   if (p.episodeTitle != null) p.episodeTitle!,
-                ].join(' — '),
+                ].join(' · '),
+                color: AppColors.fg3,
+                letterSpacing: 0.08,
+                uppercase: false,
                 maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Color(0xFF7A7A92),
-                  fontSize: 11,
-                  fontFamily: 'monospace',
-                ),
               ),
             ],
           ),
@@ -898,7 +958,8 @@ class _PosterTileState extends State<_PosterTile> {
         onTap: widget.onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
-          transform: Matrix4.identity()..translate(0.0, _hover ? -4.0 : 0.0),
+          transform: Matrix4.identity()
+            ..translateByDouble(0.0, _hover ? -4.0 : 0.0, 0.0, 1.0),
           width: 180,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -926,37 +987,32 @@ class _PosterTileState extends State<_PosterTile> {
                       Positioned(
                         top: AppSpacing.sm,
                         right: AppSpacing.sm,
-                        child: StatusBadge.quality(
-                          quality: widget.quality,
-                          size: StatusBadgeSize.small,
+                        child: EditorialBadge(
+                          widget.quality,
+                          compact: true,
+                          tone: widget.quality.qualityColor,
                         ),
                       ),
                     ],
                   ),
                 ),
               ),
-              const SizedBox(height: AppSpacing.sm),
-              Text(
+              const SizedBox(height: AppSpacing.sm + 2),
+              SerifTitle(
                 widget.title,
+                size: 18,
+                height: 1.1,
                 maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Color(0xFFF4F4F8),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
               ),
               if (widget.subtitle != null)
                 Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Text(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: MonoLabel(
                     widget.subtitle!,
-                    style: const TextStyle(
-                      color: Color(0xFF7A7A92),
-                      fontSize: 10,
-                      fontFamily: 'monospace',
-                      letterSpacing: 0.4,
-                    ),
+                    color: AppColors.fg3,
+                    letterSpacing: 0.08,
+                    uppercase: false,
+                    maxLines: 1,
                   ),
                 ),
             ],
@@ -1026,35 +1082,28 @@ class _FreshTile extends ConsumerWidget {
                   Positioned(
                     top: AppSpacing.sm,
                     right: AppSpacing.sm,
-                    child: StatusBadge.quality(
-                      quality: quality,
-                      size: StatusBadgeSize.small,
+                    child: EditorialBadge(
+                      quality,
+                      compact: true,
+                      tone: quality.qualityColor,
                     ),
                   ),
                 ],
               ),
             ),
           ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
+          const SizedBox(height: AppSpacing.sm + 2),
+          SerifTitle(
             _shortName(t.name),
+            size: 18,
+            height: 1.1,
             maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Color(0xFFB4B4C8),
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
           ),
-          const SizedBox(height: 2),
-          Text(
+          const SizedBox(height: 4),
+          MonoLabel(
             'NEW · ${quality.toUpperCase()}',
-            style: const TextStyle(
-              color: Color(0xFF7A7A92),
-              fontSize: 10,
-              letterSpacing: 0.4,
-              fontFamily: 'monospace',
-            ),
+            color: AppColors.fg3,
+            letterSpacing: 0.08,
           ),
         ],
       ),
@@ -1078,15 +1127,11 @@ String _qualityFromName(String name) {
 class _MiniPanel extends StatelessWidget {
   const _MiniPanel({
     required this.title,
-    required this.icon,
-    required this.accent,
     required this.count,
     required this.child,
   });
 
   final String title;
-  final IconData icon;
-  final Color accent;
   final int count;
   final Widget child;
 
@@ -1094,59 +1139,30 @@ class _MiniPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.bgSurface,
-        border: Border.all(color: const Color(0x0FFFFFFF)),
-        borderRadius: BorderRadius.circular(AppRadius.lg),
+        color: Colors.transparent,
+        border: Border.all(color: AppColors.line),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
       ),
-      padding: const EdgeInsets.all(AppSpacing.md),
+      padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
             children: [
-              Container(
-                width: 24,
-                height: 24,
-                decoration: BoxDecoration(
-                  color: accent.withAlpha(36),
-                  borderRadius: BorderRadius.circular(AppRadius.sm),
-                ),
-                child: Icon(icon, size: 14, color: accent),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Text(
-                title,
-                style: const TextStyle(
-                  color: Color(0xFFF4F4F8),
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const Spacer(),
+              SerifTitle(title, size: 20, height: 1.0),
+              const SizedBox(width: 12),
               if (count > 0)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: accent.withAlpha(36),
-                    borderRadius: BorderRadius.circular(AppRadius.xs),
-                  ),
-                  child: Text(
-                    '$count',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: accent,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
+                MonoLabel(
+                  '$count ACTIVE',
+                  color: AppColors.fg3,
+                  letterSpacing: 0.14,
                 ),
             ],
           ),
-          const SizedBox(height: AppSpacing.md),
+          const SizedBox(height: 14),
           child,
         ],
       ),
@@ -1165,7 +1181,7 @@ class _PanelEmpty extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
       child: Text(
         label,
-        style: const TextStyle(color: Color(0xFF7A7A92), fontSize: 12),
+        style: AppType.ui(size: 12, color: AppColors.fg2),
       ),
     );
   }
@@ -1184,58 +1200,34 @@ class _MiniTorrentRow extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            t.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: Color(0xFFF4F4F8),
-              fontFamily: 'monospace',
-            ),
-          ),
-          const SizedBox(height: 4),
           Row(
             children: [
+              EditorialLed(color: AppColors.accent, size: 6),
+              const SizedBox(width: 8),
               Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(2),
-                  child: SizedBox(
-                    height: 3,
-                    child: Stack(
-                      children: [
-                        Container(color: AppColors.bgSurfaceHi),
-                        FractionallySizedBox(
-                          widthFactor: t.progress.clamp(0.0, 1.0),
-                          child: Container(color: AppColors.seedColor),
-                        ),
-                      ],
-                    ),
-                  ),
+                child: MonoText(
+                  t.name,
+                  size: 12,
+                  color: AppColors.fg,
+                  maxLines: 1,
                 ),
               ),
-              const SizedBox(width: AppSpacing.sm),
-              Text(
+              const SizedBox(width: 8),
+              MonoText(
                 '${(t.progress * 100).toStringAsFixed(0)}%',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.seedColor,
-                  fontFamily: 'monospace',
-                ),
+                size: 11,
+                color: AppColors.fg2,
               ),
-              const SizedBox(width: AppSpacing.sm),
-              Text(
+              const SizedBox(width: 8),
+              MonoText(
                 '↓ ${Formatters.formatSpeed(t.dlspeed)}',
-                style: TextStyle(
-                  fontSize: 10,
-                  color: ac.downloading,
-                  fontFamily: 'monospace',
-                ),
+                size: 11,
+                color: ac.downloading,
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          EditorialProgress(value: t.progress, thin: true),
         ],
       ),
     );

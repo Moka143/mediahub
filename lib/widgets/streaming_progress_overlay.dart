@@ -132,13 +132,13 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
               borderRadius: BorderRadius.circular(AppRadius.lg),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.25),
+                  color: Colors.black.withValues(alpha: 0.25),
                   blurRadius: 24,
                   offset: const Offset(0, 8),
                 ),
               ],
               border: Border.all(
-                color: theme.colorScheme.outline.withOpacity(0.1),
+                color: theme.colorScheme.outline.withValues(alpha: 0.1),
               ),
             ),
             child: content,
@@ -191,7 +191,7 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
                         child: Text(
                           subtitle,
                           style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurface.withOpacity(0.6),
+                            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -204,7 +204,7 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
                 IconButton(
                   onPressed: _animateOut,
                   icon: const Icon(Icons.close_rounded, size: 20),
-                  color: theme.colorScheme.onSurface.withOpacity(0.5),
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
                   constraints: const BoxConstraints(
                     minWidth: 36,
                     minHeight: 36,
@@ -226,14 +226,14 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
                   height: 6,
                   child: isIndeterminate
                       ? LinearProgressIndicator(
-                          backgroundColor: accentColor.withOpacity(0.15),
+                          backgroundColor: accentColor.withValues(alpha: 0.15),
                           valueColor: AlwaysStoppedAnimation<Color>(
                             accentColor,
                           ),
                         )
                       : LinearProgressIndicator(
                           value: progress ?? 0,
-                          backgroundColor: accentColor.withOpacity(0.15),
+                          backgroundColor: accentColor.withValues(alpha: 0.15),
                           valueColor: AlwaysStoppedAnimation<Color>(
                             accentColor,
                           ),
@@ -263,7 +263,7 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
             decoration: BoxDecoration(
               border: Border(
                 top: BorderSide(
-                  color: theme.colorScheme.outline.withOpacity(0.1),
+                  color: theme.colorScheme.outline.withValues(alpha: 0.1),
                 ),
               ),
             ),
@@ -284,7 +284,7 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
       width: 48,
       height: 48,
       decoration: BoxDecoration(
-        color: accentColor.withOpacity(0.1),
+        color: accentColor.withValues(alpha: 0.1),
         shape: BoxShape.circle,
       ),
       child: Stack(
@@ -322,7 +322,7 @@ OverlayEntry? showStreamingOverlay(
 
   entry = OverlayEntry(
     builder: (context) => Material(
-      color: Colors.black.withOpacity(0.3),
+      color: Colors.black.withValues(alpha: 0.3),
       child: StreamingProgressOverlay(
         title: title,
         subtitle: subtitle,
@@ -373,7 +373,7 @@ showUpdatableStreamingOverlay(
   OverlayEntry? entry;
   entry = OverlayEntry(
     builder: (context) => Material(
-      color: Colors.black.withOpacity(0.3),
+      color: Colors.black.withValues(alpha: 0.3),
       child: StreamingProgressOverlay(
         title: title,
         dataNotifier: dataNotifier,
@@ -478,7 +478,7 @@ class _StreamingToastState extends State<StreamingToast>
                 borderRadius: BorderRadius.circular(AppRadius.md),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.2),
+                    color: Colors.black.withValues(alpha: 0.2),
                     blurRadius: 12,
                     offset: const Offset(0, 4),
                   ),

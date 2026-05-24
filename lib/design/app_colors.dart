@@ -1,158 +1,189 @@
 import 'package:flutter/material.dart';
 
-/// MediaHub semantic color palette
-/// Dark, cinematic, playful indigo/violet — Stremio-inspired
-/// These colors are used for status indicators, badges, and semantic meanings
+/// Cinematic editorial palette — warm near-black + single cinema-leader
+/// orange accent. Replaces the previous indigo/violet "Stremio-clone"
+/// palette. Sourced from the MediaHub redesign brief:
+///
+///   --bg: oklch(0.135 0.005 60)
+///   --accent: oklch(0.72 0.18 38)
+///   --ok: oklch(0.78 0.16 145)
+///
+/// OKLCH values converted to sRGB and stored here as flat constants.
 abstract final class AppColors {
   // ==========================================================================
-  // Primary brand color - Indigo 400 (brighter for dark cinematic surfaces)
+  // Backgrounds — warm near-black with subtle warm cast
   // ==========================================================================
-  static const Color seedColor = Color(0xFF818CF8); // Indigo 400
+  /// Page background — deepest surface (window body)
+  static const Color bgPage = Color(0xFF0A0806);
 
-  // Accent colors for gradients and highlights
-  static const Color accentPrimary = Color(0xFFA78BFA); // Violet 400
-  static const Color accentSecondary = Color(0xFF22D3EE); // Cyan 400
-  static const Color accentTertiary = Color(0xFFF472B6); // Pink 400
+  /// Alternate page surface (sidebar, drawer chrome)
+  static const Color bgPageAlt = Color(0xFF080706);
 
-  // Deep variants used in gradients (e.g. brand logo, hero CTAs)
-  static const Color seedDeep = Color(0xFF6366F1); // Indigo 500
-  static const Color accentPrimaryDeep = Color(0xFF8B5CF6); // Violet 500
-  static const Color accentTertiaryDeep = Color(0xFFEC4899); // Pink 500
+  /// Elevated surface (buttons, inputs, pills)
+  static const Color bgSurface = Color(0xFF100E0C);
 
-  // ==========================================================================
-  // MediaHub surface stack — deep cool-toned, slightly violet-tinted
-  // ==========================================================================
-  /// Page background — near-black with violet cast
-  static const Color bgPage = Color(0xFF0A0A14);
+  /// Higher-elevation surface (cards, panels, hover state)
+  static const Color bgSurfaceHi = Color(0xFF191714);
 
-  /// Alternate page surface (e.g. sidebar, drawer chrome)
-  static const Color bgPageAlt = Color(0xFF0E0E1C);
-
-  /// Elevated card surface
-  static const Color bgSurface = Color(0xFF13131F);
-
-  /// Higher-elevation surface (hover, selected, header strips)
-  static const Color bgSurfaceHi = Color(0xFF1A1A2A);
-
-  /// Highest-elevation surface (modals, dropdowns)
-  static const Color bgSurfaceHigher = Color(0xFF22223A);
+  /// Highest-elevation surface (modal background, selected row)
+  static const Color bgSurfaceHigher = Color(0xFF272321);
 
   // ==========================================================================
-  // Status colors (semantic) - Modern, vibrant
+  // Foregrounds — warm off-white scale
   // ==========================================================================
-  static const Color success = Color(0xFF34D399); // Emerald 400
-  static const Color successLight = Color(0xFFD1FAE5);
-  static const Color successDark = Color(0xFF10B981);
+  /// Primary text — warm off-white
+  static const Color fg = Color(0xFFF6F1E9);
 
-  static const Color warning = Color(0xFFFBBF24); // Amber 400
-  static const Color warningLight = Color(0xFFFEF3C7);
-  static const Color warningDark = Color(0xFFF59E0B);
+  /// Secondary text
+  static const Color fg1 = Color(0xFFC9C3BC);
 
-  static const Color error = Color(0xFFFB7185); // Rose 400
-  static const Color errorLight = Color(0xFFFEE2E2);
-  static const Color errorDark = Color(0xFFEF4444);
+  /// Tertiary text (subtitles, captions)
+  static const Color fg2 = Color(0xFF857F79);
 
-  static const Color info = Color(0xFF818CF8); // Indigo 400
-  static const Color infoLight = Color(0xFFDBEAFE);
-  static const Color infoDark = Color(0xFF6366F1);
+  /// Muted text (timestamps, hashes, deemphasized labels)
+  static const Color fg3 = Color(0xFF514C47);
 
   // ==========================================================================
-  // Torrent state colors - matching MediaHub palette
+  // Hairline rules — almost invisible by design
   // ==========================================================================
-  static const Color downloading = Color(0xFF818CF8); // Indigo 400
-  static const Color downloadingLight = Color(0xFFE0E7FF);
-  static const Color downloadingDark = Color(0xFF6366F1);
+  /// 6% white — section dividers, row separators
+  static const Color line = Color(0x0FFFFFFF);
 
-  static const Color seeding = Color(0xFF34D399); // Emerald 400
-  static const Color seedingLight = Color(0xFFD1FAE5);
-  static const Color seedingDark = Color(0xFF10B981);
-
-  static const Color paused = Color(0xFF7A7A92); // MediaHub tertiary text
-  static const Color pausedLight = Color(0xFFF3F4F6);
-  static const Color pausedDark = Color(0xFF54546A);
-
-  static const Color queued = Color(0xFFFBBF24); // Amber 400
-  static const Color queuedLight = Color(0xFFFEF3C7);
-  static const Color queuedDark = Color(0xFFF59E0B);
-
-  static const Color checking = Color(0xFFA78BFA); // Violet 400
-  static const Color checkingLight = Color(0xFFEDE9FE);
-  static const Color checkingDark = Color(0xFF8B5CF6);
-
-  static const Color errorState = Color(0xFFFB7185); // Rose 400
-  static const Color errorStateLight = Color(0xFFFEE2E2);
-  static const Color errorStateDark = Color(0xFFEF4444);
+  /// 12% white — stronger borders (modals, key surfaces)
+  static const Color lineStrong = Color(0x1FFFFFFF);
 
   // ==========================================================================
-  // Quality badge colors - MediaHub palette
-  //   4K   → pink   1080p → indigo   720p → emerald   SD → gray
+  // Accent — cinema-leader orange. The ONE color that means something.
   // ==========================================================================
-  static const Color quality4K = Color(0xFFF472B6); // Pink 400
-  static const Color quality4KLight = Color(0xFFFCE7F3);
-  static const Color quality1080p = Color(0xFF818CF8); // Indigo 400
-  static const Color quality1080pLight = Color(0xFFE0E7FF);
-  static const Color quality720p = Color(0xFF34D399); // Emerald 400
-  static const Color quality720pLight = Color(0xFFD1FAE5);
-  static const Color qualitySD = Color(0xFF7A7A92);
-  static const Color qualitySDLight = Color(0xFFF3F4F6);
+  /// Primary accent — active state, primary CTA, current row indicator
+  static const Color accent = Color(0xFFFF7448);
+
+  /// Hover/pressed variant
+  static const Color accentHi = Color(0xFFFF885C);
+
+  /// 16% accent — soft fill (selected chip, badge background)
+  static const Color accentSoft = Color(0x29FF7448);
+
+  /// 8% accent — ghost fill (subtle highlight)
+  static const Color accentGhost = Color(0x14FF7448);
 
   // ==========================================================================
-  // Health/signal indicator colors
+  // Status — restrained. Use sparingly.
   // ==========================================================================
-  static const Color healthGood = Color(0xFF34D399);
-  static const Color healthMedium = Color(0xFFFBBF24);
-  static const Color healthPoor = Color(0xFFFB7185);
+  /// Ready / seeding / downloaded
+  static const Color ok = Color(0xFF6ED274);
+
+  /// 14% ok — soft fill
+  static const Color okSoft = Color(0x246ED274);
+
+  /// Queued / checking / warning
+  static const Color warn = Color(0xFFF3B94C);
+
+  /// Error / missing
+  static const Color err = Color(0xFFFF5F5B);
 
   // ==========================================================================
-  // Rating colors - Gold/star themed
+  // Legacy aliases — keep existing call sites compiling while we migrate.
+  // These all resolve to the new editorial palette so the visual identity
+  // is consistent even where code hasn't been updated yet.
   // ==========================================================================
-  static const Color ratingExcellent = Color(0xFF34D399); // 8+
-  static const Color ratingGood = Color(0xFFFBBF24); // 6-8 (Amber 400)
-  static const Color ratingFair = Color(0xFFF59E0B); // 4-6
-  static const Color ratingPoor = Color(0xFFFB7185); // <4
+  static const Color seedColor = accent;
+  static const Color accentPrimary = accent;
+  static const Color accentSecondary = ok;
+  static const Color accentTertiary = warn;
+  static const Color seedDeep = accent;
+  static const Color accentPrimaryDeep = accentHi;
+  static const Color accentTertiaryDeep = warn;
 
-  // ==========================================================================
-  // Connection status colors
-  // ==========================================================================
-  static const Color connected = Color(0xFF34D399);
-  static const Color connecting = Color(0xFFFBBF24);
-  static const Color disconnected = Color(0xFFFB7185);
+  /// Status colors — torrent states map to the restrained palette.
+  static const Color success = ok;
+  static const Color successLight = okSoft;
+  static const Color successDark = ok;
 
-  // ==========================================================================
-  // Surface colors for cards and containers
-  // ==========================================================================
+  static const Color warning = warn;
+  static const Color warningLight = Color(0x24F3B94C);
+  static const Color warningDark = warn;
+
+  static const Color error = err;
+  static const Color errorLight = Color(0x29FF5F5B);
+  static const Color errorDark = err;
+
+  static const Color info = accent;
+  static const Color infoLight = accentSoft;
+  static const Color infoDark = accentHi;
+
+  // Torrent states — downloading = accent, seeding = ok, paused = muted,
+  // queued = warn, checking = warn, error = err.
+  static const Color downloading = accent;
+  static const Color downloadingLight = accentSoft;
+  static const Color downloadingDark = accentHi;
+
+  static const Color seeding = ok;
+  static const Color seedingLight = okSoft;
+  static const Color seedingDark = ok;
+
+  static const Color paused = fg3;
+  static const Color pausedLight = bgSurfaceHi;
+  static const Color pausedDark = fg2;
+
+  static const Color queued = warn;
+  static const Color queuedLight = Color(0x24F3B94C);
+  static const Color queuedDark = warn;
+
+  static const Color checking = warn;
+  static const Color checkingLight = Color(0x24F3B94C);
+  static const Color checkingDark = warn;
+
+  static const Color errorState = err;
+  static const Color errorStateLight = Color(0x29FF5F5B);
+  static const Color errorStateDark = err;
+
+  // Quality badges — in the editorial design these are all neutral mono
+  // tags; 4K gets the accent treatment when emphasized. Light variants
+  // map to subtle surface tints so the legacy code still renders.
+  static const Color quality4K = accent;
+  static const Color quality4KLight = accentSoft;
+  static const Color quality1080p = fg1;
+  static const Color quality1080pLight = bgSurfaceHi;
+  static const Color quality720p = fg2;
+  static const Color quality720pLight = bgSurface;
+  static const Color qualitySD = fg3;
+  static const Color qualitySDLight = bgSurface;
+
+  // Health/signal indicators
+  static const Color healthGood = ok;
+  static const Color healthMedium = warn;
+  static const Color healthPoor = err;
+
+  // Rating colors — use accent for highlights, muted for everything else.
+  static const Color ratingExcellent = ok;
+  static const Color ratingGood = accent;
+  static const Color ratingFair = warn;
+  static const Color ratingPoor = err;
+
+  // Connection status
+  static const Color connected = ok;
+  static const Color connecting = warn;
+  static const Color disconnected = err;
+
+  // Surface aliases
   static const Color surfaceLight = Color(0xFFFAFAFA);
   static const Color surfaceMedium = Color(0xFFF4F4F5);
   static const Color surfaceDark = bgSurface;
   static const Color surfaceDarkElevated = bgSurfaceHi;
 
-  // ==========================================================================
-  // Gradient presets — MediaHub brand uses an indigo→pink hero gradient
-  // ==========================================================================
-  static const List<Color> gradientPrimary = [
-    Color(0xFF818CF8), // indigo 400
-    Color(0xFFF472B6), // pink 400
-  ];
-
-  static const List<Color> gradientSuccess = [
-    Color(0xFF34D399),
-    Color(0xFF22D3EE),
-  ];
-
-  static const List<Color> gradientWarning = [
-    Color(0xFFFBBF24),
-    Color(0xFFF472B6),
-  ];
-
-  static const List<Color> gradientError = [
-    Color(0xFFFB7185),
-    Color(0xFFF472B6),
-  ];
+  // Gradient presets — kept for legacy hero/CTA call sites.
+  // The editorial design uses a single accent + restraint; these
+  // resolve to subtle accent-to-foreground washes instead of the
+  // previous indigo→pink candy gradient.
+  static const List<Color> gradientPrimary = [accent, accentHi];
+  static const List<Color> gradientSuccess = [ok, ok];
+  static const List<Color> gradientWarning = [warn, accent];
+  static const List<Color> gradientError = [err, err];
 }
 
-/// Extension to get torrent state colors
+/// Extension to get torrent state colors — restrained editorial mapping.
 extension TorrentStateColor on String {
-  /// Get the appropriate color for a torrent state
   Color get torrentStateColor {
     switch (toLowerCase()) {
       case 'downloading':
@@ -187,7 +218,6 @@ extension TorrentStateColor on String {
     }
   }
 
-  /// Get the light variant of a torrent state color
   Color get torrentStateLightColor {
     switch (toLowerCase()) {
       case 'downloading':
@@ -223,7 +253,8 @@ extension TorrentStateColor on String {
   }
 }
 
-/// Extension to get quality badge colors
+/// Extension to get quality badge colors — all neutral mono tags in the
+/// editorial design, with 4K reserved for the accent treatment.
 extension QualityColor on String {
   Color get qualityColor {
     final lower = toLowerCase();
@@ -256,7 +287,6 @@ extension QualityColor on String {
   }
 }
 
-/// Get rating color based on score
 Color getRatingColor(double rating) {
   if (rating >= 8.0) return AppColors.ratingExcellent;
   if (rating >= 6.0) return AppColors.ratingGood;
@@ -264,7 +294,6 @@ Color getRatingColor(double rating) {
   return AppColors.ratingPoor;
 }
 
-/// Get health indicator color based on seed count
 Color getHealthColor(int seeds) {
   if (seeds >= 10) return AppColors.healthGood;
   if (seeds >= 3) return AppColors.healthMedium;

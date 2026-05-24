@@ -243,39 +243,40 @@ class TorrentListNotifier extends Notifier<TorrentListState> {
     final settings = ref.read(settingsProvider);
     if (!settings.stopSeedingOnComplete) return;
 
+    // Pause every torrent that is currently completed-and-still-seeding.
+    // Intentionally idempotent rather than edge-triggered:
+    //   1. `apiService.pauseTorrents` is fired with `unawaited`, so a failed
+    //      request used to leave the torrent seeding forever (no retry).
+    //      Re-checking every poll auto-retries until qBit reports pausedUP.
+    //   2. Re-streamed / manually-resumed completed torrents transition
+    //      pausedUP → uploading. The previous edge check missed this because
+    //      both states count as `isCompleted`, so `!wasCompleted` was false.
+    // Once qBit transitions the torrent to pausedUP/stoppedUP, `isPaused`
+    // becomes true and the next poll naturally skips it — so the steady-state
+    // cost is zero API calls.
     final toStop = <String>[];
-
-    // On first load (no previous state), stop any already completed & seeding torrents
-    if (previous.isEmpty) {
-      for (final torrent in current) {
-        if (torrent.isCompleted && !torrent.isPaused) {
-          toStop.add(torrent.hash);
-        }
-      }
-    } else {
-      // Normal case: detect newly completed torrents
-      final previousByHash = {
-        for (final torrent in previous) torrent.hash: torrent,
-      };
-
-      for (final torrent in current) {
-        final prev = previousByHash[torrent.hash];
-        final wasCompleted = prev?.isCompleted ?? false;
-        if (!wasCompleted && torrent.isCompleted && !torrent.isPaused) {
-          toStop.add(torrent.hash);
-        }
+    for (final torrent in current) {
+      if (torrent.isCompleted && !torrent.isPaused) {
+        toStop.add(torrent.hash);
       }
     }
 
-    if (toStop.isNotEmpty) {
-      unawaited(apiService.pauseTorrents(toStop));
-      // Trigger media refresh after a short delay to allow files to be finalized
-      Future.delayed(const Duration(seconds: 2), () {
-        ref.invalidate(localMediaFilesProvider);
-      });
+    if (toStop.isEmpty) return;
 
-      // Notify auto-download that these torrents completed
-      for (final hash in toStop) {
+    unawaited(apiService.pauseTorrents(toStop));
+    // Trigger media refresh after a short delay to allow files to be finalized
+    Future.delayed(const Duration(seconds: 2), () {
+      ref.invalidate(localMediaFilesProvider);
+    });
+
+    // Only notify auto-download on the actual completion edge — not on every
+    // retry pass — otherwise the event log would fill up with duplicates.
+    final previousByHash = {
+      for (final torrent in previous) torrent.hash: torrent,
+    };
+    for (final hash in toStop) {
+      final wasCompleted = previousByHash[hash]?.isCompleted ?? false;
+      if (!wasCompleted) {
         ref.read(autoDownloadProvider.notifier).markDownloadCompleted(hash);
       }
     }

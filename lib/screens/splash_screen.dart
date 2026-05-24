@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_torrent_client/screens/main_navigation_screen.dart';
+import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
 import '../providers/settings_provider.dart';
 import '../providers/tmdb_account_provider.dart';
-import '../utils/constants.dart';
+import '../widgets/editorial/editorial.dart';
 import 'onboarding_screen.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
@@ -80,19 +81,14 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Scaffold(
+      backgroundColor: AppColors.bgPage,
       body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              theme.colorScheme.surface,
-              theme.colorScheme.surface,
-              theme.colorScheme.primaryContainer.withAlpha(AppOpacity.light),
-            ],
+        decoration: const BoxDecoration(
+          gradient: RadialGradient(
+            center: Alignment(0, -0.2),
+            radius: 1.0,
+            colors: [Color(0xFF1F1B17), AppColors.bgPage],
           ),
         ),
         child: Center(
@@ -110,40 +106,28 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // App icon with shadow
-                Container(
-                  width: 140,
-                  height: 140,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(AppRadius.xl),
-                    boxShadow: [
-                      BoxShadow(
-                        color: theme.colorScheme.primary.withAlpha(
-                          AppOpacity.medium,
-                        ),
-                        blurRadius: 32,
-                        spreadRadius: 4,
-                      ),
-                    ],
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(AppRadius.xl),
-                    child: Image.asset('assets/icon.png', fit: BoxFit.contain),
-                  ),
+                const SerifTitle(
+                  'MediaHub',
+                  size: 96,
+                  height: 1.0,
+                  letterSpacing: -0.03,
+                  color: AppColors.fg,
                 ),
-                const SizedBox(height: AppSpacing.xl),
-                Text(
-                  AppConstants.appName,
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: theme.colorScheme.onSurface,
-                  ),
+                const SizedBox(height: AppSpacing.md),
+                const MonoLabel(
+                  '— STREAM · DOWNLOAD · LIBRARY —',
+                  color: AppColors.accent,
+                  letterSpacing: 0.18,
                 ),
-                const SizedBox(height: AppSpacing.sm),
-                Text(
-                  'Stream & Download',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
+                const SizedBox(height: AppSpacing.huge),
+                SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 1.5,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      AppColors.fg3,
+                    ),
                   ),
                 ),
               ],

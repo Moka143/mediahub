@@ -3,13 +3,16 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
+import '../design/app_typography.dart';
 import '../providers/favorites_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/tmdb_account_provider.dart';
 import '../providers/watchlist_provider.dart';
 import '../utils/constants.dart';
 import '../utils/feedback_utils.dart';
+import '../widgets/editorial/editorial.dart';
 import 'main_navigation_screen.dart';
 
 /// First-run screen.
@@ -220,24 +223,28 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(AppRadius.lg),
-          child: Image.asset('assets/icon.png', width: 96, height: 96),
+        const MonoLabel(
+          'WELCOME TO',
+          color: AppColors.accent,
+          letterSpacing: 0.18,
+          size: 11,
         ),
-        const SizedBox(height: AppSpacing.lg),
-        Text(
-          'Welcome to ${AppConstants.appName}',
+        const SizedBox(height: 10),
+        SerifTitle(
+          AppConstants.appName,
+          size: 64,
+          height: 1.0,
+          letterSpacing: -0.02,
           textAlign: TextAlign.center,
-          style: theme.textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
         ),
-        const SizedBox(height: AppSpacing.xs),
+        const SizedBox(height: AppSpacing.md),
         Text(
           'A free TMDB account powers the catalog.',
           textAlign: TextAlign.center,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
+          style: AppType.ui(
+            size: 14,
+            color: AppColors.fg1,
+            height: 1.5,
           ),
         ),
       ],

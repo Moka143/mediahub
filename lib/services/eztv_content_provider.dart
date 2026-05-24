@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'content_provider.dart';
 import 'eztv_api_service.dart';
 
@@ -53,7 +54,7 @@ class EztvContentProvider implements ContentProvider {
 
       return torrents.map((t) => StreamSource.fromEztv(t)).toList();
     } catch (e) {
-      print('EZTV error: $e');
+      debugPrint('EZTV error: $e');
       return [];
     }
   }
@@ -65,7 +66,7 @@ class EztvContentProvider implements ContentProvider {
 
       return torrents.map((t) => StreamSource.fromEztv(t)).toList();
     } catch (e) {
-      print('EZTV error: $e');
+      debugPrint('EZTV error: $e');
       return [];
     }
   }

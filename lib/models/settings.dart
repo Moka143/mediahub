@@ -17,8 +17,6 @@ class AppSettings {
   final String defaultSavePath;
   final int downloadSpeedLimit; // bytes per second, 0 = unlimited
   final int uploadSpeedLimit; // bytes per second, 0 = unlimited
-  @Deprecated('Not implemented - kept for backwards compatibility')
-  final int maxConnections; // TODO: Implement or remove in future version
 
   // App settings
   final ThemeMode themeMode;
@@ -49,7 +47,6 @@ class AppSettings {
     String? defaultSavePath,
     this.downloadSpeedLimit = 0,
     this.uploadSpeedLimit = 0,
-    this.maxConnections = 500, // Deprecated, kept for backwards compat
     this.themeMode = ThemeMode.system,
     this.updateIntervalSeconds = 2,
     this.idlePollingIntervalSeconds = 10,
@@ -70,6 +67,8 @@ class AppSettings {
   String get apiBaseUrl => 'http://$host:$port';
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
+    // Note: legacy `max_connections` key is silently dropped — the
+    // field was never wired up and is gone in this version.
     return AppSettings(
       host: json['host'] as String? ?? AppConstants.defaultHost,
       port: json['port'] as int? ?? AppConstants.defaultPort,
@@ -80,7 +79,6 @@ class AppSettings {
       defaultSavePath: json['default_save_path'] as String?,
       downloadSpeedLimit: json['download_speed_limit'] as int? ?? 0,
       uploadSpeedLimit: json['upload_speed_limit'] as int? ?? 0,
-      maxConnections: json['max_connections'] as int? ?? 500,
       themeMode: ThemeMode.values[json['theme_mode'] as int? ?? 0],
       updateIntervalSeconds: json['update_interval_seconds'] as int? ?? 2,
       idlePollingIntervalSeconds:
@@ -108,7 +106,6 @@ class AppSettings {
       'default_save_path': defaultSavePath,
       'download_speed_limit': downloadSpeedLimit,
       'upload_speed_limit': uploadSpeedLimit,
-      'max_connections': maxConnections,
       'theme_mode': themeMode.index,
       'update_interval_seconds': updateIntervalSeconds,
       'idle_polling_interval_seconds': idlePollingIntervalSeconds,
@@ -133,7 +130,6 @@ class AppSettings {
     String? defaultSavePath,
     int? downloadSpeedLimit,
     int? uploadSpeedLimit,
-    int? maxConnections,
     ThemeMode? themeMode,
     int? updateIntervalSeconds,
     int? idlePollingIntervalSeconds,
@@ -156,7 +152,6 @@ class AppSettings {
       defaultSavePath: defaultSavePath ?? this.defaultSavePath,
       downloadSpeedLimit: downloadSpeedLimit ?? this.downloadSpeedLimit,
       uploadSpeedLimit: uploadSpeedLimit ?? this.uploadSpeedLimit,
-      maxConnections: maxConnections ?? this.maxConnections,
       themeMode: themeMode ?? this.themeMode,
       updateIntervalSeconds:
           updateIntervalSeconds ?? this.updateIntervalSeconds,
@@ -189,7 +184,6 @@ class AppSettings {
           defaultSavePath == other.defaultSavePath &&
           downloadSpeedLimit == other.downloadSpeedLimit &&
           uploadSpeedLimit == other.uploadSpeedLimit &&
-          maxConnections == other.maxConnections &&
           themeMode == other.themeMode &&
           updateIntervalSeconds == other.updateIntervalSeconds &&
           idlePollingIntervalSeconds == other.idlePollingIntervalSeconds &&
@@ -213,7 +207,6 @@ class AppSettings {
     defaultSavePath,
     downloadSpeedLimit,
     uploadSpeedLimit,
-    maxConnections,
     themeMode,
     updateIntervalSeconds,
     idlePollingIntervalSeconds,

@@ -138,7 +138,7 @@ final subtitlesByLanguageProvider = Provider<Map<String, List<Subtitle>>>((
       return {for (final key in sortedKeys) key: grouped[key]!};
     },
     loading: () => {},
-    error: (_, __) => {},
+    error: (_, _) => {},
   );
 });
 

@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../design/app_theme.dart';
 import '../design/app_tokens.dart';
+import '../widgets/common/mediahub_confirm_dialog.dart';
 import '../providers/auto_download_provider.dart';
 import '../providers/connection_provider.dart';
 import '../providers/settings_provider.dart';
@@ -727,12 +728,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                       final url = Uri.parse(
                         'https://www.themoviedb.org/settings/api',
                       );
+                      final messenger = ScaffoldMessenger.of(context);
                       if (!await launchUrl(
                         url,
                         mode: LaunchMode.externalApplication,
                       )) {
-                        if (!context.mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        messenger.showSnackBar(
                           SnackBar(content: Text('Could not open $url')),
                         );
                       }
@@ -965,17 +966,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                       label: Text('System'),
                     ),
                     ButtonSegment(
-                      value: ThemeMode.light,
-                      icon: Icon(Icons.light_mode_rounded),
-                      label: Text('Light'),
-                    ),
-                    ButtonSegment(
                       value: ThemeMode.dark,
                       icon: Icon(Icons.dark_mode_rounded),
                       label: Text('Dark'),
                     ),
                   ],
-                  selected: {settings.themeMode},
+                  // Persisted ThemeMode.light values from earlier builds
+                  // are coerced to System for the segmented-button
+                  // selection — the buildLightTheme stub still renders
+                  // dark, so the visible behaviour matches either way.
+                  selected: {
+                    settings.themeMode == ThemeMode.light
+                        ? ThemeMode.system
+                        : settings.themeMode,
+                  },
                   onSelectionChanged: (modes) {
                     ref
                         .read(settingsProvider.notifier)
@@ -1506,44 +1510,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   }
 
   Future<void> _showResetDialog(BuildContext context) async {
-    final appColors = context.appColors;
-
-    final confirmed = await showDialog<bool>(
+    final confirmed = await MediaHubConfirmDialog.show(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        icon: Container(
-          width: 56,
-          height: 56,
-          decoration: BoxDecoration(
-            color: appColors.errorState.withAlpha(AppOpacity.light),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(
-            Icons.warning_rounded,
-            color: appColors.errorState,
-            size: 28,
-          ),
-        ),
-        title: const Text('Reset Settings'),
-        content: const Text(
-          'Are you sure you want to reset all settings to default values? This action cannot be undone.',
-          textAlign: TextAlign.center,
-        ),
-        actionsAlignment: MainAxisAlignment.center,
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: appColors.errorState,
-            ),
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Reset'),
-          ),
-        ],
-      ),
+      title: 'Reset Settings',
+      message:
+          'Are you sure you want to reset all settings to default values? '
+          'This action cannot be undone.',
+      confirmLabel: 'Reset',
+      destructive: true,
+      icon: Icons.warning_rounded,
     );
 
     if (confirmed == true) {
@@ -1561,6 +1536,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       _uploadLimitController.text = '';
 
       if (context.mounted) {
+        final appColors = context.appColors;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             behavior: SnackBarBehavior.floating,

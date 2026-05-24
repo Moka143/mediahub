@@ -42,6 +42,11 @@ dependencies:
   # Cached network images for posters
   cached_network_image: ^3.4.1
 
+  # Editorial typography — Instrument Serif (display, italic),
+  # Geist (UI), JetBrains Mono (technical data). Loaded on demand
+  # from Google Fonts with on-disk caching.
+  google_fonts: ^8.0.2
+
   # Cross-platform video player with libmpv backend (all codecs)
   media_kit: ^1.2.6
   media_kit_video: ^2.0.1

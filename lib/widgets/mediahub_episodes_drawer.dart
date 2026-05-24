@@ -9,6 +9,7 @@ import '../models/show.dart';
 import '../providers/shows_provider.dart' show tmdbApiServiceProvider;
 import '../providers/torrent_provider.dart';
 import '../providers/watch_progress_provider.dart';
+import 'editorial/editorial.dart';
 import 'mediahub_drawer.dart';
 
 /// Right-side drawer presenting a show's seasons + episodes — replaces
@@ -247,7 +248,7 @@ class _DrawerHeader extends StatelessWidget {
         AppSpacing.lg,
       ),
       decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: Color(0x0FFFFFFF), width: 1)),
+        border: Border(bottom: BorderSide(color: AppColors.line, width: 1)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -275,37 +276,20 @@ class _DrawerHeader extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                MonoLabel(
                   'BROWSE EPISODES',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: AppColors.seedColor,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.88,
-                    fontFamily: 'monospace',
-                  ),
+                  color: AppColors.accent,
+                  letterSpacing: 0.14,
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  show.name,
-                  style: const TextStyle(
-                    fontSize: 22,
-                    color: Color(0xFFF4F4F8),
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.44,
-                    height: 1.2,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
+                const SizedBox(height: 6),
+                SerifTitle(show.name, size: 26, height: 1.1, maxLines: 2),
+                const SizedBox(height: 6),
+                MonoLabel(
                   '${show.numberOfSeasons ?? 0} '
-                  '${(show.numberOfSeasons ?? 0) == 1 ? 'season' : 'seasons'}'
-                  ' · ${show.numberOfEpisodes ?? 0} episodes',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF7A7A92),
-                    fontFamily: 'monospace',
-                  ),
+                  '${(show.numberOfSeasons ?? 0) == 1 ? 'SEASON' : 'SEASONS'}'
+                  ' · ${show.numberOfEpisodes ?? 0} EPISODES',
+                  color: AppColors.fg2,
+                  letterSpacing: 0.1,
                 ),
               ],
             ),
@@ -315,11 +299,11 @@ class _DrawerHeader extends StatelessWidget {
             tooltip: 'Close (Esc)',
             icon: const Icon(Icons.close_rounded, size: 16),
             style: IconButton.styleFrom(
-              foregroundColor: const Color(0xFF7A7A92),
+              foregroundColor: AppColors.fg2,
               backgroundColor: AppColors.bgSurface,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(AppRadius.sm),
-                side: const BorderSide(color: Color(0x0FFFFFFF)),
+                side: const BorderSide(color: AppColors.line),
               ),
             ),
           ),
@@ -348,7 +332,7 @@ class _SeasonTabs extends StatelessWidget {
         vertical: AppSpacing.md,
       ),
       decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: Color(0x0FFFFFFF), width: 1)),
+        border: Border(bottom: BorderSide(color: AppColors.line, width: 1)),
       ),
       child: Row(
         children: [
@@ -357,7 +341,7 @@ class _SeasonTabs extends StatelessWidget {
             style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w700,
-              color: Color(0xFF7A7A92),
+              color: AppColors.fg2,
               letterSpacing: 0.88,
               fontFamily: 'monospace',
             ),
@@ -408,7 +392,7 @@ class _SeasonChip extends StatelessWidget {
         decoration: BoxDecoration(
           color: selected ? AppColors.seedColor : AppColors.bgSurface,
           border: Border.all(
-            color: selected ? AppColors.seedColor : const Color(0x0FFFFFFF),
+            color: selected ? AppColors.seedColor : AppColors.line,
           ),
           borderRadius: BorderRadius.circular(AppRadius.sm),
         ),
@@ -419,7 +403,7 @@ class _SeasonChip extends StatelessWidget {
             fontSize: 12,
             fontWeight: FontWeight.w700,
             fontFamily: 'monospace',
-            color: selected ? Colors.white : const Color(0xFFB4B4C8),
+            color: selected ? Colors.white : AppColors.fg1,
           ),
         ),
       ),
@@ -436,7 +420,7 @@ extension on _EpisodeStatus {
     _EpisodeStatus.watched => AppColors.seeding,
     _EpisodeStatus.downloaded => AppColors.seedColor,
     _EpisodeStatus.downloading => AppColors.downloading,
-    _EpisodeStatus.none => const Color(0xFF54546A),
+    _EpisodeStatus.none => AppColors.fg3,
   };
 
   IconData? get icon => switch (this) {
@@ -478,7 +462,7 @@ class _EpisodePicker extends StatelessWidget {
         AppSpacing.md,
       ),
       decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: Color(0x0FFFFFFF), width: 1)),
+        border: Border(bottom: BorderSide(color: AppColors.line, width: 1)),
       ),
       child: Row(
         children: [
@@ -489,7 +473,7 @@ class _EpisodePicker extends StatelessWidget {
               style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w700,
-                color: Color(0xFF7A7A92),
+                color: AppColors.fg2,
                 letterSpacing: 0.88,
                 fontFamily: 'monospace',
               ),
@@ -542,7 +526,7 @@ class _EpisodePill extends StatelessWidget {
           color: AppColors.bgSurface,
           border: Border.all(
             color: status == _EpisodeStatus.none
-                ? const Color(0x0FFFFFFF)
+                ? AppColors.line
                 : status.color.withAlpha(0x66),
           ),
           borderRadius: BorderRadius.circular(AppRadius.sm),
@@ -559,8 +543,8 @@ class _EpisodePill extends StatelessWidget {
                 fontWeight: FontWeight.w700,
                 fontFamily: 'monospace',
                 color: isWatched
-                    ? const Color(0xFF7A7A92)
-                    : const Color(0xFFB4B4C8),
+                    ? AppColors.fg2
+                    : AppColors.fg1,
               ),
             ),
             if (status != _EpisodeStatus.none)
@@ -632,7 +616,7 @@ class _EpisodeRowState extends State<_EpisodeRow> {
               border: Border.all(
                 color: _hover
                     ? const Color(0x33FFFFFF)
-                    : const Color(0x0FFFFFFF),
+                    : AppColors.line,
               ),
               borderRadius: BorderRadius.circular(AppRadius.md),
               boxShadow: _hover
@@ -662,8 +646,8 @@ class _EpisodeRowState extends State<_EpisodeRow> {
                           // Watched episodes dim slightly so the user
                           // can scan unwatched ones at a glance.
                           color: widget.status == _EpisodeStatus.watched
-                              ? const Color(0xFF7A7A92)
-                              : const Color(0xFFF4F4F8),
+                              ? AppColors.fg2
+                              : AppColors.fg,
                           letterSpacing: -0.36,
                           fontFamily: 'monospace',
                         ),
@@ -713,7 +697,7 @@ class _EpisodeRowState extends State<_EpisodeRow> {
                         style: const TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
-                          color: Color(0xFFF4F4F8),
+                          color: AppColors.fg,
                         ),
                       ),
                       if (ep.overview != null && ep.overview!.isNotEmpty) ...[
@@ -724,7 +708,7 @@ class _EpisodeRowState extends State<_EpisodeRow> {
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             fontSize: 11,
-                            color: Color(0xFFB4B4C8),
+                            color: AppColors.fg1,
                             height: 1.4,
                           ),
                         ),
@@ -739,7 +723,7 @@ class _EpisodeRowState extends State<_EpisodeRow> {
                             ].join(' · '),
                             style: const TextStyle(
                               fontSize: 10,
-                              color: Color(0xFF7A7A92),
+                              color: AppColors.fg2,
                               letterSpacing: 0.4,
                               fontFamily: 'monospace',
                             ),
@@ -883,7 +867,7 @@ class _ErrorState extends StatelessWidget {
           const SizedBox(height: AppSpacing.md),
           const Text(
             'Failed to load episodes',
-            style: TextStyle(color: Color(0xFFB4B4C8)),
+            style: TextStyle(color: AppColors.fg1),
           ),
           const SizedBox(height: AppSpacing.sm),
           TextButton(onPressed: onRetry, child: const Text('Retry')),
@@ -927,9 +911,9 @@ class _EpisodesSkeletonState extends State<_EpisodesSkeleton>
     return ListView.builder(
       padding: const EdgeInsets.all(AppSpacing.md),
       itemCount: 6,
-      itemBuilder: (_, __) => AnimatedBuilder(
+      itemBuilder: (_, _) => AnimatedBuilder(
         animation: _controller,
-        builder: (_, __) {
+        builder: (_, _) {
           // Sweeping alpha from subtle → light → subtle for a calm pulse.
           final t = Curves.easeInOut.transform(_controller.value);
           final alpha =
@@ -941,7 +925,7 @@ class _EpisodesSkeletonState extends State<_EpisodesSkeleton>
             padding: const EdgeInsets.all(AppSpacing.md),
             decoration: BoxDecoration(
               color: AppColors.bgSurface,
-              border: Border.all(color: const Color(0x0FFFFFFF)),
+              border: Border.all(color: AppColors.line),
               borderRadius: BorderRadius.circular(AppRadius.md),
             ),
             child: Row(
@@ -1038,7 +1022,7 @@ class _EpisodeStill extends StatelessWidget {
               if (progress == null) return child;
               return placeholder;
             },
-            errorBuilder: (_, __, ___) => placeholder,
+            errorBuilder: (_, _, _) => placeholder,
           );
 
     final ratio = watchedRatio;

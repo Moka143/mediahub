@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
-import 'common/status_badge.dart';
+import 'editorial/editorial.dart';
 
 /// Cinematic spotlight hero card used at the top of the Shows /
 /// Movies browse screens. Matches the `Spotlight` component from
@@ -69,7 +69,7 @@ class MediaHubSpotlight extends StatelessWidget {
                 alignment: Alignment.center,
                 loadingBuilder: (_, child, p) =>
                     p == null ? child : _hueGradient(),
-                errorBuilder: (_, __, ___) => _hueGradient(),
+                errorBuilder: (_, _, _) => _hueGradient(),
               )
             else
               _hueGradient(),
@@ -147,52 +147,45 @@ class MediaHubSpotlight extends StatelessWidget {
                     runSpacing: AppSpacing.xs,
                     children: [
                       if (trending)
-                        StatusBadge(
-                          label: '▲ Trending',
-                          textColor: AppColors.accentTertiary,
-                          size: StatusBadgeSize.small,
+                        const EditorialBadge(
+                          '▲ Trending',
+                          compact: true,
+                          tone: AppColors.accentTertiary,
                         ),
-                      StatusBadge.quality(
-                        quality: quality,
-                        size: StatusBadgeSize.small,
+                      EditorialBadge(
+                        quality,
+                        compact: true,
+                        tone: quality.qualityColor,
                       ),
                       if (rating > 0)
-                        StatusBadge(
-                          label: '★ ${rating.toStringAsFixed(1)}',
-                          textColor: AppColors.warning,
-                          size: StatusBadgeSize.small,
+                        EditorialBadge(
+                          '★ ${rating.toStringAsFixed(1)}',
+                          compact: true,
+                          tone: AppColors.warning,
                         ),
                     ],
                   ),
                   const SizedBox(height: AppSpacing.sm),
                   ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 460),
-                    child: Text(
+                    constraints: const BoxConstraints(maxWidth: 540),
+                    child: SerifTitle(
                       title,
+                      size: 56,
+                      height: 0.95,
+                      letterSpacing: -0.02,
+                      color: AppColors.fg,
                       maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 30,
-                        fontWeight: FontWeight.w700,
-                        height: 1.05,
-                        letterSpacing: -0.6,
-                        color: Colors.white,
-                      ),
                     ),
                   ),
                   const SizedBox(height: AppSpacing.sm),
-                  Text(
+                  MonoLabel(
                     [
                       if (year != null) year,
                       if (genre != null) genre!.toUpperCase(),
                       metaSuffix,
                     ].whereType<String>().join(' · '),
-                    style: const TextStyle(
-                      fontSize: 12,
-                      letterSpacing: 0.5,
-                      color: Color(0xFF7A7A92),
-                      fontFamily: 'monospace',
-                    ),
+                    color: AppColors.fg2,
+                    letterSpacing: 0.06,
                   ),
                   const SizedBox(height: AppSpacing.md),
                   Row(
@@ -314,7 +307,7 @@ class _HeroPoster extends StatelessWidget {
                   fit: BoxFit.cover,
                   loadingBuilder: (_, child, p) =>
                       p == null ? child : _MiniPoster(hue: fallbackHue),
-                  errorBuilder: (_, __, ___) => _MiniPoster(hue: fallbackHue),
+                  errorBuilder: (_, _, _) => _MiniPoster(hue: fallbackHue),
                 ),
               ),
             ),
@@ -392,7 +385,7 @@ class _CtaButtonState extends State<_CtaButton> {
             borderRadius: BorderRadius.circular(AppRadius.md),
             border: widget.primary
                 ? null
-                : Border.all(color: const Color(0x1AFFFFFF)),
+                : Border.all(color: AppColors.lineStrong),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,

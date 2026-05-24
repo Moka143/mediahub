@@ -4,9 +4,17 @@ import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
 import '../models/torrentio_stream.dart';
 import '../services/torrentio_api_service.dart';
-import 'common/status_badge.dart';
+import 'editorial/editorial.dart';
 import 'mediahub_drawer.dart';
-import 'torrentio_stream_picker_dialog.dart' show StreamPickerResult;
+
+/// Result from a stream-picker presentation. Returned by
+/// [MediaHubTorrentDrawer.show] when the user selects a source.
+class StreamPickerResult {
+  final TorrentioStream stream;
+  final bool isStreaming;
+
+  StreamPickerResult({required this.stream, required this.isStreaming});
+}
 
 /// MediaHub right-side torrent picker drawer.
 ///
@@ -153,7 +161,7 @@ class _DrawerPanel extends StatelessWidget {
               ? const Center(
                   child: Text(
                     'No sources match this filter.',
-                    style: TextStyle(color: Color(0xFF7A7A92)),
+                    style: TextStyle(color: AppColors.fg2),
                   ),
                 )
               : _GroupedSourceList(filtered: filtered, onPick: onPick),
@@ -308,7 +316,7 @@ class _TierHeader extends StatelessWidget {
             '· $count',
             style: const TextStyle(
               fontSize: 11,
-              color: Color(0xFF7A7A92),
+              color: AppColors.fg2,
               fontFamily: 'monospace',
             ),
           ),
@@ -339,7 +347,7 @@ class _Header extends StatelessWidget {
         AppSpacing.lg,
       ),
       decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: Color(0x0FFFFFFF), width: 1)),
+        border: Border(bottom: BorderSide(color: AppColors.line, width: 1)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -367,36 +375,20 @@ class _Header extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                MonoLabel(
                   'CHOOSE A SOURCE',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: AppColors.seedColor,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.88,
-                    fontFamily: 'monospace',
-                  ),
+                  color: AppColors.accent,
+                  letterSpacing: 0.14,
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 22,
-                    color: Color(0xFFF4F4F8),
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.44,
-                    height: 1.2,
-                  ),
-                ),
+                const SizedBox(height: 6),
+                SerifTitle(title, size: 26, height: 1.1, maxLines: 2),
                 if (subtitle != null && subtitle!.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(
+                  const SizedBox(height: 6),
+                  MonoLabel(
                     subtitle!,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF7A7A92),
-                      fontFamily: 'monospace',
-                    ),
+                    color: AppColors.fg2,
+                    letterSpacing: 0.06,
+                    uppercase: false,
                   ),
                 ],
               ],
@@ -407,11 +399,11 @@ class _Header extends StatelessWidget {
             tooltip: 'Close (Esc)',
             icon: const Icon(Icons.close_rounded, size: 16),
             style: IconButton.styleFrom(
-              foregroundColor: const Color(0xFF7A7A92),
+              foregroundColor: AppColors.fg2,
               backgroundColor: AppColors.bgSurface,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(AppRadius.sm),
-                side: const BorderSide(color: Color(0x0FFFFFFF)),
+                side: const BorderSide(color: AppColors.line),
               ),
             ),
           ),
@@ -467,7 +459,7 @@ class _FilterBar extends StatelessWidget {
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w600,
-              color: selected ? AppColors.seedColor : const Color(0xFFB4B4C8),
+              color: selected ? AppColors.seedColor : AppColors.fg1,
             ),
           ),
         ),
@@ -497,8 +489,8 @@ class _FilterBar extends StatelessWidget {
               fontSize: 11,
               fontWeight: FontWeight.w600,
               color: selected
-                  ? const Color(0xFFF4F4F8)
-                  : const Color(0xFF7A7A92),
+                  ? AppColors.fg
+                  : AppColors.fg2,
             ),
           ),
         ),
@@ -511,7 +503,7 @@ class _FilterBar extends StatelessWidget {
         vertical: AppSpacing.md,
       ),
       decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: Color(0x0FFFFFFF), width: 1)),
+        border: Border(bottom: BorderSide(color: AppColors.line, width: 1)),
       ),
       child: Row(
         children: [
@@ -552,7 +544,7 @@ class _FilterBar extends StatelessWidget {
             padding: const EdgeInsets.all(2),
             decoration: BoxDecoration(
               color: AppColors.bgSurface,
-              border: Border.all(color: const Color(0x0FFFFFFF)),
+              border: Border.all(color: AppColors.line),
               borderRadius: BorderRadius.circular(AppRadius.md),
             ),
             child: Row(
@@ -663,9 +655,10 @@ class _SourceRowState extends State<_SourceRow> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      StatusBadge.quality(
-                        quality: quality,
-                        size: StatusBadgeSize.small,
+                      EditorialBadge(
+                        quality,
+                        compact: true,
+                        tone: quality.qualityColor,
                       ),
                       // ●CACHED green badge — Real-Debrid hits surface
                       // through the source name; we use a heuristic.
@@ -698,7 +691,7 @@ class _SourceRowState extends State<_SourceRow> {
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             fontSize: 12,
-                            color: Color(0xFFF4F4F8),
+                            color: AppColors.fg,
                             fontWeight: FontWeight.w500,
                             fontFamily: 'monospace',
                           ),
@@ -753,7 +746,7 @@ class _SourceRowState extends State<_SourceRow> {
                             : (s.isSingleFile ? 'single' : 'multi'),
                         style: const TextStyle(
                           fontSize: 10,
-                          color: Color(0xFF7A7A92),
+                          color: AppColors.fg2,
                           fontFamily: 'monospace',
                         ),
                       ),
@@ -767,8 +760,8 @@ class _SourceRowState extends State<_SourceRow> {
                     icon: const Icon(Icons.play_arrow_rounded, size: 14),
                     style: IconButton.styleFrom(
                       backgroundColor: Colors.transparent,
-                      foregroundColor: const Color(0xFFB4B4C8),
-                      side: const BorderSide(color: Color(0x1AFFFFFF)),
+                      foregroundColor: AppColors.fg1,
+                      side: const BorderSide(color: AppColors.lineStrong),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(AppRadius.sm),
                       ),
@@ -844,7 +837,7 @@ class _MetaBit extends StatelessWidget {
       style: TextStyle(
         fontSize: 10,
         fontFamily: 'monospace',
-        color: brighter ? const Color(0xFFB4B4C8) : const Color(0xFF7A7A92),
+        color: brighter ? AppColors.fg1 : AppColors.fg2,
       ),
     );
   }
@@ -859,7 +852,7 @@ class _Dot extends StatelessWidget {
       padding: EdgeInsets.symmetric(horizontal: 6),
       child: Text(
         '·',
-        style: TextStyle(color: Color(0xFF54546A), fontSize: 10),
+        style: TextStyle(color: AppColors.fg3, fontSize: 10),
       ),
     );
   }
@@ -885,7 +878,7 @@ class _Footer extends StatelessWidget {
       ),
       decoration: const BoxDecoration(
         color: AppColors.bgPage,
-        border: Border(top: BorderSide(color: Color(0x0FFFFFFF), width: 1)),
+        border: Border(top: BorderSide(color: AppColors.line, width: 1)),
       ),
       child: Row(
         children: [
@@ -894,7 +887,7 @@ class _Footer extends StatelessWidget {
               '$count sources · sorted by $sortLabel',
               style: const TextStyle(
                 fontSize: 11,
-                color: Color(0xFF7A7A92),
+                color: AppColors.fg2,
                 fontFamily: 'monospace',
               ),
             ),
@@ -902,8 +895,8 @@ class _Footer extends StatelessWidget {
           OutlinedButton(
             onPressed: onCancel,
             style: OutlinedButton.styleFrom(
-              foregroundColor: const Color(0xFFB4B4C8),
-              side: const BorderSide(color: Color(0x1AFFFFFF)),
+              foregroundColor: AppColors.fg1,
+              side: const BorderSide(color: AppColors.lineStrong),
               padding: const EdgeInsets.symmetric(
                 horizontal: AppSpacing.lg,
                 vertical: AppSpacing.sm,

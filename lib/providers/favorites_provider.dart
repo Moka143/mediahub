@@ -8,7 +8,6 @@ import '../models/show.dart';
 import '../services/tmdb_account_service.dart';
 import '../services/tmdb_api_service.dart';
 import 'shows_provider.dart';
-import 'movies_provider.dart';
 import 'settings_provider.dart';
 import 'tmdb_account_provider.dart';
 

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -36,21 +35,24 @@ import 'video_player_screen.dart';
 class ShowDetailsScreen extends ConsumerStatefulWidget {
   final Show show;
 
-  const ShowDetailsScreen({super.key, required this.show});
+  /// When true, the episodes drawer fires automatically as soon as the
+  /// season list resolves. Used by the browse spotlight's primary CTA
+  /// to give users a one-tap path from the hero to episode selection.
+  final bool autoOpenEpisodesDrawer;
+
+  const ShowDetailsScreen({
+    super.key,
+    required this.show,
+    this.autoOpenEpisodesDrawer = false,
+  });
 
   @override
   ConsumerState<ShowDetailsScreen> createState() => _ShowDetailsScreenState();
 }
 
 class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
-  // Episodes are fetched on-demand by the drawer; we keep a small
-  // cache here for streaming-flow continuity.
-  final Map<int, List<Episode>> _loadedEpisodes = {};
   bool _isLoadingTorrents = false;
-  // Whether a streaming session is currently active — referenced by
-  // the streaming-progress overlay that can outlive this screen.
-  // ignore: unused_field
-  bool _isStreaming = false;
+  bool _autoDrawerFired = false;
   OverlayEntry? _streamingOverlay;
   ValueNotifier<StreamingOverlayData>? _streamingOverlayData;
   // Subscription survives the screen being popped — uses root keys for navigation.
@@ -116,30 +118,6 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
       // season/episode list — no need to re-open from scratch.
       onEpisodeTap: (episode) => _onEpisodeTap(episode, show),
     );
-  }
-
-  Future<void> _loadEpisodes(int seasonNumber) async {
-    if (_loadedEpisodes.containsKey(seasonNumber)) return;
-
-    try {
-      final episodes = await ref.read(
-        seasonEpisodesProvider((
-          showId: widget.show.id,
-          seasonNumber: seasonNumber,
-        )).future,
-      );
-      if (mounted) {
-        setState(() {
-          _loadedEpisodes[seasonNumber] = episodes;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to load episodes: $e')));
-      }
-    }
   }
 
   Future<void> _onEpisodeTap(Episode episode, Show showDetails) async {
@@ -286,7 +264,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
               textColor: Colors.white,
               onPressed: () {
                 messenger.hideCurrentSnackBar();
-                containerRef.read(currentTabIndexProvider.notifier).set(0);
+                containerRef.read(currentTabIndexProvider.notifier).set(1);
                 rootNavigatorKey.currentState?.popUntil(
                   (route) => route.isFirst,
                 );
@@ -337,15 +315,13 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
         _streamingOverlay = null;
         _streamingOverlayData?.dispose();
         _streamingOverlayData = null;
-        containerRef.read(currentTabIndexProvider.notifier).set(0);
+        containerRef.read(currentTabIndexProvider.notifier).set(1);
         rootNavigatorKey.currentState?.popUntil((route) => route.isFirst);
       },
     );
     _streamingOverlay = result.entry;
     _streamingOverlayData = result.data;
 
-    // Start streaming session
-    setState(() => _isStreaming = true);
     final session = await ref
         .read(streamingSessionsProvider.notifier)
         .startStreaming(
@@ -361,7 +337,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
       _streamingOverlay?.remove();
       _streamingOverlay = null;
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      rootScaffoldMessengerKey.currentState?.showSnackBar(
         const SnackBar(
           content: Text('Failed to start streaming session'),
           backgroundColor: AppColors.error,
@@ -445,7 +421,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
           _streamingOverlay = null;
           _streamingOverlayData?.dispose();
           _streamingOverlayData = null;
-          containerRef.read(currentTabIndexProvider.notifier).set(0);
+          containerRef.read(currentTabIndexProvider.notifier).set(1);
           rootNavigatorKey.currentState?.popUntil((route) => route.isFirst);
         },
       );
@@ -511,7 +487,6 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
         _streamingOverlay = null;
         _streamingOverlayData?.dispose();
         _streamingOverlayData = null;
-        if (mounted) setState(() => _isStreaming = false);
 
         // Clear the active session so the safety-net listener in
         // main_navigation_screen doesn't also open the player.
@@ -548,7 +523,6 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
         _streamingOverlay = null;
         _streamingOverlayData?.dispose();
         _streamingOverlayData = null;
-        if (mounted) setState(() => _isStreaming = false);
 
         rootScaffoldMessengerKey.currentState?.showSnackBar(
           SnackBar(
@@ -566,97 +540,10 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
         _streamingOverlay = null;
         _streamingOverlayData?.dispose();
         _streamingOverlayData = null;
-        if (mounted) setState(() => _isStreaming = false);
 
       case StreamingState.idle:
         break;
     }
-  }
-
-  /// Open the video player with a LocalMediaFile.
-  /// Uses [rootNavigatorKey] so it works even if this screen is no longer mounted.
-  void _openPlayerWithFile(LocalMediaFile file, Show show) {
-    _streamingOverlay?.remove();
-    _streamingOverlay = null;
-
-    rootNavigatorKey.currentState?.push(
-      MaterialPageRoute(
-        builder: (_) => VideoPlayerScreen(file: file, showImdbId: show.imdbId),
-      ),
-    );
-  }
-
-  Future<void> _monitorStreamingProgress(
-    TorrentioStream stream,
-    Episode episode,
-    Show show,
-  ) async {
-    final apiService = ref.read(connection_provider.qbApiServiceProvider);
-    final messenger = rootScaffoldMessengerKey.currentState;
-
-    // Poll for torrent progress
-    for (int i = 0; i < 120; i++) {
-      // Max 10 minutes (120 * 5s)
-      await Future.delayed(const Duration(seconds: 5));
-
-      if (!mounted) return;
-
-      // Find the torrent by matching the magnet hash
-      final torrents = await apiService.getTorrents();
-      final torrent = torrents.firstWhereOrNull(
-        (t) => stream.magnetUri.toLowerCase().contains(t.hash.toLowerCase()),
-      );
-
-      if (torrent == null) continue;
-
-      // Check if ready for streaming (at least 5% of beginning downloaded)
-      final isReady = await apiService.isReadyForStreaming(
-        torrent.hash,
-        minProgress: 0.05,
-      );
-
-      if (isReady) {
-        if (mounted) {
-          messenger?.hideCurrentSnackBar();
-          messenger?.showSnackBar(
-            SnackBar(
-              content: Text('Stream ready! Opening ${episode.episodeCode}...'),
-              backgroundColor: AppColors.success,
-              duration: const Duration(seconds: 3),
-            ),
-          );
-
-          // Navigate to player with the content path
-          _openStreamingPlayer(torrent.contentPath, episode, show);
-        }
-        return;
-      }
-
-      // Update progress message every 30 seconds
-      if (i % 6 == 0 && i > 0) {
-        messenger?.hideCurrentSnackBar();
-        messenger?.showSnackBar(
-          SnackBar(
-            content: Text(
-              'Buffering ${episode.episodeCode}... ${(torrent.progress * 100).toStringAsFixed(1)}%',
-            ),
-            backgroundColor: AppColors.info,
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      }
-    }
-
-    // Timeout
-    messenger?.showSnackBar(
-      SnackBar(
-        content: Text(
-          'Streaming timeout for ${episode.episodeCode}. Download continues in background.',
-        ),
-        backgroundColor: AppColors.warning,
-        duration: const Duration(seconds: 5),
-      ),
-    );
   }
 
   void _openStreamingPlayer(
@@ -751,6 +638,18 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
     final seasons = ref.watch(showSeasonsProvider(widget.show.id));
     final isFavorite = ref.watch(isFavoriteProvider(widget.show.id));
 
+    // When opened from the browse spotlight, open the episodes drawer
+    // automatically as soon as both the show + seasons resolve.
+    if (widget.autoOpenEpisodesDrawer && !_autoDrawerFired) {
+      final ready = showDetails.hasValue && seasons.hasValue;
+      if (ready) {
+        _autoDrawerFired = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _openEpisodesDrawer(showDetails.value!, seasons.value!);
+        });
+      }
+    }
+
     return Scaffold(
       body: showDetails.when(
         data: (show) => _buildContent(show, seasons, isFavorite),
@@ -791,7 +690,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
     return CustomScrollView(
       slivers: [
         // Cinematic backdrop hero — left full-bleed.
-        _buildSliverAppBar(show, isFavorite),
+        _buildSliverAppBar(show, isFavorite, seasons),
 
         // Next-episode card (renders only when nextEpisodeToAir set).
         contentSliver(_buildShowInfo(show), padding: EdgeInsets.zero),
@@ -835,7 +734,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
                             child: Text(
                               show.overview!,
                               style: const TextStyle(
-                                color: Color(0xFFB4B4C8),
+                                color: AppColors.fg1,
                                 fontSize: 14,
                                 height: 1.6,
                               ),
@@ -881,7 +780,11 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
     );
   }
 
-  Widget _buildSliverAppBar(Show show, bool isFavorite) {
+  Widget _buildSliverAppBar(
+    Show show,
+    bool isFavorite,
+    AsyncValue<List<Season>> seasons,
+  ) {
     // Cinematic MediaHub backdrop hero — full-bleed image, big
     // display title, mono metadata pills, overlaid back/favorite
     // controls. Replaces the old SliverAppBar.
@@ -906,12 +809,12 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
                 MediaHubMetaPill(
                   label:
                       '${show.numberOfSeasons} ${show.numberOfSeasons == 1 ? "SEASON" : "SEASONS"}',
-                  color: const Color(0xFFB4B4C8),
+                  color: AppColors.fg1,
                 ),
               if (show.numberOfEpisodes != null)
                 MediaHubMetaPill(
                   label: '${show.numberOfEpisodes} EP',
-                  color: const Color(0xFFB4B4C8),
+                  color: AppColors.fg1,
                 ),
               if (show.voteAverage > 0)
                 MediaHubMetaPill(
@@ -928,11 +831,9 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
                   ),
             ],
             primaryAction: FilledButton.icon(
-              onPressed: () {
-                // Scroll down to the seasons list — user can pick an
-                // episode there. Quick CTA from the hero.
-                Scrollable.ensureVisible(context, duration: AppDuration.normal);
-              },
+              onPressed: seasons.hasValue && seasons.value!.isNotEmpty
+                  ? () => _openEpisodesDrawer(show, seasons.value!)
+                  : null,
               icon: const Icon(Icons.play_arrow_rounded),
               label: const Text('Browse episodes'),
               style: FilledButton.styleFrom(
@@ -1193,7 +1094,7 @@ class _BrowseEpisodesCta extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
-                        color: Color(0xFFF4F4F8),
+                        color: AppColors.fg,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -1210,7 +1111,7 @@ class _BrowseEpisodesCta extends StatelessWidget {
                       ),
                       style: const TextStyle(
                         fontSize: 12,
-                        color: Color(0xFF7A7A92),
+                        color: AppColors.fg2,
                         fontFamily: 'monospace',
                       ),
                     ),
@@ -1226,7 +1127,7 @@ class _BrowseEpisodesCta extends StatelessWidget {
               else
                 const Icon(
                   Icons.chevron_right_rounded,
-                  color: Color(0xFFB4B4C8),
+                  color: AppColors.fg1,
                 ),
             ],
           ),
@@ -1254,7 +1155,7 @@ class _InfoSection extends StatelessWidget {
           style: const TextStyle(
             fontSize: 11,
             fontWeight: FontWeight.w700,
-            color: Color(0xFF7A7A92),
+            color: AppColors.fg2,
             letterSpacing: 0.88,
             fontFamily: 'monospace',
           ),
@@ -1293,13 +1194,13 @@ class _QuickFactsGrid extends StatelessWidget {
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
         color: AppColors.bgSurface,
-        border: Border.all(color: const Color(0x0FFFFFFF)),
+        border: Border.all(color: AppColors.line),
         borderRadius: BorderRadius.circular(AppRadius.md),
       ),
       child: Column(
         children: [
           for (var i = 0; i < facts.length; i++) ...[
-            if (i > 0) const Divider(height: 1, color: Color(0x0FFFFFFF)),
+            if (i > 0) const Divider(height: 1, color: AppColors.line),
             Padding(
               padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
               child: Row(
@@ -1311,7 +1212,7 @@ class _QuickFactsGrid extends StatelessWidget {
                       style: const TextStyle(
                         fontSize: 11,
                         fontFamily: 'monospace',
-                        color: Color(0xFF7A7A92),
+                        color: AppColors.fg2,
                         letterSpacing: 0.5,
                       ),
                     ),
@@ -1321,7 +1222,7 @@ class _QuickFactsGrid extends StatelessWidget {
                       facts[i].$2,
                       style: const TextStyle(
                         fontSize: 13,
-                        color: Color(0xFFF4F4F8),
+                        color: AppColors.fg,
                       ),
                     ),
                   ),

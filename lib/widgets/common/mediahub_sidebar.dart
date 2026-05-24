@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../../design/app_colors.dart';
 import '../../design/app_theme.dart';
-import '../../design/app_tokens.dart';
+import '../../design/app_typography.dart';
+import '../editorial/editorial_button.dart';
+import '../editorial/editorial_led.dart';
+import '../editorial/mono_label.dart';
 
 /// A single navigation entry rendered in [MediaHubSidebar].
 class SidebarItem {
@@ -31,10 +35,24 @@ class SidebarItem {
   final bool errorBadge;
 }
 
-/// A cinematic, collapsible navigation rail styled to match the
-/// MediaHub design: gradient brand mark, gradient "Add torrent" CTA,
-/// soft accent active state, indicator bar, badge counts, and a
-/// storage panel pinned to the bottom.
+/// Editorial sidebar — fixed-width navigation rail.
+///
+/// Layout (matches the prototype's `.sb` chrome):
+///   ┌─────────────────────────┐
+///   │  MediaHub  v 2.4        │  italic serif + mono
+///   ├─────────────────────────┤
+///   │  LIBRARY                │  mono section label
+///   │  ▸ Home          5      │  active item: accent left strip
+///   │    Transfers     12     │  count in tinted mono pill
+///   ├─────────────────────────┤
+///   │  SOURCES                │
+///   │  TMDB           OK      │
+///   │  EZTV           OK      │
+///   ├─────────────────────────┤
+///   │  ● QBITTORRENT · 4.6.5  │  status footer
+///   │  ↓ 47.6 MB/s            │
+///   │  moka@dev  · 2.1TB free │
+///   └─────────────────────────┘
 class MediaHubSidebar extends StatefulWidget {
   const MediaHubSidebar({
     super.key,
@@ -45,6 +63,10 @@ class MediaHubSidebar extends StatefulWidget {
     required this.collapsed,
     required this.onToggleCollapse,
     this.brandSubtitle = 'CONNECTED',
+    this.dlSpeed,
+    this.ulSpeed,
+    this.freeSpace,
+    this.qbitVersion,
   });
 
   final List<SidebarItem> items;
@@ -55,6 +77,12 @@ class MediaHubSidebar extends StatefulWidget {
   final VoidCallback onToggleCollapse;
   final String brandSubtitle;
 
+  /// Optional live status data rendered in the footer.
+  final String? dlSpeed;
+  final String? ulSpeed;
+  final String? freeSpace;
+  final String? qbitVersion;
+
   @override
   State<MediaHubSidebar> createState() => _MediaHubSidebarState();
 }
@@ -64,15 +92,8 @@ class _MediaHubSidebarState extends State<MediaHubSidebar> {
 
   @override
   Widget build(BuildContext context) {
-    final accent = AppColors.seedColor;
-    final accentDeep = AppColors.seedDeep;
-    final w = widget.collapsed ? 72.0 : 240.0;
-    final hPad = widget.collapsed ? AppSpacing.sm : AppSpacing.md;
+    final w = widget.collapsed ? 64.0 : 232.0;
 
-    // Outer SizedBox is wide enough to host both the rail and the
-    // overhanging collapse toggle. Without it the toggle, sitting at
-    // `left: w - 12`, is rendered (Stack.clipBehavior = none) but
-    // unhittable because the parent Row constrains its bounds.
     return SizedBox(
       width: w + 14,
       child: MouseRegion(
@@ -82,82 +103,66 @@ class _MediaHubSidebarState extends State<MediaHubSidebar> {
           clipBehavior: Clip.none,
           children: [
             AnimatedContainer(
-              duration: const Duration(milliseconds: 240),
+              duration: const Duration(milliseconds: 220),
               curve: Curves.easeOutCubic,
               width: w,
               decoration: const BoxDecoration(
                 color: AppColors.bgPageAlt,
                 border: Border(
-                  right: BorderSide(color: Color(0x0FFFFFFF), width: 1),
+                  right: BorderSide(color: AppColors.line, width: 1),
                 ),
               ),
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(
-                  hPad,
-                  AppSpacing.lg,
-                  hPad,
-                  AppSpacing.md,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _Brand(
-                      collapsed: widget.collapsed,
-                      subtitle: widget.brandSubtitle,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _Brand(
+                    collapsed: widget.collapsed,
+                    subtitle: widget.brandSubtitle,
+                  ),
+                  Expanded(
+                    child: ListView(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      children: [
+                        if (!widget.collapsed)
+                          const _SectionLabel(label: 'LIBRARY'),
+                        ...List.generate(widget.items.length, (i) {
+                          return _NavRow(
+                            item: widget.items[i],
+                            active: i == widget.currentIndex,
+                            collapsed: widget.collapsed,
+                            onTap: () => widget.onDestinationSelected(i),
+                          );
+                        }),
+                        const SizedBox(height: 8),
+                        if (!widget.collapsed)
+                          const _SectionLabel(label: 'SOURCES'),
+                        if (!widget.collapsed) ...const [
+                          _SourceRow(label: 'TMDB', status: 'OK'),
+                          _SourceRow(label: 'EZTV', status: 'OK'),
+                          _SourceRow(label: 'Torrentio', status: 'OK'),
+                          _SourceRow(label: 'OpenSubtitles', status: '—', ok: false),
+                        ],
+                      ],
                     ),
-                    const SizedBox(height: AppSpacing.lg),
-                    _AddTorrentButton(
-                      collapsed: widget.collapsed,
-                      onPressed: widget.onAddTorrent,
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                    if (!widget.collapsed)
-                      const Padding(
-                        padding: EdgeInsets.fromLTRB(
-                          AppSpacing.md,
-                          AppSpacing.sm,
-                          AppSpacing.md,
-                          AppSpacing.xs,
-                        ),
-                        child: Text(
-                          'BROWSE',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Color(0xFF54546A),
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 1.4,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                      ),
-                    Expanded(
-                      child: ListView.builder(
-                        padding: EdgeInsets.zero,
-                        itemCount: widget.items.length,
-                        itemBuilder: (context, i) => _NavRow(
-                          item: widget.items[i],
-                          active: i == widget.currentIndex,
-                          collapsed: widget.collapsed,
-                          accent: accent,
-                          onTap: () => widget.onDestinationSelected(i),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                  _Footer(
+                    collapsed: widget.collapsed,
+                    onAddTorrent: widget.onAddTorrent,
+                    dlSpeed: widget.dlSpeed,
+                    ulSpeed: widget.ulSpeed,
+                    freeSpace: widget.freeSpace,
+                    qbitVersion: widget.qbitVersion,
+                    connected: widget.brandSubtitle.toUpperCase().contains('CONNECT'),
+                  ),
+                ],
               ),
             ),
-            // Collapse/expand toggle — sibling to the rail container
-            // (not nested) so its hit-rect lives inside the outer
-            // SizedBox and clicks actually land.
             Positioned(
-              top: 24,
+              top: 22,
               left: w - 12,
               child: _CollapseToggle(
                 collapsed: widget.collapsed,
                 hover: _hover,
-                accent: accent,
-                accentDeep: accentDeep,
                 onTap: widget.onToggleCollapse,
               ),
             ),
@@ -176,152 +181,67 @@ class _Brand extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = AppColors.seedColor;
-
-    final logo = Container(
-      width: 32,
-      height: 32,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        boxShadow: [
-          BoxShadow(
-            color: accent.withAlpha(90),
-            blurRadius: 20,
-            spreadRadius: 0,
-          ),
-        ],
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: AppColors.line, width: 1)),
       ),
-      clipBehavior: Clip.antiAlias,
-      child: Image.asset(
-        'assets/icon.png',
-        width: 32,
-        height: 32,
-        fit: BoxFit.cover,
-      ),
-    );
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
-      child: Row(
-        // `mainAxisSize.max` is required when an `Expanded` child is
-        // present — otherwise Row's intrinsic-shrinking conflicts
-        // with Expanded's flex factor and we get spurious overflow.
-        mainAxisSize: MainAxisSize.max,
-        children: [
-          logo,
-          if (!collapsed) ...[
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'MediaHub',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -0.32,
-                      color: Theme.of(context).colorScheme.onSurface,
-                    ),
-                  ),
-                  Text(
-                    'v2.0 · $subtitle',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 10,
-                      color: Color(0xFF7A7A92),
-                      letterSpacing: 0.8,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                ],
+      child: collapsed
+          ? Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(6),
+                color: AppColors.accentSoft,
+                border: Border.all(color: AppColors.accent, width: 1),
               ),
+              alignment: Alignment.center,
+              child: Text(
+                'M',
+                style: GoogleFonts.instrumentSerif(
+                  fontSize: 18,
+                  fontStyle: FontStyle.italic,
+                  color: AppColors.accent,
+                  height: 1.0,
+                ),
+              ),
+            )
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  'MediaHub',
+                  style: GoogleFonts.instrumentSerif(
+                    fontSize: 26,
+                    fontStyle: FontStyle.italic,
+                    color: AppColors.fg,
+                    height: 1.0,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: MonoLabel(
+                    subtitle.contains('v') ? subtitle : 'v 2.4',
+                    color: AppColors.fg3,
+                    letterSpacing: 0.1,
+                  ),
+                ),
+              ],
             ),
-          ],
-        ],
-      ),
     );
   }
 }
 
-class _AddTorrentButton extends StatefulWidget {
-  const _AddTorrentButton({required this.collapsed, required this.onPressed});
-
-  final bool collapsed;
-  final VoidCallback onPressed;
-
-  @override
-  State<_AddTorrentButton> createState() => _AddTorrentButtonState();
-}
-
-class _AddTorrentButtonState extends State<_AddTorrentButton> {
-  bool _hover = false;
-
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel({required this.label});
+  final String label;
   @override
   Widget build(BuildContext context) {
-    final accent = AppColors.seedColor;
-    final accentDeep = AppColors.seedDeep;
-
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        transform: Matrix4.translationValues(0, _hover ? -1 : 0, 0),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [accent, accentDeep],
-          ),
-          borderRadius: BorderRadius.circular(AppRadius.md),
-          boxShadow: [
-            BoxShadow(
-              color: accent.withAlpha(90),
-              blurRadius: 20,
-              offset: const Offset(0, 6),
-              spreadRadius: -6,
-            ),
-          ],
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: widget.onPressed,
-            borderRadius: BorderRadius.circular(AppRadius.md),
-            child: Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: widget.collapsed ? 0 : AppSpacing.md,
-                vertical: AppSpacing.md,
-              ),
-              child: Row(
-                mainAxisAlignment: widget.collapsed
-                    ? MainAxisAlignment.center
-                    : MainAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.add_rounded, size: 18, color: Colors.white),
-                  if (!widget.collapsed) ...[
-                    const SizedBox(width: AppSpacing.sm),
-                    const Text(
-                      'Add torrent',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
+      child: MonoLabel(label, letterSpacing: 0.16),
     );
   }
 }
@@ -331,14 +251,12 @@ class _NavRow extends StatefulWidget {
     required this.item,
     required this.active,
     required this.collapsed,
-    required this.accent,
     required this.onTap,
   });
 
   final SidebarItem item;
   final bool active;
   final bool collapsed;
-  final Color accent;
   final VoidCallback onTap;
 
   @override
@@ -350,107 +268,84 @@ class _NavRowState extends State<_NavRow> {
 
   @override
   Widget build(BuildContext context) {
-    final accent = widget.accent;
-    final activeBg = accent.withAlpha(36); // ~14%
-    final secondaryText = const Color(0xFFB4B4C8);
+    final fgColor = widget.active ? AppColors.fg : AppColors.fg1;
+    final iconColor = widget.active ? AppColors.accent : AppColors.fg2;
+    final bg = widget.active
+        ? Colors.white.withValues(alpha: 0.05)
+        : (_hover ? Colors.white.withValues(alpha: 0.04) : Colors.transparent);
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 1),
       child: MouseRegion(
         onEnter: (_) => setState(() => _hover = true),
         onExit: (_) => setState(() => _hover = false),
+        cursor: SystemMouseCursors.click,
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: widget.onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            decoration: BoxDecoration(
-              color: widget.active
-                  ? activeBg
-                  : (_hover ? Colors.white.withAlpha(10) : Colors.transparent),
-              borderRadius: BorderRadius.circular(AppRadius.md),
-            ),
-            padding: EdgeInsets.symmetric(
-              horizontal: widget.collapsed ? 0 : AppSpacing.md,
-              vertical: 10,
-            ),
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                if (widget.active && !widget.collapsed)
-                  Positioned(
-                    left: -AppSpacing.md - 1,
-                    top: 0,
-                    bottom: 0,
-                    child: Center(
-                      child: Container(
-                        width: 3,
-                        height: 20,
-                        decoration: BoxDecoration(
-                          color: accent,
-                          borderRadius: BorderRadius.circular(2),
-                          boxShadow: [
-                            BoxShadow(
-                              color: accent.withAlpha(90),
-                              blurRadius: 12,
-                            ),
-                          ],
-                        ),
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              if (widget.active)
+                Positioned(
+                  left: -14,
+                  top: 8,
+                  bottom: 8,
+                  child: Container(
+                    width: 2,
+                    decoration: const BoxDecoration(
+                      color: AppColors.accent,
+                      borderRadius: BorderRadius.only(
+                        topRight: Radius.circular(2),
+                        bottomRight: Radius.circular(2),
                       ),
                     ),
                   ),
-                Row(
+                ),
+              Container(
+                decoration: BoxDecoration(
+                  color: bg,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                padding: EdgeInsets.symmetric(
+                  horizontal: widget.collapsed ? 0 : 10,
+                  vertical: 7,
+                ),
+                child: Row(
                   mainAxisAlignment: widget.collapsed
                       ? MainAxisAlignment.center
                       : MainAxisAlignment.start,
                   children: [
-                    Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        Icon(
-                          widget.active
-                              ? widget.item.selectedIcon
-                              : widget.item.icon,
-                          size: 18,
-                          color: widget.active ? accent : secondaryText,
-                        ),
-                        if (widget.item.dot)
-                          Positioned(
-                            top: -2,
-                            right: -2,
-                            child: _PulseDot(
-                              pulse: widget.item.dotPulse,
-                              color: AppColors.accentTertiary,
-                            ),
-                          ),
-                      ],
+                    Icon(
+                      widget.active
+                          ? widget.item.selectedIcon
+                          : widget.item.icon,
+                      size: 16,
+                      color: iconColor,
                     ),
                     if (!widget.collapsed) ...[
-                      const SizedBox(width: AppSpacing.md),
+                      const SizedBox(width: 11),
                       Expanded(
                         child: Text(
                           widget.item.label,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: widget.active
-                                ? FontWeight.w600
-                                : FontWeight.w500,
-                            color: widget.active ? accent : secondaryText,
+                          style: AppType.ui(
+                            size: 13,
+                            color: fgColor,
+                            height: 1.0,
                           ),
                         ),
                       ),
-                      if (widget.item.badge > 0)
-                        _BadgePill(
-                          count: widget.item.badge,
-                          accent: accent,
-                          active: widget.active,
-                          isError: widget.item.errorBadge,
-                        ),
+                      if (widget.item.badge > 0) _CountTag(
+                            count: widget.item.badge,
+                            isError: widget.item.errorBadge,
+                          ),
+                      if (widget.item.dot)
+                        _StatusDot(pulse: widget.item.dotPulse),
                     ],
                   ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
@@ -458,60 +353,44 @@ class _NavRowState extends State<_NavRow> {
   }
 }
 
-class _BadgePill extends StatelessWidget {
-  const _BadgePill({
-    required this.count,
-    required this.accent,
-    required this.active,
-    required this.isError,
-  });
-
+class _CountTag extends StatelessWidget {
+  const _CountTag({required this.count, this.isError = false});
   final int count;
-  final Color accent;
-  final bool active;
   final bool isError;
-
   @override
   Widget build(BuildContext context) {
-    final base = isError
-        ? AppColors.errorState
-        : (active ? accent : AppColors.bgSurfaceHi);
-    final fg = active || isError ? Colors.white : const Color(0xFFB4B4C8);
+    final fg = isError ? AppColors.err : AppColors.fg3;
     return Container(
-      constraints: const BoxConstraints(minWidth: 18),
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: base,
-        borderRadius: BorderRadius.circular(AppRadius.full),
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(4),
       ),
+      constraints: const BoxConstraints(minWidth: 22),
       child: Text(
         count > 99 ? '99+' : '$count',
         textAlign: TextAlign.center,
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
+        style: AppType.mono(
+          size: 10,
           color: fg,
-          fontFamily: 'monospace',
+          weight: FontWeight.w500,
+          letterSpacing: 0.04,
         ),
       ),
     );
   }
 }
 
-class _PulseDot extends StatefulWidget {
-  const _PulseDot({required this.pulse, required this.color});
-
+class _StatusDot extends StatefulWidget {
+  const _StatusDot({required this.pulse});
   final bool pulse;
-  final Color color;
-
   @override
-  State<_PulseDot> createState() => _PulseDotState();
+  State<_StatusDot> createState() => _StatusDotState();
 }
 
-class _PulseDotState extends State<_PulseDot>
+class _StatusDotState extends State<_StatusDot>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
-
   @override
   void initState() {
     super.initState();
@@ -523,7 +402,7 @@ class _PulseDotState extends State<_PulseDot>
   }
 
   @override
-  void didUpdateWidget(covariant _PulseDot oldWidget) {
+  void didUpdateWidget(covariant _StatusDot oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.pulse && !_ctrl.isAnimating) {
       _ctrl.repeat(reverse: true);
@@ -544,19 +423,180 @@ class _PulseDotState extends State<_PulseDot>
     return AnimatedBuilder(
       animation: _ctrl,
       builder: (context, _) {
-        final t = widget.pulse ? (0.5 + 0.5 * _ctrl.value) : 1.0;
-        return Container(
-          width: 7,
-          height: 7,
-          decoration: BoxDecoration(
-            color: widget.color.withAlpha((255 * t).round()),
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(color: widget.color.withAlpha(140), blurRadius: 8),
-            ],
-          ),
+        final t = widget.pulse ? (0.55 + 0.45 * _ctrl.value) : 1.0;
+        return EditorialLed(
+          color: AppColors.accent.withValues(alpha: t),
+          size: 6,
         );
       },
+    );
+  }
+}
+
+class _SourceRow extends StatelessWidget {
+  const _SourceRow({required this.label, required this.status, this.ok = true});
+  final String label;
+  final String status;
+  final bool ok;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 5),
+      child: Row(
+        children: [
+          Icon(
+            ok ? Icons.public_rounded : Icons.cloud_off_rounded,
+            size: 14,
+            color: AppColors.fg2,
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Text(
+              label,
+              style: AppType.ui(size: 12, color: AppColors.fg1, height: 1.0),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: ok
+                  ? AppColors.okSoft
+                  : Colors.white.withValues(alpha: 0.04),
+              borderRadius: BorderRadius.circular(3),
+            ),
+            child: Text(
+              status,
+              style: AppType.mono(
+                size: 9,
+                color: ok ? AppColors.ok : AppColors.fg3,
+                letterSpacing: 0.04,
+                weight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Footer extends StatelessWidget {
+  const _Footer({
+    required this.collapsed,
+    required this.onAddTorrent,
+    required this.dlSpeed,
+    required this.ulSpeed,
+    required this.freeSpace,
+    required this.qbitVersion,
+    required this.connected,
+  });
+
+  final bool collapsed;
+  final VoidCallback onAddTorrent;
+  final String? dlSpeed;
+  final String? ulSpeed;
+  final String? freeSpace;
+  final String? qbitVersion;
+  final bool connected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+        collapsed ? 8 : 18,
+        14,
+        collapsed ? 8 : 18,
+        14,
+      ),
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: AppColors.line, width: 1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (collapsed) ...[
+            EditorialIconButton(
+              icon: Icons.add_rounded,
+              onPressed: onAddTorrent,
+              tooltip: 'Add torrent',
+              iconSize: 16,
+              size: 36,
+              color: AppColors.accent,
+            ),
+          ] else ...[
+            EditorialButton(
+              label: 'Add torrent',
+              icon: Icons.add_rounded,
+              kind: EditorialButtonKind.accent,
+              onPressed: onAddTorrent,
+              expand: true,
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                EditorialLed(
+                  color: connected ? AppColors.ok : AppColors.fg3,
+                  size: 6,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: MonoLabel(
+                    qbitVersion != null
+                        ? 'QBITTORRENT · ${qbitVersion!.toUpperCase()}'
+                        : (connected
+                            ? 'QBITTORRENT · CONNECTED'
+                            : 'QBITTORRENT · OFFLINE'),
+                    color: AppColors.fg2,
+                    letterSpacing: 0.08,
+                    maxLines: 1,
+                  ),
+                ),
+              ],
+            ),
+            if (dlSpeed != null || ulSpeed != null) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  MonoLabel(
+                    '↓ ${dlSpeed ?? '—'}',
+                    color: AppColors.fg3,
+                    letterSpacing: 0.06,
+                    uppercase: false,
+                  ),
+                  const Spacer(),
+                  MonoLabel(
+                    '↑ ${ulSpeed ?? '—'}',
+                    color: AppColors.fg3,
+                    letterSpacing: 0.06,
+                    uppercase: false,
+                  ),
+                ],
+              ),
+            ],
+            if (freeSpace != null) ...[
+              const SizedBox(height: 8),
+              const Divider(height: 1),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  MonoLabel(
+                    'STORAGE',
+                    color: AppColors.fg3,
+                  ),
+                  const Spacer(),
+                  MonoLabel(
+                    freeSpace!,
+                    color: AppColors.fg2,
+                    uppercase: false,
+                    letterSpacing: 0.06,
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ],
+      ),
     );
   }
 }
@@ -565,40 +605,37 @@ class _CollapseToggle extends StatelessWidget {
   const _CollapseToggle({
     required this.collapsed,
     required this.hover,
-    required this.accent,
-    required this.accentDeep,
     required this.onTap,
   });
 
   final bool collapsed;
   final bool hover;
-  final Color accent;
-  final Color accentDeep;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return AnimatedOpacity(
       duration: const Duration(milliseconds: 150),
-      opacity: hover ? 1.0 : 0.55,
+      opacity: hover ? 1.0 : 0.4,
       child: Material(
         color: AppColors.bgSurfaceHi,
-        shape: const CircleBorder(side: BorderSide(color: Color(0x1AFFFFFF))),
-        elevation: 2,
+        shape: const CircleBorder(
+          side: BorderSide(color: AppColors.lineStrong),
+        ),
         child: InkWell(
           customBorder: const CircleBorder(),
           onTap: onTap,
           child: SizedBox(
-            width: 24,
-            height: 24,
+            width: 22,
+            height: 22,
             child: Center(
               child: AnimatedRotation(
-                duration: const Duration(milliseconds: 240),
+                duration: const Duration(milliseconds: 220),
                 turns: collapsed ? 0 : 0.5,
                 child: const Icon(
                   Icons.chevron_right_rounded,
-                  size: 14,
-                  color: Color(0xFFB4B4C8),
+                  size: 12,
+                  color: AppColors.fg2,
                 ),
               ),
             ),
@@ -609,8 +646,8 @@ class _CollapseToggle extends StatelessWidget {
   }
 }
 
-/// Re-export for callers that want to access `appColors` style without
-/// having to import the theme module separately.
+/// Re-export — preserved for call sites that import the palette
+/// extension via the sidebar barrel.
 extension MediaHubSidebarPalette on BuildContext {
   AppColorsExtension get mediaHubColors => appColors;
 }

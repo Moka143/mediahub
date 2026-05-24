@@ -205,8 +205,9 @@ class TorrentioStream {
     if (nameLower.contains('hdrip')) return 'HDRip';
     if (nameLower.contains('dvdrip')) return 'DVDRip';
     if (nameLower.contains('hdtv')) return 'HDTV';
-    if (nameLower.contains('bluray') || nameLower.contains('bdrip'))
+    if (nameLower.contains('bluray') || nameLower.contains('bdrip')) {
       return 'BluRay';
+    }
     return 'Unknown';
   }
 

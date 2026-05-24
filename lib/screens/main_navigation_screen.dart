@@ -28,7 +28,6 @@ import '../widgets/common/nav_badge.dart';
 import '../widgets/common/responsive_layout.dart';
 import '../widgets/connection_status_widget.dart';
 import '../widgets/mediahub_torrent_row.dart';
-import '../widgets/torrent_list_item.dart';
 import '../providers/favorites_provider.dart';
 import '../providers/tmdb_account_provider.dart';
 import '../providers/watchlist_provider.dart';
@@ -627,7 +626,7 @@ class _DownloadsContentState extends ConsumerState<_DownloadsContent> {
             decoration: const BoxDecoration(
               color: AppColors.bgPage,
               border: Border(
-                bottom: BorderSide(color: Color(0x0FFFFFFF), width: 1),
+                bottom: BorderSide(color: AppColors.line, width: 1),
               ),
             ),
             padding: const EdgeInsets.symmetric(
@@ -650,8 +649,6 @@ class _DownloadsContentState extends ConsumerState<_DownloadsContent> {
                               filter,
                             ),
                             dotColor: _filterAccent(filter),
-                            accentColor:
-                                _filterAccent(filter) ?? AppColors.seedColor,
                             onTap: () => ref
                                 .read(currentFilterProvider.notifier)
                                 .set(filter),
@@ -833,7 +830,7 @@ class _TransfersSpeedPill extends StatelessWidget {
             arrow,
             style: const TextStyle(
               fontSize: 11,
-              color: Color(0xFF7A7A92),
+              color: AppColors.fg2,
               fontFamily: 'monospace',
             ),
           ),
@@ -843,7 +840,7 @@ class _TransfersSpeedPill extends StatelessWidget {
             style: const TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: Color(0xFFF4F4F8),
+              color: AppColors.fg,
               fontFamily: 'monospace',
             ),
           ),
@@ -858,7 +855,7 @@ class _TransfersSpeedPill extends StatelessWidget {
       ),
       decoration: BoxDecoration(
         color: AppColors.bgSurface,
-        border: Border.all(color: const Color(0x0FFFFFFF)),
+        border: Border.all(color: AppColors.line),
         borderRadius: BorderRadius.circular(AppRadius.md),
       ),
       child: Row(
@@ -869,7 +866,7 @@ class _TransfersSpeedPill extends StatelessWidget {
             width: 1,
             height: 14,
             margin: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-            color: const Color(0x0FFFFFFF),
+            color: AppColors.line,
           ),
           speedRow(color: AppColors.seeding, arrow: '↑', bytes: totalUl),
         ],
@@ -899,19 +896,19 @@ class _TransfersSearchPill extends StatelessWidget {
       ),
       decoration: BoxDecoration(
         color: AppColors.bgSurface,
-        border: Border.all(color: const Color(0x0FFFFFFF)),
+        border: Border.all(color: AppColors.line),
         borderRadius: BorderRadius.circular(AppRadius.md),
       ),
       child: Row(
         children: [
-          const Icon(Icons.search_rounded, size: 12, color: Color(0xFF7A7A92)),
+          const Icon(Icons.search_rounded, size: 12, color: AppColors.fg2),
           const SizedBox(width: 6),
           Expanded(
             child: TextField(
               controller: controller,
               onChanged: onChanged,
               cursorColor: AppColors.seedColor,
-              style: const TextStyle(fontSize: 12, color: Color(0xFFF4F4F8)),
+              style: const TextStyle(fontSize: 12, color: AppColors.fg),
               decoration: const InputDecoration(
                 isDense: true,
                 contentPadding: EdgeInsets.zero,
@@ -919,7 +916,7 @@ class _TransfersSearchPill extends StatelessWidget {
                 enabledBorder: InputBorder.none,
                 focusedBorder: InputBorder.none,
                 hintText: 'Filter by name…',
-                hintStyle: TextStyle(fontSize: 12, color: Color(0x66B4B4C8)),
+                hintStyle: TextStyle(fontSize: 12, color: AppColors.fg3),
                 filled: false,
               ),
             ),
@@ -988,48 +985,20 @@ class _TorrentListBuilder extends ConsumerWidget {
     final selectedHash = ref.watch(selectedTorrentHashProvider);
     final isSelectionMode = ref.watch(isSelectionModeProvider);
     final selectedHashes = ref.watch(selectedTorrentHashesProvider);
-    final useDenseRows = context.isTabletOrLarger;
     final currentSort = ref.watch(currentSortProvider);
     final sortAscending = ref.watch(sortAscendingProvider);
 
     final list = ListView.builder(
-      padding: EdgeInsets.only(bottom: useDenseRows ? 0 : 80),
       itemCount: torrents.length,
       itemBuilder: (context, index) {
         final torrent = torrents[index];
         final isSelected = isSelectionMode
             ? selectedHashes.contains(torrent.hash)
             : isInMasterDetail && torrent.hash == selectedHash;
-        if (useDenseRows) {
-          return MediaHubTorrentRow(
-            torrent: torrent,
-            selected: isSelected,
-            compact: isInMasterDetail,
-            onTap: () {
-              if (isSelectionMode) {
-                ref.read(selectionModeProvider.notifier).enable();
-                ref
-                    .read(selectedTorrentHashesProvider.notifier)
-                    .toggle(torrent.hash);
-              } else {
-                _openTorrentDetails(context, ref, torrent);
-              }
-            },
-            onLongPress: () {
-              ref.read(selectionModeProvider.notifier).enable();
-              ref
-                  .read(selectedTorrentHashesProvider.notifier)
-                  .toggle(torrent.hash);
-            },
-            onPause: () => _pauseTorrent(context, ref, torrent),
-            onResume: () => _resumeTorrent(context, ref, torrent),
-            onDelete: () => _showDeleteDialog(context, ref, torrent),
-          );
-        }
-        return SwipeableTorrentListItem(
+        return MediaHubTorrentRow(
           torrent: torrent,
           selected: isSelected,
-          enableSwipe: !isInMasterDetail && !isSelectionMode,
+          compact: isInMasterDetail,
           onTap: () {
             if (isSelectionMode) {
               ref.read(selectionModeProvider.notifier).enable();
@@ -1055,25 +1024,23 @@ class _TorrentListBuilder extends ConsumerWidget {
 
     return RefreshIndicator(
       onRefresh: () => ref.read(torrentListProvider.notifier).refresh(),
-      child: useDenseRows
-          ? Column(
-              children: [
-                MediaHubTorrentHeader(
-                  sortKey: currentSort,
-                  ascending: sortAscending,
-                  compact: isInMasterDetail,
-                  onSortKeyTap: (k) {
-                    if (currentSort == k) {
-                      ref.read(sortAscendingProvider.notifier).toggle();
-                    } else {
-                      ref.read(currentSortProvider.notifier).set(k);
-                    }
-                  },
-                ),
-                Expanded(child: list),
-              ],
-            )
-          : list,
+      child: Column(
+        children: [
+          MediaHubTorrentHeader(
+            sortKey: currentSort,
+            ascending: sortAscending,
+            compact: isInMasterDetail,
+            onSortKeyTap: (k) {
+              if (currentSort == k) {
+                ref.read(sortAscendingProvider.notifier).toggle();
+              } else {
+                ref.read(currentSortProvider.notifier).set(k);
+              }
+            },
+          ),
+          Expanded(child: list),
+        ],
+      ),
     );
   }
 

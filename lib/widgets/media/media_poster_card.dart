@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
+import '../../design/app_typography.dart';
+import '../editorial/editorial.dart';
 import 'media_helpers.dart';
 
 /// Action available in a [MediaPosterCard] overflow menu.
@@ -19,23 +22,68 @@ class MediaCardAction {
   });
 }
 
-/// Unified poster card used everywhere in the library tab.
+/// How the title is laid out on a [MediaPosterCard].
+enum CardTitleStyle {
+  /// Title rendered in a small caption block below the poster.
+  /// Used in library / continue-watching contexts where readability
+  /// of the title and surrounding metadata matters.
+  below,
+
+  /// Title overlaid on the poster bottom with italic serif + shadow.
+  /// Used in browse contexts where the poster art is the primary
+  /// signal and the title is a label on top of it.
+  overlay,
+}
+
+/// Unified poster card. Two layouts:
 ///
-/// Replaces the three pre-existing layouts (`ContinueWatchingCard`,
-/// `LocalMediaListItem`, `ShowExpansionTile`) with one consistent visual:
-/// a 152px wide poster with gradient overlay, optional badges, optional
-/// progress bar, and a hover-revealed overflow menu for per-item actions
-/// (Mark as watched / Delete / etc.).
+/// * [CardTitleStyle.below] (default) — poster with optional badge,
+///   progress bar, watched checkmark, hover-revealed overflow menu;
+///   title and subtitle render in a caption block below the poster.
+///   Used in the Library tab.
+///
+/// * [CardTitleStyle.overlay] — full-bleed poster; title rendered in
+///   italic serif at the bottom of the poster with a shadow for
+///   legibility; optional [overlayYear] mono text top-left and
+///   [overlayRating] badge top-right. Used by Movies / Shows browse.
 class MediaPosterCard extends ConsumerStatefulWidget {
   final AsyncValue<String?>? posterAsync;
   final String title;
   final String? subtitle;
   final String? badge;
+
+  /// Visual treatment for [badge]. Defaults to neutral hairline.
+  /// Only honoured in [CardTitleStyle.below] mode.
+  final BadgeKind badgeKind;
+
+  /// When non-null, overrides [badgeKind] and tints the badge with
+  /// this arbitrary color (used for rating colors, quality colors).
+  /// Only honoured in [CardTitleStyle.below] mode.
+  final Color? badgeTone;
+
   final double? progress;
   final bool isWatched;
   final VoidCallback onTap;
   final List<MediaCardAction> actions;
-  final double width;
+
+  /// Fixed card width. Pass null inside a grid (`SliverGrid` etc.)
+  /// to let the parent's constraint drive the size.
+  final double? width;
+
+  /// Which layout to use. Defaults to `below` (library style).
+  final CardTitleStyle titleStyle;
+
+  /// Year text shown top-left of the poster in [CardTitleStyle.overlay].
+  final String? overlayYear;
+
+  /// Rating text shown top-right of the poster in [CardTitleStyle.overlay]
+  /// (typically `'★ 8.5'`). Renders as an [EditorialBadge] tinted with
+  /// [overlayRatingTone] when supplied, otherwise [BadgeKind.neutral].
+  final String? overlayRating;
+
+  /// Optional tint for [overlayRating]; pass [AppColors.accent]-like
+  /// for high ratings.
+  final Color? overlayRatingTone;
 
   const MediaPosterCard({
     super.key,
@@ -44,10 +92,16 @@ class MediaPosterCard extends ConsumerStatefulWidget {
     this.posterAsync,
     this.subtitle,
     this.badge,
+    this.badgeKind = BadgeKind.neutral,
+    this.badgeTone,
     this.progress,
     this.isWatched = false,
     this.actions = const [],
     this.width = 152,
+    this.titleStyle = CardTitleStyle.below,
+    this.overlayYear,
+    this.overlayRating,
+    this.overlayRatingTone,
   });
 
   @override
@@ -69,6 +123,7 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
     final theme = Theme.of(context);
     final scaleFactor = _isHovered ? 1.03 : 1.0;
     final hasProgress = widget.progress != null && widget.progress! > 0;
+    final isOverlay = widget.titleStyle == CardTitleStyle.overlay;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
@@ -94,197 +149,17 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
             color: Colors.transparent,
             borderRadius: BorderRadius.circular(AppRadius.lg),
             clipBehavior: Clip.antiAlias,
-            // Stack the popup menu as a SIBLING of the InkWell, not a child.
-            // Earlier the popup lived inside the InkWell's subtree and the
-            // InkWell's onTap competed in the gesture arena with the popup
-            // button — usually the InkWell won, so clicking the dots
-            // navigated to the player instead of opening the menu. Pulling
-            // the popup out makes it a separate hit-test target above the
-            // InkWell so its IconButton handles the tap on its own.
             child: Stack(
               children: [
                 InkWell(
                   onTap: widget.onTap,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Poster area — fills available space with a 2:3 aspect.
-                      AspectRatio(
-                        aspectRatio: 2 / 3,
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            buildPosterImage(
-                              theme: theme,
-                              posterAsync: widget.posterAsync,
-                            ),
-
-                            // Gradient overlay for legibility.
-                            Positioned.fill(
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
-                                    colors: [
-                                      Colors.transparent,
-                                      Colors.black.withValues(alpha: 0.7),
-                                    ],
-                                    stops: const [0.5, 1.0],
-                                  ),
-                                ),
-                              ),
-                            ),
-
-                            // Centered play button hover overlay.
-                            Center(
-                              child: AnimatedOpacity(
-                                duration: AppDuration.fast,
-                                opacity: _isHovered ? 1.0 : 0.85,
-                                child: AnimatedScale(
-                                  duration: AppDuration.fast,
-                                  scale: _isHovered ? 1.1 : 1.0,
-                                  child: Container(
-                                    padding: const EdgeInsets.all(10),
-                                    decoration: BoxDecoration(
-                                      color: theme.colorScheme.primary,
-                                      shape: BoxShape.circle,
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withValues(
-                                            alpha: 0.3,
-                                          ),
-                                          blurRadius: 8,
-                                          offset: const Offset(0, 2),
-                                        ),
-                                      ],
-                                    ),
-                                    child: Icon(
-                                      Icons.play_arrow_rounded,
-                                      color: theme.colorScheme.onPrimary,
-                                      size: 28,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-
-                            // Badge (top-left).
-                            if (widget.badge != null)
-                              Positioned(
-                                top: AppSpacing.sm,
-                                left: AppSpacing.sm,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: AppSpacing.sm,
-                                    vertical: AppSpacing.xs,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: theme.colorScheme.primaryContainer
-                                        .withValues(alpha: 0.9),
-                                    borderRadius: BorderRadius.circular(
-                                      AppRadius.xs,
-                                    ),
-                                  ),
-                                  child: Text(
-                                    widget.badge!,
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
-                                      color:
-                                          theme.colorScheme.onPrimaryContainer,
-                                    ),
-                                  ),
-                                ),
-                              ),
-
-                            // Watched checkmark badge (top-right when not hovered).
-                            if (widget.isWatched && !_isHovered)
-                              Positioned(
-                                top: AppSpacing.xs,
-                                right: AppSpacing.xs,
-                                child: Container(
-                                  padding: const EdgeInsets.all(3),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF10B981),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(
-                                    Icons.check_rounded,
-                                    size: 14,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ),
-
-                            // Progress bar at the bottom.
-                            if (hasProgress)
-                              Positioned(
-                                left: 0,
-                                right: 0,
-                                bottom: 0,
-                                child: ClipRRect(
-                                  borderRadius: const BorderRadius.vertical(
-                                    bottom: Radius.circular(AppRadius.xxs),
-                                  ),
-                                  child: AnimatedContainer(
-                                    duration: AppDuration.fast,
-                                    height: _isHovered ? 5 : 4,
-                                    child: LinearProgressIndicator(
-                                      value: widget.progress,
-                                      minHeight: _isHovered ? 5 : 4,
-                                      backgroundColor: Colors.white24,
-                                      valueColor: AlwaysStoppedAnimation<Color>(
-                                        _progressColor(theme),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-
-                      // Title + subtitle.
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(
-                          AppSpacing.sm,
-                          AppSpacing.xs,
-                          AppSpacing.sm,
-                          AppSpacing.sm,
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              widget.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            if (widget.subtitle != null) ...[
-                              const SizedBox(height: 3),
-                              Text(
-                                widget.subtitle!,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant
-                                      .withValues(alpha: 0.7),
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+                  child: isOverlay
+                      ? _buildOverlayLayout(theme, hasProgress)
+                      : _buildBelowLayout(theme, hasProgress),
                 ),
 
-                // Overflow action menu — Stack sibling above the InkWell so
-                // taps on the icon don't propagate into the card's onTap.
+                // Overflow action menu — sibling of the InkWell so the
+                // popup button captures taps independently.
                 if (_isHovered && widget.actions.isNotEmpty)
                   Positioned(
                     top: AppSpacing.xs,
@@ -335,6 +210,271 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
                   ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Library layout — poster + caption block below.
+  Widget _buildBelowLayout(ThemeData theme, bool hasProgress) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        AspectRatio(
+          aspectRatio: 2 / 3,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              buildPosterImage(theme: theme, posterAsync: widget.posterAsync),
+              _bottomGradient(),
+              _centeredPlayHover(theme),
+              if (widget.badge != null)
+                Positioned(
+                  top: AppSpacing.sm,
+                  left: AppSpacing.sm,
+                  child: EditorialBadge(
+                    widget.badge!,
+                    kind: widget.badgeKind,
+                    tone: widget.badgeTone,
+                    compact: true,
+                  ),
+                ),
+              if (widget.isWatched && !_isHovered)
+                _watchedCheckmark(),
+              if (hasProgress) _progressBar(theme),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.sm,
+            AppSpacing.xs,
+            AppSpacing.sm,
+            AppSpacing.sm,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (widget.subtitle != null) ...[
+                const SizedBox(height: 3),
+                Text(
+                  widget.subtitle!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant.withValues(
+                      alpha: 0.7,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Browse layout — full-bleed poster with title overlaid at bottom.
+  Widget _buildOverlayLayout(ThemeData theme, bool hasProgress) {
+    const textShadow = [
+      Shadow(color: Color(0xB3000000), offset: Offset(0, 2), blurRadius: 14),
+    ];
+    return AspectRatio(
+      aspectRatio: 2 / 3,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          buildPosterImage(theme: theme, posterAsync: widget.posterAsync),
+          _bottomGradient(),
+
+          // Year (top-left mono).
+          if (widget.overlayYear != null)
+            Positioned(
+              top: 10,
+              left: 10,
+              child: Text(
+                widget.overlayYear!,
+                style: AppType.mono(
+                  size: 10,
+                  color: Colors.white.withValues(alpha: 0.85),
+                  letterSpacing: 0.12,
+                  weight: FontWeight.w500,
+                ).copyWith(
+                  shadows: const [
+                    Shadow(color: Color(0x99000000), blurRadius: 6),
+                  ],
+                ),
+              ),
+            ),
+
+          // Rating badge (top-right).
+          if (widget.overlayRating != null)
+            Positioned(
+              top: 10,
+              right: 10,
+              child: EditorialBadge(
+                widget.overlayRating!,
+                tone: widget.overlayRatingTone,
+              ),
+            ),
+
+          if (widget.isWatched && !_isHovered) _watchedCheckmark(),
+
+          // Title overlay bottom.
+          Positioned(
+            bottom: 12,
+            left: 12,
+            right: 12,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  widget.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppType.serif(
+                    size: 18,
+                    color: AppColors.fg,
+                    height: 1.05,
+                    letterSpacing: -0.01,
+                  ).copyWith(shadows: textShadow),
+                ),
+                if (widget.subtitle != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    widget.subtitle!.toUpperCase(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppType.mono(
+                      size: 10,
+                      color: Colors.white.withValues(alpha: 0.7),
+                      letterSpacing: 0.1,
+                      weight: FontWeight.w500,
+                    ).copyWith(
+                      shadows: const [
+                        Shadow(color: Color(0x99000000), blurRadius: 6),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+
+          if (hasProgress) _progressBar(theme),
+
+          if (_isHovered)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: AppColors.accent, width: 1),
+                    borderRadius: BorderRadius.circular(AppRadius.lg),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // ── Shared sub-pieces ────────────────────────────────────────────
+
+  Widget _bottomGradient() {
+    return Positioned.fill(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Colors.transparent, Colors.black.withValues(alpha: 0.7)],
+            stops: const [0.5, 1.0],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _centeredPlayHover(ThemeData theme) {
+    return Center(
+      child: AnimatedOpacity(
+        duration: AppDuration.fast,
+        opacity: _isHovered ? 1.0 : 0.85,
+        child: AnimatedScale(
+          duration: AppDuration.fast,
+          scale: _isHovered ? 1.1 : 1.0,
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.3),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Icon(
+              Icons.play_arrow_rounded,
+              color: theme.colorScheme.onPrimary,
+              size: 28,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _watchedCheckmark() {
+    return Positioned(
+      top: AppSpacing.xs,
+      right: AppSpacing.xs,
+      child: Container(
+        padding: const EdgeInsets.all(3),
+        decoration: const BoxDecoration(
+          color: Color(0xFF10B981),
+          shape: BoxShape.circle,
+        ),
+        child: const Icon(
+          Icons.check_rounded,
+          size: 14,
+          color: Colors.white,
+        ),
+      ),
+    );
+  }
+
+  Widget _progressBar(ThemeData theme) {
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: ClipRRect(
+        borderRadius: const BorderRadius.vertical(
+          bottom: Radius.circular(AppRadius.xxs),
+        ),
+        child: AnimatedContainer(
+          duration: AppDuration.fast,
+          height: _isHovered ? 5 : 4,
+          child: LinearProgressIndicator(
+            value: widget.progress,
+            minHeight: _isHovered ? 5 : 4,
+            backgroundColor: Colors.white24,
+            valueColor: AlwaysStoppedAnimation<Color>(_progressColor(theme)),
           ),
         ),
       ),

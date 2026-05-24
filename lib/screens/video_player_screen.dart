@@ -978,7 +978,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       );
 
       // Set subtitle context for OpenSubtitles
-      if (_currentImdbId != null && season != null && episode != null) {
+      if (_currentImdbId != null) {
         ref
             .read(subtitleContextProvider.notifier)
             .setSeriesContext(
@@ -1242,6 +1242,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
 
       final playerService = ref.read(playerServiceProvider);
       await playerService.stop();
+      if (!mounted) return;
 
       final fileToPlay = nextFile; // Capture non-null value
       Navigator.of(context).pushReplacement(
@@ -1268,8 +1269,9 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     final currentSeason = widget.file.seasonNumber;
     final currentEpisode = widget.file.episodeNumber;
 
-    if (showName == null || currentSeason == null || currentEpisode == null)
+    if (showName == null || currentSeason == null || currentEpisode == null) {
       return;
+    }
 
     // Calculate next episode number
     final nextEpisodeNum = currentEpisode + 1;
@@ -1291,14 +1293,12 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     );
 
     // If not found, try first episode of next season
-    if (nextFile == null) {
-      nextFile = scanner.findEpisodeFile(
-        files,
-        showName: showName,
-        season: currentSeason + 1,
-        episode: 1,
-      );
-    }
+    nextFile ??= scanner.findEpisodeFile(
+      files,
+      showName: showName,
+      season: currentSeason + 1,
+      episode: 1,
+    );
 
     if (nextFile != null && mounted) {
       debugPrint(
@@ -1307,6 +1307,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
 
       final playerService = ref.read(playerServiceProvider);
       await playerService.stop();
+      if (!mounted) return;
 
       final fileToPlay = nextFile; // Capture non-null value
       Navigator.of(context).pushReplacement(
@@ -1475,7 +1476,6 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   void _onHorizontalDragUpdate(DragUpdateDetails details) {
     if (!_isSeeking || _dragStartPosition == null) return;
 
-    final screenWidth = MediaQuery.of(context).size.width;
     final dragDistance = details.globalPosition.dx - _dragStartPosition!.dx;
 
     // Each 100 pixels = 10 seconds
@@ -1689,7 +1689,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
                   (_nextEpisode != null || _nextEpisodeFromTmdb != null))
                 Positioned.fill(
                   child: Container(
-                    color: Colors.black.withOpacity(0.5),
+                    color: Colors.black.withValues(alpha: 0.5),
                     child: _nextEpisode != null
                         ? NextEpisodeOverlay(
                             nextEpisode: _nextEpisode!,
@@ -1806,7 +1806,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
           Text(
             _formatDuration(targetTime.isNegative ? Duration.zero : targetTime),
             style: TextStyle(
-              color: Colors.white.withOpacity(0.7),
+              color: Colors.white.withValues(alpha: 0.7),
               fontSize: 16,
             ),
           ),
@@ -1924,15 +1924,15 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
           child: Container(
             width: 340,
             decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.9),
+              color: Colors.black.withValues(alpha: 0.9),
               borderRadius: BorderRadius.circular(AppRadius.lg),
               border: Border.all(
-                color: theme.colorScheme.primary.withOpacity(0.3),
+                color: theme.colorScheme.primary.withValues(alpha: 0.3),
                 width: 1,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.4),
+                  color: Colors.black.withValues(alpha: 0.4),
                   blurRadius: 20,
                   offset: const Offset(0, 8),
                 ),
@@ -1949,7 +1949,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
                     vertical: AppSpacing.sm,
                   ),
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.secondary.withOpacity(0.2),
+                    color: theme.colorScheme.secondary.withValues(alpha: 0.2),
                     borderRadius: const BorderRadius.only(
                       topLeft: Radius.circular(AppRadius.lg),
                       topRight: Radius.circular(AppRadius.lg),
@@ -2499,7 +2499,7 @@ class _SkipRippleIndicatorState extends State<_SkipRippleIndicator>
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.50),
+                color: Colors.black.withValues(alpha: 0.50),
                 borderRadius: BorderRadius.circular(AppRadius.xl),
               ),
               child: Row(

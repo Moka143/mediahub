@@ -3,8 +3,10 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
 import '../models/local_media_file.dart';
+import 'editorial/editorial.dart';
 
 /// Overlay widget shown near the end of an episode to prompt
 /// the user to play the next episode (binge watching feature).
@@ -93,19 +95,16 @@ class _NextEpisodeOverlayState extends State<NextEpisodeOverlay>
           child: Material(
             color: Colors.transparent,
             child: Container(
-              width: 340,
+              width: 360,
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.88),
-                borderRadius: BorderRadius.circular(AppRadius.xl),
-                border: Border.all(
-                  color: theme.colorScheme.primary.withOpacity(0.25),
-                  width: 1,
-                ),
-                boxShadow: [
+                color: AppColors.bgSurface.withValues(alpha: 0.92),
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+                border: Border.all(color: AppColors.lineStrong, width: 1),
+                boxShadow: const [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.5),
+                    color: Color(0x80000000),
                     blurRadius: 28,
-                    offset: const Offset(0, 10),
+                    offset: Offset(0, 10),
                   ),
                 ],
               ),
@@ -130,39 +129,20 @@ class _NextEpisodeOverlayState extends State<NextEpisodeOverlay>
 
   Widget _buildHeader(ThemeData theme) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.sm,
-      ),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primary.withOpacity(0.18),
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(AppRadius.xl),
-          topRight: Radius.circular(AppRadius.xl),
-        ),
-      ),
+      padding: const EdgeInsets.fromLTRB(16, 14, 14, 6),
       child: Row(
         children: [
-          Icon(
-            Icons.skip_next_rounded,
-            color: theme.colorScheme.primary,
-            size: 18,
-          ),
-          const SizedBox(width: AppSpacing.xs),
           Expanded(
-            child: Text(
-              'Up Next',
-              style: theme.textTheme.titleSmall?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-              ),
+            child: MonoLabel(
+              'UP NEXT IN ${_secondsRemaining}s',
+              color: AppColors.accent,
+              letterSpacing: 0.14,
             ),
           ),
-          // Circular countdown ring
           _CircularCountdown(
             secondsRemaining: _secondsRemaining,
             progress: _progress,
-            color: theme.colorScheme.primary,
+            color: AppColors.accent,
           ),
         ],
       ),
@@ -171,80 +151,32 @@ class _NextEpisodeOverlayState extends State<NextEpisodeOverlay>
 
   Widget _buildEpisodeInfo(ThemeData theme, LocalMediaFile episode) {
     return Padding(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      child: Row(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Thumbnail placeholder with play icon
-          Container(
-            width: 90,
-            height: 56,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(AppRadius.sm),
-              gradient: LinearGradient(
-                colors: [
-                  theme.colorScheme.primary.withOpacity(0.3),
-                  theme.colorScheme.primary.withOpacity(0.1),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
+          if (episode.episodeCode != null)
+            MonoLabel(
+              episode.episodeCode!,
+              color: AppColors.fg2,
+              letterSpacing: 0.12,
             ),
-            child: Icon(
-              Icons.play_circle_outline_rounded,
-              color: Colors.white.withOpacity(0.85),
-              size: 30,
-            ),
+          const SizedBox(height: 6),
+          SerifTitle(
+            episode.showName ?? episode.fileName,
+            size: 22,
+            height: 1.1,
+            color: AppColors.fg,
+            maxLines: 2,
           ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (episode.episodeCode != null)
-                  Text(
-                    episode.episodeCode!,
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: theme.colorScheme.primary,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                const SizedBox(height: 3),
-                Text(
-                  episode.showName ?? episode.fileName,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w500,
-                    height: 1.3,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (episode.quality != null) ...[
-                  const SizedBox(height: 5),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      episode.quality!,
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: Colors.white60,
-                        letterSpacing: 0.3,
-                      ),
-                    ),
-                  ),
-                ],
-              ],
+          if (episode.quality != null) ...[
+            const SizedBox(height: 8),
+            MonoLabel(
+              '${episode.quality!} · STREAMING',
+              color: AppColors.fg3,
+              letterSpacing: 0.1,
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -327,7 +259,7 @@ class _CircularCountdown extends StatelessWidget {
             size: const Size(_size, _size),
             painter: _RingPainter(
               progress: 1.0,
-              color: Colors.white.withOpacity(0.12),
+              color: Colors.white.withValues(alpha: 0.12),
               strokeWidth: _strokeWidth,
             ),
           ),

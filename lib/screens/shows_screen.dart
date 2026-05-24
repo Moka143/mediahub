@@ -7,11 +7,10 @@ import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
 import '../models/show.dart';
 import '../providers/shows_provider.dart';
-import '../widgets/common/browse_search_pill.dart';
+import '../widgets/common/browse_filter_bar.dart';
 import '../widgets/common/empty_state.dart';
-import '../widgets/common/mediahub_chip.dart';
+import '../widgets/media/media_poster_card.dart';
 import '../widgets/mediahub_spotlight.dart';
-import '../widgets/show_card.dart';
 import 'show_details_screen.dart';
 
 /// Sort/feed selector. Only meaningful when the genre filter is
@@ -164,10 +163,30 @@ class _ShowsScreenState extends ConsumerState<ShowsScreen> {
     );
   }
 
-  void _navigateToShowDetails(Show show) {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => ShowDetailsScreen(show: show)));
+  void _navigateToShowDetails(Show show, {bool autoOpenEpisodesDrawer = false}) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ShowDetailsScreen(
+          show: show,
+          autoOpenEpisodesDrawer: autoOpenEpisodesDrawer,
+        ),
+      ),
+    );
+  }
+
+  Widget _showCard(Show show) {
+    return MediaPosterCard(
+      title: show.name,
+      onTap: () => _navigateToShowDetails(show),
+      posterAsync: AsyncValue.data(show.posterUrl),
+      titleStyle: CardTitleStyle.overlay,
+      overlayYear: show.year,
+      overlayRating: show.voteAverage > 0
+          ? '★ ${show.voteAverage.toStringAsFixed(1)}'
+          : null,
+      overlayRatingTone: show.voteAverage >= 8 ? AppColors.accent : null,
+      width: null,
+    );
   }
 
   double _hueFromId(int id) => (id * 37 % 360).toDouble();
@@ -190,64 +209,91 @@ class _ShowsScreenState extends ConsumerState<ShowsScreen> {
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
               // Spotlight is suppressed during search — the user is hunting
-              // a specific title, not browsing the trending feed.
-              if (!isSearching && _items.isNotEmpty)
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.xxl,
-                    AppSpacing.xl,
-                    AppSpacing.xxl,
-                    AppSpacing.md,
-                  ),
-                  sliver: SliverToBoxAdapter(
-                    child: MediaHubSpotlight(
-                      title: _items.first.name,
-                      year: _items.first.year,
-                      genre: _items.first.genres.isNotEmpty
-                          ? _items.first.genres.first
-                          : 'Drama',
-                      rating: _items.first.voteAverage,
-                      quality: '4K',
-                      hue: _hueFromId(_items.first.id),
-                      backdropUrl: _items.first.backdropUrl,
-                      posterUrl: _items.first.posterUrl,
-                      metaSuffix: 'TV SERIES',
-                      onPrimaryTap: () => _navigateToShowDetails(_items.first),
-                      onSecondaryTap: () =>
-                          _navigateToShowDetails(_items.first),
-                    ),
-                  ),
-                ),
+              // a specific title, not browsing the trending feed. We always
+              // include the sliver and animate its height so the page
+              // doesn't snap-jump 500px the moment search becomes active.
               SliverToBoxAdapter(
-                child: _ShowsFilterBar(
+                key: const ValueKey('mh-shows-spotlight'),
+                child: AnimatedSize(
+                  duration: AppDuration.normal,
+                  curve: Curves.easeOutCubic,
+                  alignment: Alignment.topCenter,
+                  child: (!isSearching && _items.isNotEmpty)
+                      ? Padding(
+                          padding: const EdgeInsets.fromLTRB(
+                            AppSpacing.xxl,
+                            AppSpacing.xl,
+                            AppSpacing.xxl,
+                            AppSpacing.md,
+                          ),
+                          child: MediaHubSpotlight(
+                            title: _items.first.name,
+                            year: _items.first.year,
+                            genre: _items.first.genres.isNotEmpty
+                                ? _items.first.genres.first
+                                : 'Drama',
+                            rating: _items.first.voteAverage,
+                            quality: '4K',
+                            hue: _hueFromId(_items.first.id),
+                            backdropUrl: _items.first.backdropUrl,
+                            posterUrl: _items.first.posterUrl,
+                            metaSuffix: 'TV SERIES',
+                            onPrimaryTap: () => _navigateToShowDetails(
+                              _items.first,
+                              autoOpenEpisodesDrawer: true,
+                            ),
+                            onSecondaryTap: () =>
+                                _navigateToShowDetails(_items.first),
+                          ),
+                        )
+                      : const SizedBox(width: double.infinity),
+                ),
+              ),
+              // Stable key — preserves the TextField's element (and focus)
+              // across rebuilds when conditional slivers above/below shift.
+              SliverToBoxAdapter(
+                key: const ValueKey('mh-shows-filter-bar'),
+                child: BrowseFilterBar(
                   genres: _genres,
                   selectedGenre: _genre,
                   onGenreSelected: (g) {
                     setState(() => _genre = g);
                     _resetAndLoad();
                   },
-                  feed: _feed,
-                  onFeedSelected: (f) {
-                    setState(() => _feed = f);
-                    _resetAndLoad();
-                  },
+                  sortPicker: _FeedSortPicker(
+                    value: _feed,
+                    onChanged: (f) {
+                      setState(() => _feed = f);
+                      _resetAndLoad();
+                    },
+                  ),
                   searchController: _searchController,
                   onSearchChanged: _onSearchChanged,
                   searchActive: isSearching,
+                  searchHint: 'Search shows…',
                 ),
               ),
               if (isSearching)
                 ..._buildSearchSlivers(searchQuery)
               else
                 ..._buildFeedSlivers(),
-              if (!isSearching)
-                SliverToBoxAdapter(
-                  child: _PaginationFooter(
-                    loading: _loading,
-                    exhausted: _exhausted && _items.isNotEmpty,
-                    hasItems: _items.isNotEmpty,
-                  ),
+              // Footer also animates its height so the bottom doesn't jump
+              // when search hides pagination state.
+              SliverToBoxAdapter(
+                key: const ValueKey('mh-shows-pagination-footer'),
+                child: AnimatedSize(
+                  duration: AppDuration.normal,
+                  curve: Curves.easeOutCubic,
+                  alignment: Alignment.topCenter,
+                  child: !isSearching
+                      ? _PaginationFooter(
+                          loading: _loading,
+                          exhausted: _exhausted && _items.isNotEmpty,
+                          hasItems: _items.isNotEmpty,
+                        )
+                      : const SizedBox(width: double.infinity),
                 ),
+              ),
             ],
           ),
         ),
@@ -285,7 +331,7 @@ class _ShowsScreenState extends ConsumerState<ShowsScreen> {
               padding: EdgeInsets.all(AppSpacing.huge),
               child: Text(
                 'No shows match this filter.',
-                style: TextStyle(color: Color(0xFF7A7A92)),
+                style: TextStyle(color: AppColors.fg2),
               ),
             ),
           ),
@@ -303,10 +349,7 @@ class _ShowsScreenState extends ConsumerState<ShowsScreen> {
             childAspectRatio: 2 / 3.2,
           ),
           delegate: SliverChildBuilderDelegate(
-            (context, i) => ShowCard(
-              show: _items[i],
-              onTap: () => _navigateToShowDetails(_items[i]),
-            ),
+            (context, i) => _showCard(_items[i]),
             childCount: _items.length,
           ),
         ),
@@ -317,64 +360,77 @@ class _ShowsScreenState extends ConsumerState<ShowsScreen> {
   /// Slivers for the search-results path. TMDB's `/search/tv` returns one
   /// page of results — enough for the typical "I'm hunting one title"
   /// case. No pagination here.
+  ///
+  /// We deliberately don't use `async.when` here — that would swap the grid
+  /// for a spinner on every keystroke. Instead we read `.value` (which in
+  /// Riverpod 3 retains the previous data while the new query is in flight)
+  /// so the previous results stay visible until the new ones arrive. Avoids
+  /// the "design flickers" symptom while typing.
   List<Widget> _buildSearchSlivers(String query) {
     final async = ref.watch(showSearchResultsProvider);
-    return async.when(
-      loading: () => const [
-        SliverFillRemaining(
-          hasScrollBody: false,
-          child: Center(child: CircularProgressIndicator()),
-        ),
-      ],
-      error: (e, _) => [
+    final results = async.value;
+    final isInitialLoad = results == null && async.isLoading;
+    final hasErrorWithNoData = async.hasError && results == null;
+
+    if (hasErrorWithNoData) {
+      return [
         SliverFillRemaining(
           hasScrollBody: false,
           child: EmptyState.error(
-            message: e.toString(),
+            message: async.error.toString(),
             onRetry: () =>
                 ref.read(showSearchQueryProvider.notifier).set(query),
           ),
         ),
-      ],
-      data: (results) {
-        if (results.isEmpty) {
-          return [
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(AppSpacing.huge),
-                  child: Text(
-                    'No shows match "$query".',
-                    style: const TextStyle(color: Color(0xFF7A7A92)),
-                  ),
-                ),
-              ),
-            ),
-          ];
-        }
-        return [
-          SliverPadding(
-            padding: const EdgeInsets.all(AppSpacing.xxl),
-            sliver: SliverGrid(
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 170,
-                mainAxisSpacing: AppSpacing.md,
-                crossAxisSpacing: AppSpacing.md,
-                childAspectRatio: 2 / 3.2,
-              ),
-              delegate: SliverChildBuilderDelegate(
-                (context, i) => ShowCard(
-                  show: results[i],
-                  onTap: () => _navigateToShowDetails(results[i]),
-                ),
-                childCount: results.length,
+      ];
+    }
+
+    if (isInitialLoad) {
+      return const [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      ];
+    }
+
+    // results is non-null here. Empty means TMDB came back with no matches
+    // for the *current* query — only show the "no matches" state once the
+    // request has actually settled (not while a new query is still loading).
+    if (results!.isEmpty && !async.isLoading) {
+      return [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.huge),
+              child: Text(
+                'No shows match "$query".',
+                style: const TextStyle(color: AppColors.fg2),
               ),
             ),
           ),
-        ];
-      },
-    );
+        ),
+      ];
+    }
+
+    return [
+      SliverPadding(
+        padding: const EdgeInsets.all(AppSpacing.xxl),
+        sliver: SliverGrid(
+          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 170,
+            mainAxisSpacing: AppSpacing.md,
+            crossAxisSpacing: AppSpacing.md,
+            childAspectRatio: 2 / 3.2,
+          ),
+          delegate: SliverChildBuilderDelegate(
+            (context, i) => _showCard(results[i]),
+            childCount: results.length,
+          ),
+        ),
+      ),
+    ];
   }
 }
 
@@ -407,82 +463,9 @@ class _PaginationFooter extends StatelessWidget {
             : exhausted
             ? const Text(
                 'You\'ve reached the end.',
-                style: TextStyle(color: Color(0xFF54546A), fontSize: 12),
+                style: TextStyle(color: AppColors.fg3, fontSize: 12),
               )
             : const SizedBox.shrink(),
-      ),
-    );
-  }
-}
-
-class _ShowsFilterBar extends StatelessWidget {
-  const _ShowsFilterBar({
-    required this.genres,
-    required this.selectedGenre,
-    required this.onGenreSelected,
-    required this.feed,
-    required this.onFeedSelected,
-    required this.searchController,
-    required this.onSearchChanged,
-    required this.searchActive,
-  });
-
-  final List<String> genres;
-  final String selectedGenre;
-  final ValueChanged<String> onGenreSelected;
-  final _ShowsFeed feed;
-  final ValueChanged<_ShowsFeed> onFeedSelected;
-  final TextEditingController searchController;
-  final ValueChanged<String> onSearchChanged;
-  final bool searchActive;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: AppColors.bgPage,
-        border: Border(bottom: BorderSide(color: Color(0x0FFFFFFF), width: 1)),
-      ),
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.xxl,
-        vertical: AppSpacing.sm,
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: AnimatedOpacity(
-              duration: AppDuration.fast,
-              opacity: searchActive ? 0.4 : 1.0,
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    for (final g in genres) ...[
-                      MediaHubFilterChip(
-                        label: g,
-                        selected: g == selectedGenre,
-                        onTap: searchActive ? () {} : () => onGenreSelected(g),
-                      ),
-                      const SizedBox(width: AppSpacing.xs),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          AnimatedOpacity(
-            duration: AppDuration.fast,
-            opacity: searchActive ? 0.4 : 1.0,
-            child: _FeedSortPicker(value: feed, onChanged: onFeedSelected),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          BrowseSearchPill(
-            controller: searchController,
-            onChanged: onSearchChanged,
-            hint: 'Search shows…',
-          ),
-        ],
       ),
     );
   }
@@ -507,7 +490,7 @@ class _FeedSortPicker extends StatelessWidget {
               value: f,
               child: Text(
                 f.label,
-                style: const TextStyle(fontSize: 12, color: Color(0xFFF4F4F8)),
+                style: const TextStyle(fontSize: 12, color: AppColors.fg),
               ),
             ),
           )
@@ -519,27 +502,27 @@ class _FeedSortPicker extends StatelessWidget {
         ),
         decoration: BoxDecoration(
           color: AppColors.bgSurface,
-          border: Border.all(color: const Color(0x0FFFFFFF)),
+          border: Border.all(color: AppColors.line),
           borderRadius: BorderRadius.circular(AppRadius.md),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.sort_rounded, size: 12, color: Color(0xFF7A7A92)),
+            const Icon(Icons.sort_rounded, size: 12, color: AppColors.fg2),
             const SizedBox(width: 6),
             Text(
               value.label,
               style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: Color(0xFFF4F4F8),
+                color: AppColors.fg,
               ),
             ),
             const SizedBox(width: 4),
             const Icon(
               Icons.keyboard_arrow_down_rounded,
               size: 14,
-              color: Color(0xFF7A7A92),
+              color: AppColors.fg2,
             ),
           ],
         ),

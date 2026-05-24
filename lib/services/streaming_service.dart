@@ -731,8 +731,9 @@ class StreamingService {
 
   /// Find the video file on disk once buffering is complete
   Future<LocalMediaFile?> _findVideoFile(StreamingSession session) async {
-    if (session.contentPath == null || session.selectedFilePath == null)
+    if (session.contentPath == null || session.selectedFilePath == null) {
       return null;
+    }
 
     try {
       String fullPath;
@@ -852,7 +853,7 @@ class StreamingService {
     final e = episode.toString().padLeft(2, '0');
     // Match patterns like S01E05, 1x05, etc.
     return RegExp(
-      '(?:s0?$season[xe]0?$episode)|(?:[^0-9]0?$season[xe]0?$episode[^0-9])|(?:s${s}e${e})',
+      '(?:s0?$season[xe]0?$episode)|(?:[^0-9]0?$season[xe]0?$episode[^0-9])|(?:s${s}e$e)',
       caseSensitive: false,
     );
   }
@@ -861,8 +862,9 @@ class StreamingService {
   String _formatBytes(int bytes) {
     if (bytes < 1024) return '$bytes B';
     if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    if (bytes < 1024 * 1024 * 1024)
+    if (bytes < 1024 * 1024 * 1024) {
       return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
     return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
   }
 

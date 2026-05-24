@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -118,7 +119,7 @@ class ManualWatchedNotifier extends Notifier<ManualWatchedState> {
       final json = jsonDecode(jsonString) as Map<String, dynamic>;
       return ManualWatchedState.fromJson(json);
     } catch (e) {
-      print('Error loading manual watched state: $e');
+      debugPrint('Error loading manual watched state: $e');
       return const ManualWatchedState();
     }
   }
@@ -128,7 +129,7 @@ class ManualWatchedNotifier extends Notifier<ManualWatchedState> {
       final prefs = ref.read(sharedPreferencesProvider);
       await prefs.setString(_manualWatchedKey, jsonEncode(state.toJson()));
     } catch (e) {
-      print('Error saving manual watched state: $e');
+      debugPrint('Error saving manual watched state: $e');
     }
   }
 
@@ -322,7 +323,7 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
 
       return map;
     } catch (e) {
-      print('Error loading watch progress: $e');
+      debugPrint('Error loading watch progress: $e');
       return {};
     }
   }
@@ -334,7 +335,7 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
       final jsonList = state.values.map((p) => p.toJson()).toList();
       await prefs.setString(_watchProgressKey, jsonEncode(jsonList));
     } catch (e) {
-      print('Error saving watch progress: $e');
+      debugPrint('Error saving watch progress: $e');
     }
   }
 

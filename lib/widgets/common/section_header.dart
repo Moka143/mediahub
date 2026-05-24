@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 
-import '../../design/app_tokens.dart';
+import '../../design/app_colors.dart';
+import '../../design/app_typography.dart';
+import '../editorial/mono_label.dart';
+import '../editorial/serif_title.dart';
 
-/// A modern section header widget with consistent styling
+/// Editorial section header. The cinematic redesign renders this as
+/// an italic Instrument Serif title with an optional mono "tag" right
+/// after, and trailing widgets on the right (e.g. "see all →" link).
 class SectionHeader extends StatelessWidget {
   const SectionHeader({
     super.key,
@@ -13,72 +18,55 @@ class SectionHeader extends StatelessWidget {
     this.padding,
     this.showDivider = false,
     this.large = false,
+    this.tag,
   });
 
-  /// The title text for the section
   final String title;
 
-  /// Optional leading icon
+  /// Optional leading icon — rendered subdued in the editorial style.
   final IconData? icon;
 
-  /// Optional trailing widget (e.g., "See all" button, count badge)
+  /// Optional trailing widget.
   final Widget? trailing;
 
-  /// Optional tap callback for the entire header
+  /// Optional tap callback (rarely used in the editorial language).
   final VoidCallback? onTap;
 
-  /// Custom padding (defaults to horizontal screen padding)
+  /// Custom padding. Defaults to the prototype's 36/16 top/bottom rhythm.
   final EdgeInsetsGeometry? padding;
 
-  /// Whether to show a divider above the header
+  /// Show a thin divider above the header (rare — usually the section
+  /// itself is separated by the implicit serif rhythm).
   final bool showDivider;
 
-  /// Whether to use large title style
+  /// Use a larger title size (28 vs 22).
   final bool large;
+
+  /// Mono "tag" subtitle rendered after the title (e.g. "5 items").
+  final String? tag;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     final content = Padding(
-      padding:
-          padding ??
-          EdgeInsets.symmetric(
-            horizontal: AppSpacing.screenPadding,
-            vertical: large ? AppSpacing.md : AppSpacing.sm,
-          ),
+      padding: padding ?? const EdgeInsets.fromLTRB(20, 24, 20, 12),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
         children: [
           if (icon != null) ...[
-            Container(
-              padding: const EdgeInsets.all(AppSpacing.sm),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer.withAlpha(
-                  AppOpacity.semi,
-                ),
-                borderRadius: BorderRadius.circular(AppRadius.sm),
-              ),
-              child: Icon(
-                icon,
-                size: large ? AppIconSize.lg : AppIconSize.md,
-                color: theme.colorScheme.primary,
-              ),
-            ),
-            const SizedBox(width: AppSpacing.md),
+            Icon(icon, size: 14, color: AppColors.fg3),
+            const SizedBox(width: 10),
           ],
-          Expanded(
-            child: Text(
-              title,
-              style:
-                  (large
-                          ? theme.textTheme.titleLarge
-                          : theme.textTheme.titleMedium)
-                      ?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: -0.3,
-                      ),
-            ),
+          SerifTitle(
+            title,
+            size: large ? 28 : 22,
+            height: 1.0,
           ),
+          if (tag != null) ...[
+            const SizedBox(width: 14),
+            MonoLabel(tag!, color: AppColors.fg3),
+          ],
+          const Spacer(),
           if (trailing != null) trailing!,
         ],
       ),
@@ -87,11 +75,7 @@ class SectionHeader extends StatelessWidget {
     Widget result = onTap != null
         ? Material(
             color: Colors.transparent,
-            child: InkWell(
-              onTap: onTap,
-              borderRadius: BorderRadius.circular(AppRadius.md),
-              child: content,
-            ),
+            child: InkWell(onTap: onTap, child: content),
           )
         : content;
 
@@ -99,23 +83,16 @@ class SectionHeader extends StatelessWidget {
       result = Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Divider(
-            height: 1,
-            thickness: 1,
-            color: theme.colorScheme.outlineVariant.withAlpha(
-              AppOpacity.medium,
-            ),
-          ),
+          const Divider(height: 1, thickness: 1, color: AppColors.line),
           result,
         ],
       );
     }
-
     return result;
   }
 }
 
-/// A modern section header designed for settings screens
+/// Settings section header — small uppercase mono label, accent color.
 class SettingsSectionHeader extends StatelessWidget {
   const SettingsSectionHeader({
     super.key,
@@ -130,41 +107,21 @@ class SettingsSectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Padding(
-      padding:
-          padding ??
-          const EdgeInsets.only(
-            left: AppSpacing.screenPadding,
-            right: AppSpacing.screenPadding,
-            top: AppSpacing.xxl,
-            bottom: AppSpacing.md,
-          ),
+      padding: padding ?? const EdgeInsets.only(left: 20, right: 20, top: 28, bottom: 12),
       child: Row(
         children: [
           if (icon != null) ...[
-            Container(
-              padding: const EdgeInsets.all(AppSpacing.xs),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    theme.colorScheme.primary,
-                    theme.colorScheme.tertiary,
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(AppRadius.xs),
-              ),
-              child: Icon(icon, size: AppIconSize.sm, color: Colors.white),
-            ),
-            const SizedBox(width: AppSpacing.md),
+            Icon(icon, size: 12, color: AppColors.accent),
+            const SizedBox(width: 8),
           ],
           Text(
-            title,
-            style: theme.textTheme.titleSmall?.copyWith(
-              color: theme.colorScheme.primary,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.5,
+            title.toUpperCase(),
+            style: AppType.mono(
+              size: 10,
+              color: AppColors.accent,
+              letterSpacing: 0.14,
+              weight: FontWeight.w500,
             ),
           ),
         ],

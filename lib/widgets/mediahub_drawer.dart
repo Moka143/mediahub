@@ -99,7 +99,7 @@ class _MediaHubDrawerScaffoldState extends State<_MediaHubDrawerScaffold> {
           Positioned.fill(
             child: AnimatedBuilder(
               animation: widget.anim,
-              builder: (_, __) {
+              builder: (_, _) {
                 final t = widget.anim.value.clamp(0.0, 1.0);
                 final dragFade = _dragging
                     ? (1 - (_dragOffset / width).clamp(0.0, 1.0))
@@ -168,7 +168,7 @@ class _MediaHubDrawerScaffoldState extends State<_MediaHubDrawerScaffold> {
                               color: AppColors.bgPageAlt,
                               border: Border(
                                 left: BorderSide(
-                                  color: Color(0x1AFFFFFF),
+                                  color: AppColors.lineStrong,
                                   width: 1,
                                 ),
                               ),

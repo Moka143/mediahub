@@ -21,8 +21,8 @@ import '../providers/torrentio_provider.dart';
 import '../services/streaming_service.dart';
 import '../utils/formatters.dart';
 import '../widgets/mediahub_backdrop_hero.dart';
+import '../widgets/media/media_poster_card.dart';
 import '../widgets/mediahub_torrent_drawer.dart';
-import '../widgets/movie_card.dart';
 import '../widgets/streaming_progress_overlay.dart';
 import 'settings_screen.dart';
 import 'video_player_screen.dart';
@@ -31,7 +31,16 @@ import 'video_player_screen.dart';
 class MovieDetailsScreen extends ConsumerStatefulWidget {
   final Movie movie;
 
-  const MovieDetailsScreen({super.key, required this.movie});
+  /// When true, the torrent picker fires automatically as soon as the
+  /// full movie record (with imdbId) resolves. Used by the browse
+  /// spotlight's "Get torrent" CTA.
+  final bool autoOpenTorrentPicker;
+
+  const MovieDetailsScreen({
+    super.key,
+    required this.movie,
+    this.autoOpenTorrentPicker = false,
+  });
 
   @override
   ConsumerState<MovieDetailsScreen> createState() => _MovieDetailsScreenState();
@@ -40,6 +49,7 @@ class MovieDetailsScreen extends ConsumerStatefulWidget {
 class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
   bool _isLoadingStreams = false;
   bool _isStreaming = false;
+  bool _autoPickerFired = false;
   OverlayEntry? _streamingOverlay;
   ValueNotifier<StreamingOverlayData>? _streamingOverlayData;
   // Driven by the Riverpod notifier's state (not the streaming service's
@@ -178,7 +188,7 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
               textColor: Colors.white,
               onPressed: () {
                 messenger.hideCurrentSnackBar();
-                containerRef.read(currentTabIndexProvider.notifier).set(0);
+                containerRef.read(currentTabIndexProvider.notifier).set(1);
                 rootNavigatorKey.currentState?.popUntil(
                   (route) => route.isFirst,
                 );
@@ -226,7 +236,7 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
         _streamingOverlay = null;
         _streamingOverlayData?.dispose();
         _streamingOverlayData = null;
-        containerRef.read(currentTabIndexProvider.notifier).set(0);
+        containerRef.read(currentTabIndexProvider.notifier).set(1);
         rootNavigatorKey.currentState?.popUntil((route) => route.isFirst);
       },
     );
@@ -430,6 +440,18 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
     final movieDetails = ref.watch(movieDetailsProvider(widget.movie.id));
     final theme = Theme.of(context);
 
+    // When opened from the browse spotlight, fire the torrent picker
+    // automatically as soon as the full movie record (with imdbId) lands.
+    if (widget.autoOpenTorrentPicker && !_autoPickerFired) {
+      movieDetails.whenData((m) {
+        if (_autoPickerFired) return;
+        _autoPickerFired = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _onDownloadTap(m);
+        });
+      });
+    }
+
     return Scaffold(
       body: movieDetails.when(
         data: (movie) => _buildContent(movie),
@@ -489,7 +511,7 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
                   if (movie.runtimeFormatted != null)
                     MediaHubMetaPill(
                       label: movie.runtimeFormatted!,
-                      color: const Color(0xFFB4B4C8),
+                      color: AppColors.fg1,
                     ),
                   if (movie.voteAverage > 0)
                     MediaHubMetaPill(
@@ -723,10 +745,21 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
                                     padding: EdgeInsets.only(
                                       right: AppSpacing.md,
                                     ),
-                                    child: MovieCard(
-                                      movie: similar,
+                                    child: MediaPosterCard(
+                                      title: similar.title,
                                       width: 140,
-                                      height: 210,
+                                      posterAsync: AsyncValue.data(
+                                        similar.posterUrl,
+                                      ),
+                                      titleStyle: CardTitleStyle.overlay,
+                                      overlayYear: similar.year,
+                                      overlayRating: similar.voteAverage > 0
+                                          ? '★ ${similar.voteAverage.toStringAsFixed(1)}'
+                                          : null,
+                                      overlayRatingTone:
+                                          similar.voteAverage >= 8
+                                              ? AppColors.accent
+                                              : null,
                                       onTap: () {
                                         Navigator.of(context).push(
                                           MaterialPageRoute(
@@ -746,7 +779,7 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
                         )
                       : const SizedBox.shrink(),
                   loading: () => const SizedBox.shrink(),
-                  error: (_, __) => const SizedBox.shrink(),
+                  error: (_, _) => const SizedBox.shrink(),
                 ),
 
                 SizedBox(height: AppSpacing.xl),

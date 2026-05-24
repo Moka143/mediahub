@@ -2,13 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 
+import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
+import '../design/app_typography.dart';
 import '../models/local_media_file.dart';
 import '../providers/auto_download_provider.dart';
 import '../providers/player_provider.dart';
 import '../providers/subtitle_provider.dart';
 import '../services/opensubtitles_service.dart';
 import '../utils/feedback_utils.dart';
+import 'common/mediahub_picker_sheet.dart';
+import 'editorial/editorial.dart';
 
 /// Custom video controls overlay
 class VideoControlsOverlay extends ConsumerWidget {
@@ -126,25 +130,33 @@ class VideoControlsOverlay extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (file.episodeCode != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      '${file.episodeCode!} · NOW PLAYING',
+                      style: TextStyle(
+                        color: AppColors.accent,
+                        fontSize: 10,
+                        fontFamily: 'monospace',
+                        letterSpacing: 1.4,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
                 Text(
                   file.showName ?? 'Video',
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: -0.2,
+                    fontSize: 22,
+                    fontStyle: FontStyle.italic,
+                    fontFamily: 'serif',
+                    height: 1.0,
+                    letterSpacing: -0.5,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-                if (file.episodeCode != null)
-                  Text(
-                    file.episodeCode!,
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.7),
-                      fontSize: 14,
-                    ),
-                  ),
               ],
             ),
           ),
@@ -557,242 +569,148 @@ class _SubtitleButton extends ConsumerWidget {
     Subtitle? currentExternalSub,
     bool isLoadingOpenSubs,
   ) {
-    showModalBottomSheet(
+    final groupedSubs = _groupSubtitlesByLanguage(openSubtitles);
+    final hasSubtitleContext = ref.read(subtitleContextProvider) != null;
+    final offSelected =
+        currentEmbeddedTrack == SubtitleTrack.no() && currentExternalSub == null;
+
+    MediaHubPickerSheet.show(
       context: context,
-      isScrollControlled: true,
-      builder: (context) {
-        return Consumer(
-          builder: (context, ref, _) {
-            final theme = Theme.of(context);
-            final groupedSubs = _groupSubtitlesByLanguage(openSubtitles);
-
-            return SafeArea(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(context).size.height * 0.7,
-                ),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
+      title: 'Subtitles',
+      icon: Icons.closed_caption_rounded,
+      scrollControlled: true,
+      child: Consumer(
+        builder: (context, ref, _) {
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              PickerSheetTile(
+                icon: Icons.close_rounded,
+                title: 'Off',
+                selected: offSelected,
+                onTap: () {
+                  ref
+                      .read(playerServiceProvider)
+                      .setSubtitleTrack(SubtitleTrack.no());
+                  ref
+                      .read(currentExternalSubtitleProvider.notifier)
+                      .clear();
+                  Navigator.pop(context);
+                },
+              ),
+              if (embeddedTracks.isNotEmpty) ...[
+                const PickerSheetSection(label: 'EMBEDDED'),
+                for (final track in embeddedTracks)
+                  PickerSheetTile(
+                    icon: Icons.subtitles_rounded,
+                    title:
+                        track.title ?? track.language ?? 'Track ${track.id}',
+                    subtitle: track.title != null ? track.language : null,
+                    selected: currentEmbeddedTrack?.id == track.id &&
+                        currentExternalSub == null,
+                    onTap: () {
+                      ref
+                          .read(playerServiceProvider)
+                          .setSubtitleTrack(track);
+                      ref
+                          .read(currentExternalSubtitleProvider.notifier)
+                          .clear();
+                      Navigator.pop(context);
+                    },
+                  ),
+              ],
+              if (openSubtitles.isNotEmpty || isLoadingOpenSubs) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.xxl,
+                    AppSpacing.md,
+                    AppSpacing.xxl,
+                    AppSpacing.xs,
+                  ),
+                  child: Row(
                     children: [
-                      // Header
-                      Padding(
-                        padding: EdgeInsets.all(AppSpacing.lg),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.closed_caption_rounded,
-                              color: theme.colorScheme.primary,
-                            ),
-                            const SizedBox(width: AppSpacing.sm),
-                            Text(
-                              'Subtitles',
-                              style: theme.textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
+                      MonoLabel(
+                        'OPENSUBTITLES',
+                        color: AppColors.fg3,
+                        letterSpacing: 0.12,
                       ),
-
-                      // Off option
-                      ListTile(
-                        leading: Icon(
-                          Icons.close_rounded,
-                          color:
-                              (currentEmbeddedTrack == SubtitleTrack.no() &&
-                                  currentExternalSub == null)
-                              ? theme.colorScheme.primary
-                              : null,
-                        ),
-                        title: const Text('Off'),
-                        selected:
-                            currentEmbeddedTrack == SubtitleTrack.no() &&
-                            currentExternalSub == null,
-                        onTap: () {
-                          ref
-                              .read(playerServiceProvider)
-                              .setSubtitleTrack(SubtitleTrack.no());
-                          ref
-                              .read(currentExternalSubtitleProvider.notifier)
-                              .clear();
-                          Navigator.pop(context);
-                        },
-                      ),
-
-                      // Embedded tracks section
-                      if (embeddedTracks.isNotEmpty) ...[
-                        Padding(
-                          padding: EdgeInsets.fromLTRB(
-                            AppSpacing.lg,
-                            AppSpacing.md,
-                            AppSpacing.lg,
-                            AppSpacing.xs,
-                          ),
-                          child: Text(
-                            'Embedded Subtitles',
-                            style: theme.textTheme.labelMedium?.copyWith(
-                              color: theme.colorScheme.primary,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        ...embeddedTracks.map(
-                          (track) => ListTile(
-                            leading: Icon(
-                              Icons.subtitles_rounded,
-                              color:
-                                  currentEmbeddedTrack?.id == track.id &&
-                                      currentExternalSub == null
-                                  ? theme.colorScheme.primary
-                                  : null,
-                            ),
-                            title: Text(
-                              track.title ??
-                                  track.language ??
-                                  'Track ${track.id}',
-                            ),
-                            subtitle: track.language != null
-                                ? Text(track.language!)
-                                : null,
-                            selected:
-                                currentEmbeddedTrack?.id == track.id &&
-                                currentExternalSub == null,
-                            onTap: () {
-                              ref
-                                  .read(playerServiceProvider)
-                                  .setSubtitleTrack(track);
-                              ref
-                                  .read(
-                                    currentExternalSubtitleProvider.notifier,
-                                  )
-                                  .clear();
-                              Navigator.pop(context);
-                            },
+                      if (isLoadingOpenSubs) ...[
+                        const SizedBox(width: AppSpacing.sm),
+                        const SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor:
+                                AlwaysStoppedAnimation(AppColors.accent),
                           ),
                         ),
                       ],
-
-                      // OpenSubtitles section
-                      if (openSubtitles.isNotEmpty || isLoadingOpenSubs) ...[
-                        Padding(
-                          padding: EdgeInsets.fromLTRB(
-                            AppSpacing.lg,
-                            AppSpacing.md,
-                            AppSpacing.lg,
-                            AppSpacing.xs,
-                          ),
-                          child: Row(
-                            children: [
-                              Text(
-                                'OpenSubtitles',
-                                style: theme.textTheme.labelMedium?.copyWith(
-                                  color: theme.colorScheme.primary,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              if (isLoadingOpenSubs) ...[
-                                const SizedBox(width: 8),
-                                SizedBox(
-                                  width: 12,
-                                  height: 12,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation(
-                                      theme.colorScheme.primary,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                        if (openSubtitles.isNotEmpty)
-                          ...groupedSubs.entries.map((entry) {
-                            final langName = entry.key;
-                            final subs = entry.value;
-                            final firstSub = subs.first;
-
-                            // If only one subtitle for this language, show directly
-                            if (subs.length == 1) {
-                              return ListTile(
-                                leading: Text(
-                                  firstSub.flagEmoji,
-                                  style: const TextStyle(fontSize: 20),
-                                ),
-                                title: Text(langName),
-                                selected: currentExternalSub?.id == firstSub.id,
-                                onTap: () => _loadExternalSubtitle(
-                                  ref,
-                                  firstSub,
-                                  context,
-                                ),
-                              );
-                            }
-
-                            // If multiple subtitles for this language, use expansion tile
-                            return ExpansionTile(
-                              leading: Text(
-                                firstSub.flagEmoji,
-                                style: const TextStyle(fontSize: 20),
-                              ),
-                              title: Text('$langName (${subs.length})'),
-                              children: subs.asMap().entries.map((subEntry) {
-                                final index = subEntry.key;
-                                final sub = subEntry.value;
-                                return ListTile(
-                                  leading: const SizedBox(width: 20),
-                                  title: Text('$langName #${index + 1}'),
-                                  selected: currentExternalSub?.id == sub.id,
-                                  onTap: () =>
-                                      _loadExternalSubtitle(ref, sub, context),
-                                );
-                              }).toList(),
-                            );
-                          }),
-                        if (openSubtitles.isEmpty && isLoadingOpenSubs)
-                          Padding(
-                            padding: EdgeInsets.all(AppSpacing.lg),
-                            child: Center(
-                              child: Text(
-                                'Loading subtitles...',
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
-
-                      // No OpenSubtitles available message
-                      if (openSubtitles.isEmpty &&
-                          !isLoadingOpenSubs &&
-                          ref.read(subtitleContextProvider) != null)
-                        Padding(
-                          padding: EdgeInsets.fromLTRB(
-                            AppSpacing.lg,
-                            AppSpacing.md,
-                            AppSpacing.lg,
-                            AppSpacing.lg,
-                          ),
-                          child: Text(
-                            'No subtitles found on OpenSubtitles',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ),
-
-                      const SizedBox(height: AppSpacing.md),
                     ],
                   ),
                 ),
-              ),
-            );
-          },
-        );
-      },
+                if (openSubtitles.isNotEmpty)
+                  ...groupedSubs.entries.map((entry) {
+                    final langName = entry.key;
+                    final subs = entry.value;
+                    final firstSub = subs.first;
+
+                    if (subs.length == 1) {
+                      return _SubtitleLanguageTile(
+                        flag: firstSub.flagEmoji,
+                        title: langName,
+                        selected: currentExternalSub?.id == firstSub.id,
+                        onTap: () =>
+                            _loadExternalSubtitle(ref, firstSub, context),
+                      );
+                    }
+
+                    return _SubtitleLanguageExpansion(
+                      flag: firstSub.flagEmoji,
+                      title: '$langName (${subs.length})',
+                      children: [
+                        for (var i = 0; i < subs.length; i++)
+                          PickerSheetTile(
+                            icon: Icons.subtitles_rounded,
+                            title: '$langName #${i + 1}',
+                            selected: currentExternalSub?.id == subs[i].id,
+                            onTap: () =>
+                                _loadExternalSubtitle(ref, subs[i], context),
+                          ),
+                      ],
+                    );
+                  }),
+                if (openSubtitles.isEmpty && isLoadingOpenSubs)
+                  Padding(
+                    padding: const EdgeInsets.all(AppSpacing.lg),
+                    child: Center(
+                      child: Text(
+                        'Loading subtitles…',
+                        style: AppType.ui(size: 13, color: AppColors.fg2),
+                      ),
+                    ),
+                  ),
+              ],
+              if (openSubtitles.isEmpty &&
+                  !isLoadingOpenSubs &&
+                  hasSubtitleContext)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.xxl,
+                    AppSpacing.md,
+                    AppSpacing.xxl,
+                    AppSpacing.lg,
+                  ),
+                  child: Text(
+                    'No subtitles found on OpenSubtitles',
+                    style: AppType.ui(size: 12, color: AppColors.fg2),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
     );
   }
 
@@ -867,7 +785,7 @@ class _AudioTrackButton extends ConsumerWidget {
         );
       },
       loading: () => const SizedBox.shrink(),
-      error: (_, __) => const SizedBox.shrink(),
+      error: (_, _) => const SizedBox.shrink(),
     );
   }
 
@@ -877,59 +795,128 @@ class _AudioTrackButton extends ConsumerWidget {
     List<AudioTrack> tracks,
     AudioTrack? currentTrack,
   ) {
-    showModalBottomSheet(
+    MediaHubPickerSheet.show(
       context: context,
-      builder: (context) {
-        final theme = Theme.of(context);
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+      title: 'Audio',
+      icon: Icons.audiotrack_rounded,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final track in tracks)
+            PickerSheetTile(
+              icon: Icons.audiotrack_rounded,
+              title: track.title ?? track.language ?? 'Track ${track.id}',
+              subtitle: track.language,
+              selected: currentTrack?.id == track.id,
+              onTap: () {
+                ref.read(playerServiceProvider).setAudioTrack(track);
+                Navigator.pop(context);
+              },
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Subtitle-list row variant — flag emoji leading instead of an icon.
+/// Used for OpenSubtitles language rows where the leading is a country
+/// flag, not a Material icon.
+class _SubtitleLanguageTile extends StatelessWidget {
+  const _SubtitleLanguageTile({
+    required this.flag,
+    required this.title,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String flag;
+  final String title;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = selected ? AppColors.accent : AppColors.fg;
+    return Material(
+      color: selected ? AppColors.accent.withValues(alpha: 0.08) : null,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.xxl,
+            vertical: AppSpacing.md,
+          ),
+          child: Row(
             children: [
-              Padding(
-                padding: EdgeInsets.all(AppSpacing.lg),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.audiotrack_rounded,
-                      color: theme.colorScheme.primary,
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Text(
-                      'Audio',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
+              Text(flag, style: const TextStyle(fontSize: 20)),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Text(
+                  title,
+                  style: AppType.ui(
+                    size: 14,
+                    color: fg,
+                    weight: selected ? FontWeight.w600 : FontWeight.w500,
+                  ),
                 ),
               ),
-              ...tracks.map(
-                (track) => ListTile(
-                  leading: Icon(
-                    Icons.audiotrack_rounded,
-                    color: currentTrack?.id == track.id
-                        ? theme.colorScheme.primary
-                        : null,
-                  ),
-                  title: Text(
-                    track.title ?? track.language ?? 'Track ${track.id}',
-                  ),
-                  subtitle: track.language != null
-                      ? Text(track.language!)
-                      : null,
-                  selected: currentTrack?.id == track.id,
-                  onTap: () {
-                    ref.read(playerServiceProvider).setAudioTrack(track);
-                    Navigator.pop(context);
-                  },
+              if (selected)
+                const Icon(
+                  Icons.check_rounded,
+                  color: AppColors.accent,
+                  size: AppIconSize.sm,
                 ),
-              ),
-              const SizedBox(height: AppSpacing.md),
             ],
           ),
-        );
-      },
+        ),
+      ),
+    );
+  }
+}
+
+/// Expandable group of subtitle variants under one language. Rendered
+/// inside [MediaHubPickerSheet] when OpenSubtitles returns multiple
+/// alternates for the same language.
+class _SubtitleLanguageExpansion extends StatelessWidget {
+  const _SubtitleLanguageExpansion({
+    required this.flag,
+    required this.title,
+    required this.children,
+  });
+
+  final String flag;
+  final String title;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Theme(
+      data: Theme.of(context).copyWith(
+        dividerColor: Colors.transparent,
+        splashColor: Colors.transparent,
+        highlightColor: Colors.transparent,
+      ),
+      child: ExpansionTile(
+        tilePadding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.xxl,
+          vertical: 2,
+        ),
+        leading: Text(flag, style: const TextStyle(fontSize: 20)),
+        title: Text(
+          title,
+          style: AppType.ui(
+            size: 14,
+            color: AppColors.fg,
+            weight: FontWeight.w500,
+          ),
+        ),
+        iconColor: AppColors.fg2,
+        collapsedIconColor: AppColors.fg2,
+        childrenPadding: const EdgeInsets.only(left: AppSpacing.lg),
+        children: children,
+      ),
     );
   }
 }
@@ -988,66 +975,28 @@ class _PlaybackSpeedButton extends ConsumerWidget {
   }
 
   void _showSpeedMenu(BuildContext context, WidgetRef ref, double currentRate) {
-    showModalBottomSheet(
+    MediaHubPickerSheet.show(
       context: context,
-      builder: (context) {
-        final theme = Theme.of(context);
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: EdgeInsets.all(AppSpacing.lg),
-                child: Row(
-                  children: [
-                    Icon(Icons.speed_rounded, color: theme.colorScheme.primary),
-                    const SizedBox(width: AppSpacing.sm),
-                    Text(
-                      'Playback Speed',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              ..._speeds.map(
-                (speed) => ListTile(
-                  leading: Icon(
-                    speed == 1.0
-                        ? Icons.check_circle_rounded
-                        : Icons.speed_rounded,
-                    color: currentRate == speed
-                        ? theme.colorScheme.primary
-                        : null,
-                  ),
-                  title: Text(
-                    speed == 1.0 ? 'Normal' : '${speed}x',
-                    style: TextStyle(
-                      fontWeight: currentRate == speed
-                          ? FontWeight.bold
-                          : FontWeight.normal,
-                    ),
-                  ),
-                  trailing: currentRate == speed
-                      ? Icon(
-                          Icons.check_rounded,
-                          color: theme.colorScheme.primary,
-                        )
-                      : null,
-                  selected: currentRate == speed,
-                  onTap: () {
-                    ref.read(playerServiceProvider).setPlaybackRate(speed);
-                    Navigator.pop(context);
-                  },
-                ),
-              ),
-              const SizedBox(height: AppSpacing.md),
-            ],
-          ),
-        );
-      },
+      title: 'Playback speed',
+      icon: Icons.speed_rounded,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final speed in _speeds)
+            PickerSheetTile(
+              icon: speed == 1.0
+                  ? Icons.check_circle_rounded
+                  : Icons.speed_rounded,
+              title: speed == 1.0 ? 'Normal' : '${speed}x',
+              selected: currentRate == speed,
+              onTap: () {
+                ref.read(playerServiceProvider).setPlaybackRate(speed);
+                Navigator.pop(context);
+              },
+            ),
+        ],
+      ),
     );
   }
 }

@@ -8,7 +8,8 @@ import '../providers/torrent_provider.dart';
 import '../utils/formatters.dart';
 import '../widgets/common/app_progress_bar.dart';
 import '../widgets/common/delete_confirmation_dialog.dart';
-import '../widgets/common/status_badge.dart';
+import '../design/app_colors.dart';
+import '../widgets/editorial/editorial.dart';
 import '../widgets/torrent_files_tab.dart';
 import '../widgets/torrent_info_tab.dart';
 import '../widgets/torrent_peers_tab.dart';
@@ -247,9 +248,9 @@ class _TorrentHeaderCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                StatusBadge.torrent(
-                  status: torrent.state,
-                  label: torrent.statusText,
+                EditorialBadge(
+                  torrent.statusText,
+                  tone: torrent.state.torrentStateColor,
                 ),
                 const SizedBox(width: AppSpacing.sm),
                 Expanded(
@@ -341,9 +342,9 @@ class _TorrentHeaderCard extends StatelessWidget {
             // Status badge
             Row(
               children: [
-                StatusBadge.torrent(
-                  status: torrent.state,
-                  label: torrent.statusText,
+                EditorialBadge(
+                  torrent.statusText,
+                  tone: torrent.state.torrentStateColor,
                 ),
                 const Spacer(),
                 Text(
