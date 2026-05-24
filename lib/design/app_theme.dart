@@ -11,15 +11,10 @@ import 'app_tokens.dart';
 class AppColorsExtension extends ThemeExtension<AppColorsExtension> {
   const AppColorsExtension({
     required this.downloading,
-    required this.downloadingBackground,
     required this.seeding,
-    required this.seedingBackground,
     required this.paused,
     required this.pausedBackground,
     required this.queued,
-    required this.queuedBackground,
-    required this.checking,
-    required this.checkingBackground,
     required this.errorState,
     required this.errorStateBackground,
     required this.success,
@@ -27,25 +22,15 @@ class AppColorsExtension extends ThemeExtension<AppColorsExtension> {
     required this.warning,
     required this.warningBackground,
     required this.info,
-    required this.infoBackground,
-    required this.subtleText,
     required this.mutedText,
     required this.cardBackground,
-    required this.cardBackgroundElevated,
-    required this.shimmerBase,
-    required this.shimmerHighlight,
   });
 
   final Color downloading;
-  final Color downloadingBackground;
   final Color seeding;
-  final Color seedingBackground;
   final Color paused;
   final Color pausedBackground;
   final Color queued;
-  final Color queuedBackground;
-  final Color checking;
-  final Color checkingBackground;
   final Color errorState;
   final Color errorStateBackground;
   final Color success;
@@ -53,55 +38,16 @@ class AppColorsExtension extends ThemeExtension<AppColorsExtension> {
   final Color warning;
   final Color warningBackground;
   final Color info;
-  final Color infoBackground;
-  final Color subtleText;
   final Color mutedText;
   final Color cardBackground;
-  final Color cardBackgroundElevated;
-  final Color shimmerBase;
-  final Color shimmerHighlight;
-
-  /// Light theme — kept stubbed so the light branch still compiles.
-  /// MediaHub now ships dark-only by default (editorial cinematic).
-  static const light = AppColorsExtension(
-    downloading: AppColors.accent,
-    downloadingBackground: AppColors.accentSoft,
-    seeding: AppColors.ok,
-    seedingBackground: AppColors.okSoft,
-    paused: AppColors.fg2,
-    pausedBackground: AppColors.bgSurface,
-    queued: AppColors.warn,
-    queuedBackground: Color(0x24F3B94C),
-    checking: AppColors.warn,
-    checkingBackground: Color(0x24F3B94C),
-    errorState: AppColors.err,
-    errorStateBackground: Color(0x29FF5F5B),
-    success: AppColors.ok,
-    successBackground: AppColors.okSoft,
-    warning: AppColors.warn,
-    warningBackground: Color(0x24F3B94C),
-    info: AppColors.accent,
-    infoBackground: AppColors.accentSoft,
-    subtleText: AppColors.fg2,
-    mutedText: AppColors.fg3,
-    cardBackground: AppColors.bgSurface,
-    cardBackgroundElevated: AppColors.bgSurfaceHi,
-    shimmerBase: AppColors.bgSurface,
-    shimmerHighlight: AppColors.bgSurfaceHi,
-  );
 
   /// Dark theme — cinematic editorial. The one the app actually uses.
   static const dark = AppColorsExtension(
     downloading: AppColors.accent,
-    downloadingBackground: AppColors.accentSoft,
     seeding: AppColors.ok,
-    seedingBackground: AppColors.okSoft,
     paused: AppColors.fg3,
     pausedBackground: AppColors.bgSurface,
     queued: AppColors.warn,
-    queuedBackground: Color(0x24F3B94C),
-    checking: AppColors.warn,
-    checkingBackground: Color(0x24F3B94C),
     errorState: AppColors.err,
     errorStateBackground: Color(0x29FF5F5B),
     success: AppColors.ok,
@@ -109,27 +55,17 @@ class AppColorsExtension extends ThemeExtension<AppColorsExtension> {
     warning: AppColors.warn,
     warningBackground: Color(0x24F3B94C),
     info: AppColors.accent,
-    infoBackground: AppColors.accentSoft,
-    subtleText: AppColors.fg1,
     mutedText: AppColors.fg3,
     cardBackground: AppColors.bgSurface,
-    cardBackgroundElevated: AppColors.bgSurfaceHi,
-    shimmerBase: AppColors.bgSurface,
-    shimmerHighlight: AppColors.bgSurfaceHi,
   );
 
   @override
   AppColorsExtension copyWith({
     Color? downloading,
-    Color? downloadingBackground,
     Color? seeding,
-    Color? seedingBackground,
     Color? paused,
     Color? pausedBackground,
     Color? queued,
-    Color? queuedBackground,
-    Color? checking,
-    Color? checkingBackground,
     Color? errorState,
     Color? errorStateBackground,
     Color? success,
@@ -137,26 +73,15 @@ class AppColorsExtension extends ThemeExtension<AppColorsExtension> {
     Color? warning,
     Color? warningBackground,
     Color? info,
-    Color? infoBackground,
-    Color? subtleText,
     Color? mutedText,
     Color? cardBackground,
-    Color? cardBackgroundElevated,
-    Color? shimmerBase,
-    Color? shimmerHighlight,
   }) {
     return AppColorsExtension(
       downloading: downloading ?? this.downloading,
-      downloadingBackground:
-          downloadingBackground ?? this.downloadingBackground,
       seeding: seeding ?? this.seeding,
-      seedingBackground: seedingBackground ?? this.seedingBackground,
       paused: paused ?? this.paused,
       pausedBackground: pausedBackground ?? this.pausedBackground,
       queued: queued ?? this.queued,
-      queuedBackground: queuedBackground ?? this.queuedBackground,
-      checking: checking ?? this.checking,
-      checkingBackground: checkingBackground ?? this.checkingBackground,
       errorState: errorState ?? this.errorState,
       errorStateBackground: errorStateBackground ?? this.errorStateBackground,
       success: success ?? this.success,
@@ -164,14 +89,8 @@ class AppColorsExtension extends ThemeExtension<AppColorsExtension> {
       warning: warning ?? this.warning,
       warningBackground: warningBackground ?? this.warningBackground,
       info: info ?? this.info,
-      infoBackground: infoBackground ?? this.infoBackground,
-      subtleText: subtleText ?? this.subtleText,
       mutedText: mutedText ?? this.mutedText,
       cardBackground: cardBackground ?? this.cardBackground,
-      cardBackgroundElevated:
-          cardBackgroundElevated ?? this.cardBackgroundElevated,
-      shimmerBase: shimmerBase ?? this.shimmerBase,
-      shimmerHighlight: shimmerHighlight ?? this.shimmerHighlight,
     );
   }
 
@@ -180,17 +99,7 @@ class AppColorsExtension extends ThemeExtension<AppColorsExtension> {
     if (other is! AppColorsExtension) return this;
     return AppColorsExtension(
       downloading: Color.lerp(downloading, other.downloading, t)!,
-      downloadingBackground: Color.lerp(
-        downloadingBackground,
-        other.downloadingBackground,
-        t,
-      )!,
       seeding: Color.lerp(seeding, other.seeding, t)!,
-      seedingBackground: Color.lerp(
-        seedingBackground,
-        other.seedingBackground,
-        t,
-      )!,
       paused: Color.lerp(paused, other.paused, t)!,
       pausedBackground: Color.lerp(
         pausedBackground,
@@ -198,17 +107,6 @@ class AppColorsExtension extends ThemeExtension<AppColorsExtension> {
         t,
       )!,
       queued: Color.lerp(queued, other.queued, t)!,
-      queuedBackground: Color.lerp(
-        queuedBackground,
-        other.queuedBackground,
-        t,
-      )!,
-      checking: Color.lerp(checking, other.checking, t)!,
-      checkingBackground: Color.lerp(
-        checkingBackground,
-        other.checkingBackground,
-        t,
-      )!,
       errorState: Color.lerp(errorState, other.errorState, t)!,
       errorStateBackground: Color.lerp(
         errorStateBackground,
@@ -228,21 +126,8 @@ class AppColorsExtension extends ThemeExtension<AppColorsExtension> {
         t,
       )!,
       info: Color.lerp(info, other.info, t)!,
-      infoBackground: Color.lerp(infoBackground, other.infoBackground, t)!,
-      subtleText: Color.lerp(subtleText, other.subtleText, t)!,
       mutedText: Color.lerp(mutedText, other.mutedText, t)!,
       cardBackground: Color.lerp(cardBackground, other.cardBackground, t)!,
-      cardBackgroundElevated: Color.lerp(
-        cardBackgroundElevated,
-        other.cardBackgroundElevated,
-        t,
-      )!,
-      shimmerBase: Color.lerp(shimmerBase, other.shimmerBase, t)!,
-      shimmerHighlight: Color.lerp(
-        shimmerHighlight,
-        other.shimmerHighlight,
-        t,
-      )!,
     );
   }
 }
@@ -253,11 +138,6 @@ extension AppColorsExtensionX on BuildContext {
         AppColorsExtension.dark;
   }
 }
-
-/// Light theme — kept as a stub for the MaterialApp's `theme:` arg.
-/// MediaHub ships dark-only; the editorial palette doesn't translate
-/// to a light theme, so this just returns the dark theme.
-ThemeData buildLightTheme() => buildDarkTheme();
 
 /// Build the cinematic editorial dark theme.
 ThemeData buildDarkTheme() {
@@ -392,10 +272,7 @@ ThemeData buildDarkTheme() {
         horizontal: AppSpacing.md,
         vertical: AppSpacing.sm + 2,
       ),
-      hintStyle: GoogleFonts.geist(
-        fontSize: 13,
-        color: AppColors.fg3,
-      ),
+      hintStyle: GoogleFonts.geist(fontSize: 13, color: AppColors.fg3),
       labelStyle: GoogleFonts.jetBrainsMono(
         fontSize: 10,
         color: AppColors.fg3,
@@ -454,10 +331,7 @@ ThemeData buildDarkTheme() {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadius.xs),
         ),
-        textStyle: GoogleFonts.geist(
-          fontSize: 13,
-          fontWeight: FontWeight.w500,
-        ),
+        textStyle: GoogleFonts.geist(fontSize: 13, fontWeight: FontWeight.w500),
       ),
     ),
 
@@ -472,10 +346,7 @@ ThemeData buildDarkTheme() {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadius.xs),
         ),
-        textStyle: GoogleFonts.geist(
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-        ),
+        textStyle: GoogleFonts.geist(fontSize: 13, fontWeight: FontWeight.w600),
       ),
     ),
 
@@ -491,10 +362,7 @@ ThemeData buildDarkTheme() {
           borderRadius: BorderRadius.circular(AppRadius.xs),
         ),
         side: const BorderSide(color: AppColors.lineStrong, width: 1),
-        textStyle: GoogleFonts.geist(
-          fontSize: 13,
-          fontWeight: FontWeight.w500,
-        ),
+        textStyle: GoogleFonts.geist(fontSize: 13, fontWeight: FontWeight.w500),
       ),
     ),
 
@@ -508,10 +376,7 @@ ThemeData buildDarkTheme() {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadius.xs),
         ),
-        textStyle: GoogleFonts.geist(
-          fontSize: 13,
-          fontWeight: FontWeight.w500,
-        ),
+        textStyle: GoogleFonts.geist(fontSize: 13, fontWeight: FontWeight.w500),
       ),
     ),
 
@@ -527,10 +392,7 @@ ThemeData buildDarkTheme() {
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
       backgroundColor: AppColors.bgSurfaceHi,
-      contentTextStyle: GoogleFonts.geist(
-        fontSize: 13,
-        color: AppColors.fg,
-      ),
+      contentTextStyle: GoogleFonts.geist(fontSize: 13, color: AppColors.fg),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppRadius.xs),
         side: const BorderSide(color: AppColors.line, width: 1),
@@ -558,9 +420,7 @@ ThemeData buildDarkTheme() {
       backgroundColor: AppColors.bgSurface,
       surfaceTintColor: Colors.transparent,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppRadius.md),
-        ),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.md)),
         side: BorderSide(color: AppColors.line, width: 1),
       ),
       dragHandleColor: AppColors.fg3,
@@ -607,10 +467,7 @@ ThemeData buildDarkTheme() {
         borderRadius: BorderRadius.circular(AppRadius.xs),
         side: const BorderSide(color: AppColors.lineStrong, width: 1),
       ),
-      textStyle: GoogleFonts.geist(
-        fontSize: 13,
-        color: AppColors.fg,
-      ),
+      textStyle: GoogleFonts.geist(fontSize: 13, color: AppColors.fg),
     ),
 
     progressIndicatorTheme: const ProgressIndicatorThemeData(
@@ -645,9 +502,7 @@ ThemeData buildDarkTheme() {
       }),
       checkColor: WidgetStateProperty.all(AppColors.bgPage),
       side: const BorderSide(color: AppColors.lineStrong, width: 1),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(2),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(2)),
     ),
 
     sliderTheme: const SliderThemeData(
@@ -715,20 +570,88 @@ ThemeData buildDarkTheme() {
 /// render as serif (would surprise the Material defaults consumers).
 TextTheme _baseTextTheme(ColorScheme cs) {
   return TextTheme(
-    displayLarge: TextStyle(fontSize: 57, fontWeight: FontWeight.w300, letterSpacing: -0.5, color: cs.onSurface),
-    displayMedium: TextStyle(fontSize: 45, fontWeight: FontWeight.w300, letterSpacing: -0.25, color: cs.onSurface),
-    displaySmall: TextStyle(fontSize: 36, fontWeight: FontWeight.w400, color: cs.onSurface),
-    headlineLarge: TextStyle(fontSize: 32, fontWeight: FontWeight.w500, letterSpacing: -0.4, color: cs.onSurface),
-    headlineMedium: TextStyle(fontSize: 28, fontWeight: FontWeight.w500, letterSpacing: -0.3, color: cs.onSurface),
-    headlineSmall: TextStyle(fontSize: 24, fontWeight: FontWeight.w500, letterSpacing: -0.2, color: cs.onSurface),
-    titleLarge: TextStyle(fontSize: 18, fontWeight: FontWeight.w500, color: cs.onSurface),
-    titleMedium: TextStyle(fontSize: 15, fontWeight: FontWeight.w500, color: cs.onSurface),
-    titleSmall: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: cs.onSurface),
-    bodyLarge: TextStyle(fontSize: 14, fontWeight: FontWeight.w400, color: cs.onSurface, height: 1.5),
-    bodyMedium: TextStyle(fontSize: 13, fontWeight: FontWeight.w400, color: cs.onSurface, height: 1.5),
-    bodySmall: TextStyle(fontSize: 12, fontWeight: FontWeight.w400, color: cs.onSurfaceVariant, height: 1.4),
-    labelLarge: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: cs.onSurface),
-    labelMedium: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: cs.onSurface),
-    labelSmall: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: cs.onSurfaceVariant),
+    displayLarge: TextStyle(
+      fontSize: 57,
+      fontWeight: FontWeight.w300,
+      letterSpacing: -0.5,
+      color: cs.onSurface,
+    ),
+    displayMedium: TextStyle(
+      fontSize: 45,
+      fontWeight: FontWeight.w300,
+      letterSpacing: -0.25,
+      color: cs.onSurface,
+    ),
+    displaySmall: TextStyle(
+      fontSize: 36,
+      fontWeight: FontWeight.w400,
+      color: cs.onSurface,
+    ),
+    headlineLarge: TextStyle(
+      fontSize: 32,
+      fontWeight: FontWeight.w500,
+      letterSpacing: -0.4,
+      color: cs.onSurface,
+    ),
+    headlineMedium: TextStyle(
+      fontSize: 28,
+      fontWeight: FontWeight.w500,
+      letterSpacing: -0.3,
+      color: cs.onSurface,
+    ),
+    headlineSmall: TextStyle(
+      fontSize: 24,
+      fontWeight: FontWeight.w500,
+      letterSpacing: -0.2,
+      color: cs.onSurface,
+    ),
+    titleLarge: TextStyle(
+      fontSize: 18,
+      fontWeight: FontWeight.w500,
+      color: cs.onSurface,
+    ),
+    titleMedium: TextStyle(
+      fontSize: 15,
+      fontWeight: FontWeight.w500,
+      color: cs.onSurface,
+    ),
+    titleSmall: TextStyle(
+      fontSize: 13,
+      fontWeight: FontWeight.w500,
+      color: cs.onSurface,
+    ),
+    bodyLarge: TextStyle(
+      fontSize: 14,
+      fontWeight: FontWeight.w400,
+      color: cs.onSurface,
+      height: 1.5,
+    ),
+    bodyMedium: TextStyle(
+      fontSize: 13,
+      fontWeight: FontWeight.w400,
+      color: cs.onSurface,
+      height: 1.5,
+    ),
+    bodySmall: TextStyle(
+      fontSize: 12,
+      fontWeight: FontWeight.w400,
+      color: cs.onSurfaceVariant,
+      height: 1.4,
+    ),
+    labelLarge: TextStyle(
+      fontSize: 13,
+      fontWeight: FontWeight.w500,
+      color: cs.onSurface,
+    ),
+    labelMedium: TextStyle(
+      fontSize: 11,
+      fontWeight: FontWeight.w500,
+      color: cs.onSurface,
+    ),
+    labelSmall: TextStyle(
+      fontSize: 10,
+      fontWeight: FontWeight.w500,
+      color: cs.onSurfaceVariant,
+    ),
   );
 }

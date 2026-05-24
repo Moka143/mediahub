@@ -62,7 +62,7 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
   void initState() {
     super.initState();
     _animationController = AnimationController(
-      duration: const Duration(milliseconds: 250),
+      duration: AppDuration.normal,
       vsync: this,
     );
 
@@ -191,7 +191,9 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
                         child: Text(
                           subtitle,
                           style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                            color: theme.colorScheme.onSurface.withValues(
+                              alpha: 0.6,
+                            ),
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -390,125 +392,4 @@ showUpdatableStreamingOverlay(
 
   overlay.insert(entry);
   return (entry: entry, data: dataNotifier);
-}
-
-/// A simpler toast-style notification for quick status updates
-class StreamingToast extends StatefulWidget {
-  final String message;
-  final IconData icon;
-  final Color? backgroundColor;
-  final Duration duration;
-  final VoidCallback? onDismiss;
-
-  const StreamingToast({
-    super.key,
-    required this.message,
-    this.icon = Icons.stream_rounded,
-    this.backgroundColor,
-    this.duration = const Duration(seconds: 3),
-    this.onDismiss,
-  });
-
-  @override
-  State<StreamingToast> createState() => _StreamingToastState();
-}
-
-class _StreamingToastState extends State<StreamingToast>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _animationController;
-  late Animation<Offset> _slideAnimation;
-  Timer? _dismissTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    _animationController = AnimationController(
-      duration: const Duration(milliseconds: 300),
-      vsync: this,
-    );
-
-    _slideAnimation = Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
-        .animate(
-          CurvedAnimation(
-            parent: _animationController,
-            curve: Curves.easeOutCubic,
-          ),
-        );
-
-    _animationController.forward();
-    _startDismissTimer();
-  }
-
-  void _startDismissTimer() {
-    _dismissTimer = Timer(widget.duration, () {
-      if (mounted) {
-        _animationController.reverse().then((_) {
-          widget.onDismiss?.call();
-        });
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _dismissTimer?.cancel();
-    _animationController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final bgColor = widget.backgroundColor ?? theme.colorScheme.inverseSurface;
-
-    return SlideTransition(
-      position: _slideAnimation,
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          child: Align(
-            alignment: Alignment.bottomCenter,
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.md,
-                vertical: AppSpacing.sm,
-              ),
-              decoration: BoxDecoration(
-                color: bgColor,
-                borderRadius: BorderRadius.circular(AppRadius.md),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.2),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    widget.icon,
-                    size: 20,
-                    color: theme.colorScheme.onInverseSurface,
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Flexible(
-                    child: Text(
-                      widget.message,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onInverseSurface,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }

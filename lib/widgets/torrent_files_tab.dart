@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
+import '../design/app_typography.dart';
 import '../models/torrent_file.dart';
 import '../providers/connection_provider.dart';
 import '../providers/torrent_provider.dart';
@@ -9,6 +11,7 @@ import '../utils/constants.dart';
 import '../utils/formatters.dart';
 import 'common/empty_state.dart';
 import 'common/loading_state.dart';
+import 'common/mediahub_popup_menu.dart';
 
 /// Tab widget for displaying torrent files with batch selection support
 class TorrentFilesTab extends ConsumerStatefulWidget {
@@ -199,6 +202,8 @@ class _TorrentFilesTabState extends ConsumerState<TorrentFilesTab> {
 
           // Batch priority dropdown
           PopupMenuButton<FilePriority>(
+            color: kMediaHubPopupColor,
+            shape: kMediaHubPopupShape,
             onSelected: _setBatchPriority,
             itemBuilder: (context) => FilePriority.values.map((priority) {
               return PopupMenuItem(
@@ -207,7 +212,10 @@ class _TorrentFilesTabState extends ConsumerState<TorrentFilesTab> {
                   children: [
                     _PriorityIcon(priority: priority),
                     const SizedBox(width: AppSpacing.sm),
-                    Text(priority.label),
+                    Text(
+                      priority.label,
+                      style: AppType.ui(size: 12, color: AppColors.fg1),
+                    ),
                   ],
                 ),
               );
@@ -474,6 +482,8 @@ class _FileListItem extends ConsumerWidget {
 
     return PopupMenuButton<FilePriority>(
       initialValue: priority,
+      color: kMediaHubPopupColor,
+      shape: kMediaHubPopupShape,
       onSelected: (newPriority) async {
         final apiService = ref.read(qbApiServiceProvider);
         await apiService.setFilePriority(torrentHash, [
@@ -488,7 +498,7 @@ class _FileListItem extends ConsumerWidget {
             children: [
               _PriorityIcon(priority: p),
               const SizedBox(width: AppSpacing.sm),
-              Text(p.label),
+              Text(p.label, style: AppType.ui(size: 12, color: AppColors.fg1)),
             ],
           ),
         );

@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../design/app_tokens.dart';
 import '../design/app_theme.dart';
+import '../design/app_tokens.dart';
+import '../design/app_typography.dart';
 import '../providers/connection_provider.dart';
 
 /// Widget to display connection status to qBittorrent
@@ -337,11 +338,12 @@ class _ConnectionBannerState extends ConsumerState<ConnectionBanner> {
                             const SizedBox(height: AppSpacing.xs),
                             Text(
                               connectionState.errorMessage!,
-                              style: theme.textTheme.bodySmall?.copyWith(
+                              style: AppType.mono(
+                                size: 12,
                                 color: textColor.withAlpha(
                                   AppOpacity.almostOpaque,
                                 ),
-                                fontFamily: 'monospace',
+                                letterSpacing: 0,
                               ),
                             ),
                             const SizedBox(height: AppSpacing.md),

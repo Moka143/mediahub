@@ -128,10 +128,7 @@ class _DeleteFilesCheckboxState extends State<_DeleteFilesCheckbox> {
                   const SizedBox(height: 2),
                   Text(
                     'Permanently remove downloaded files',
-                    style: AppType.ui(
-                      size: 12,
-                      color: AppColors.fg2,
-                    ),
+                    style: AppType.ui(size: 12, color: AppColors.fg2),
                   ),
                 ],
               ),

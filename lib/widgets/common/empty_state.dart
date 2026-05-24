@@ -14,12 +14,6 @@ enum EmptyStateType {
 
   /// Error occurred
   error,
-
-  /// No network connection
-  offline,
-
-  /// Custom type with user-provided content
-  custom,
 }
 
 /// A modern empty state component with consistent styling
@@ -94,60 +88,6 @@ class EmptyState extends StatelessWidget {
     );
   }
 
-  /// Create an empty state for connection errors with troubleshooting help
-  factory EmptyState.connectionError({
-    Key? key,
-    String? errorMessage,
-    VoidCallback? onRetry,
-    VoidCallback? onOpenSettings,
-  }) {
-    return EmptyState(
-      key: key,
-      icon: Icons.link_off_rounded,
-      title: 'Connection Failed',
-      subtitle: errorMessage ?? 'Could not connect to qBittorrent.',
-      type: EmptyStateType.error,
-      action: Row(
-        mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          if (onOpenSettings != null)
-            OutlinedButton.icon(
-              onPressed: onOpenSettings,
-              icon: const Icon(Icons.settings_rounded, size: 18),
-              label: const Text('Settings'),
-            ),
-          if (onOpenSettings != null && onRetry != null)
-            const SizedBox(width: 12),
-          if (onRetry != null)
-            FilledButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh_rounded, size: 18),
-              label: const Text('Retry'),
-            ),
-        ],
-      ),
-    );
-  }
-
-  /// Create an empty state for offline/no connection
-  factory EmptyState.offline({Key? key, VoidCallback? onRetry}) {
-    return EmptyState(
-      key: key,
-      icon: Icons.cloud_off_rounded,
-      title: 'No connection',
-      subtitle: 'Please check your internet connection',
-      type: EmptyStateType.offline,
-      action: onRetry != null
-          ? FilledButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh_rounded, size: 18),
-              label: const Text('Try Again'),
-            )
-          : null,
-    );
-  }
-
   final IconData icon;
   final String title;
   final String? subtitle;
@@ -172,11 +112,6 @@ class EmptyState extends StatelessWidget {
         iconColor = appColors.errorState;
         bgColor = appColors.errorStateBackground;
         gradientColors = AppColors.gradientError;
-        break;
-      case EmptyStateType.offline:
-        iconColor = appColors.warning;
-        bgColor = appColors.warningBackground;
-        gradientColors = AppColors.gradientWarning;
         break;
       default:
         iconColor = appColors.mutedText;
@@ -289,75 +224,6 @@ class EmptyState extends StatelessWidget {
             ],
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// A modern loading state widget with consistent styling
-class LoadingState extends StatelessWidget {
-  const LoadingState({super.key, this.message, this.compact = false});
-
-  final String? message;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final appColors = context.appColors;
-
-    if (compact) {
-      return Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(
-                strokeWidth: 2.5,
-                valueColor: AlwaysStoppedAnimation(theme.colorScheme.primary),
-              ),
-            ),
-            if (message != null) ...[
-              const SizedBox(width: AppSpacing.lg),
-              Text(
-                message!,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: appColors.subtleText,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ],
-        ),
-      );
-    }
-
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          SizedBox(
-            width: 48,
-            height: 48,
-            child: CircularProgressIndicator(
-              strokeWidth: 3,
-              valueColor: AlwaysStoppedAnimation(theme.colorScheme.primary),
-            ),
-          ),
-          if (message != null) ...[
-            const SizedBox(height: AppSpacing.xl),
-            Text(
-              message!,
-              style: theme.textTheme.bodyLarge?.copyWith(
-                color: appColors.subtleText,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ],
       ),
     );
   }

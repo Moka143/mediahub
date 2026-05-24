@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
 import '../../models/local_media_file.dart';
 import '../../providers/local_media_provider.dart';
+import '../common/mediahub_popup_menu.dart';
 import 'media_helpers.dart';
 
 /// Modal bottom sheet that drills into a show's seasons & episodes.
@@ -18,6 +20,12 @@ class ShowEpisodesSheet extends ConsumerWidget {
   final void Function(LocalMediaFile file)? onMarkNotWatched;
   final void Function(LocalMediaFile file)? onDelete;
 
+  /// Scroll controller supplied by the host `DraggableScrollableSheet`.
+  /// Threading it through the internal `ListView` lets a scroll-from-top
+  /// gesture drive the sheet's drag/snap behavior instead of just the
+  /// drag handle.
+  final ScrollController? scrollController;
+
   const ShowEpisodesSheet({
     super.key,
     required this.showData,
@@ -25,6 +33,7 @@ class ShowEpisodesSheet extends ConsumerWidget {
     this.onMarkWatched,
     this.onMarkNotWatched,
     this.onDelete,
+    this.scrollController,
   });
 
   static Future<void> show(
@@ -50,6 +59,7 @@ class ShowEpisodesSheet extends ConsumerWidget {
           onMarkWatched: onMarkWatched,
           onMarkNotWatched: onMarkNotWatched,
           onDelete: onDelete,
+          scrollController: scrollController,
         ),
       ),
     );
@@ -121,6 +131,7 @@ class ShowEpisodesSheet extends ConsumerWidget {
           const Divider(height: 1),
           Flexible(
             child: ListView(
+              controller: scrollController,
               padding: const EdgeInsets.only(bottom: AppSpacing.lg),
               children: hasMultipleSeasons
                   ? _buildSeasonsList(theme)
@@ -196,21 +207,25 @@ class ShowEpisodesSheet extends ConsumerWidget {
       trailing: canMenu
           ? PopupMenuButton<String>(
               tooltip: 'More',
+              color: kMediaHubPopupColor,
+              shape: kMediaHubPopupShape,
               icon: hasProgress
                   ? Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         buildCircularProgress(file.watchProgress, theme),
                         const SizedBox(width: AppSpacing.xs),
-                        Icon(
+                        const Icon(
                           Icons.more_vert_rounded,
-                          color: theme.colorScheme.onSurfaceVariant,
+                          size: 18,
+                          color: AppColors.fg2,
                         ),
                       ],
                     )
-                  : Icon(
+                  : const Icon(
                       Icons.more_vert_rounded,
-                      color: theme.colorScheme.onSurfaceVariant,
+                      size: 18,
+                      color: AppColors.fg2,
                     ),
               onSelected: (v) {
                 switch (v) {
@@ -224,43 +239,28 @@ class ShowEpisodesSheet extends ConsumerWidget {
               },
               itemBuilder: (_) => [
                 if (!file.isWatched && onMarkWatched != null)
-                  const PopupMenuItem(
+                  PopupMenuItem(
                     value: 'watched',
-                    child: Row(
-                      children: [
-                        Icon(Icons.check_circle_outline_rounded, size: 18),
-                        SizedBox(width: AppSpacing.sm),
-                        Text('Mark as watched'),
-                      ],
+                    child: mediaHubMenuLabel(
+                      icon: Icons.check_circle_outline_rounded,
+                      label: 'Mark as watched',
                     ),
                   ),
                 if (file.isWatched && onMarkNotWatched != null)
-                  const PopupMenuItem(
+                  PopupMenuItem(
                     value: 'unwatched',
-                    child: Row(
-                      children: [
-                        Icon(Icons.remove_circle_outline_rounded, size: 18),
-                        SizedBox(width: AppSpacing.sm),
-                        Text('Mark as not watched'),
-                      ],
+                    child: mediaHubMenuLabel(
+                      icon: Icons.remove_circle_outline_rounded,
+                      label: 'Mark as not watched',
                     ),
                   ),
                 if (onDelete != null)
                   PopupMenuItem(
                     value: 'delete',
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.delete_outline_rounded,
-                          size: 18,
-                          color: theme.colorScheme.error,
-                        ),
-                        const SizedBox(width: AppSpacing.sm),
-                        Text(
-                          'Delete',
-                          style: TextStyle(color: theme.colorScheme.error),
-                        ),
-                      ],
+                    child: mediaHubMenuLabel(
+                      icon: Icons.delete_outline_rounded,
+                      label: 'Delete',
+                      destructive: true,
                     ),
                   ),
               ],

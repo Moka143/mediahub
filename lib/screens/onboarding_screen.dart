@@ -241,11 +241,7 @@ class _Header extends StatelessWidget {
         Text(
           'A free TMDB account powers the catalog.',
           textAlign: TextAlign.center,
-          style: AppType.ui(
-            size: 14,
-            color: AppColors.fg1,
-            height: 1.5,
-          ),
+          style: AppType.ui(size: 14, color: AppColors.fg1, height: 1.5),
         ),
       ],
     );

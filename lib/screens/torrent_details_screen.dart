@@ -5,6 +5,7 @@ import '../design/app_theme.dart';
 import '../design/app_tokens.dart';
 import '../models/torrent.dart';
 import '../providers/torrent_provider.dart';
+import '../utils/feedback_utils.dart';
 import '../utils/formatters.dart';
 import '../widgets/common/app_progress_bar.dart';
 import '../widgets/common/delete_confirmation_dialog.dart';
@@ -195,9 +196,7 @@ class TorrentDetailsScreen extends ConsumerWidget {
       if (success && context.mounted) {
         Navigator.of(context).pop();
       } else if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to delete torrent')),
-        );
+        AppSnackBar.showError(context, message: 'Failed to delete torrent');
       }
     }
   }

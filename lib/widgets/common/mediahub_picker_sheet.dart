@@ -37,16 +37,12 @@ class MediaHubPickerSheet extends StatelessWidget {
       backgroundColor: AppColors.bgSurface,
       barrierColor: Colors.black.withValues(alpha: 0.5),
       isScrollControlled: scrollControlled,
+      showDragHandle: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppRadius.xl),
-        ),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
       ),
-      builder: (_) => MediaHubPickerSheet(
-        title: title,
-        icon: icon,
-        child: child,
-      ),
+      builder: (_) =>
+          MediaHubPickerSheet(title: title, icon: icon, child: child),
     );
   }
 
@@ -74,18 +70,8 @@ class MediaHubPickerSheet extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Drag handle — subtle, indicates draggable.
-                Center(
-                  child: Container(
-                    margin: const EdgeInsets.only(top: AppSpacing.sm),
-                    width: 36,
-                    height: 3,
-                    decoration: BoxDecoration(
-                      color: AppColors.line,
-                      borderRadius: BorderRadius.circular(AppRadius.full),
-                    ),
-                  ),
-                ),
+                // Drag handle is rendered by the global bottomSheetTheme
+                // (`showDragHandle: true`) — no manual handle here.
                 // Header
                 Padding(
                   padding: const EdgeInsets.fromLTRB(
@@ -175,10 +161,7 @@ class PickerSheetTile extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         subtitle!,
-                        style: AppType.ui(
-                          size: 12,
-                          color: AppColors.fg2,
-                        ),
+                        style: AppType.ui(size: 12, color: AppColors.fg2),
                       ),
                     ],
                   ],
@@ -217,11 +200,7 @@ class PickerSheetSection extends StatelessWidget {
         AppSpacing.xxl,
         AppSpacing.xs,
       ),
-      child: MonoLabel(
-        label,
-        color: AppColors.fg3,
-        letterSpacing: 0.12,
-      ),
+      child: MonoLabel(label, color: AppColors.fg3, letterSpacing: 0.12),
     );
   }
 }

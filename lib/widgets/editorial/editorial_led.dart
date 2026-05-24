@@ -23,12 +23,7 @@ class EditorialLed extends StatelessWidget {
         color: color,
         shape: BoxShape.circle,
         boxShadow: glow
-            ? [
-                BoxShadow(
-                  color: color.withValues(alpha: 0.6),
-                  blurRadius: size,
-                ),
-              ]
+            ? [BoxShadow(color: color.withValues(alpha: 0.6), blurRadius: size)]
             : null,
       ),
     );

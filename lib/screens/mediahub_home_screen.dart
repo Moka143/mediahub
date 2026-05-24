@@ -19,6 +19,7 @@ import '../providers/watch_progress_provider.dart';
 import '../screens/movie_details_screen.dart';
 import '../screens/show_details_screen.dart';
 import '../screens/video_player_screen.dart';
+import '../utils/feedback_utils.dart';
 import '../utils/formatters.dart';
 import '../widgets/editorial/editorial.dart';
 
@@ -130,9 +131,9 @@ VoidCallback _heroSecondaryTap(
       orElse: () => null,
     );
     if (fb != null) {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => ShowDetailsScreen(show: fb)),
-      );
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => ShowDetailsScreen(show: fb)));
     } else {
       ref.read(currentTabIndexProvider.notifier).set(2);
     }
@@ -177,16 +178,13 @@ Future<void> _openHeroDetails(
 
   if (!context.mounted) return;
   if (found != null) {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => ShowDetailsScreen(show: found!)),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => ShowDetailsScreen(show: found!)));
   } else {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          "Couldn't find details for ${hero.showName ?? 'this title'}",
-        ),
-      ),
+    AppSnackBar.showInfo(
+      context,
+      message: "Couldn't find details for ${hero.showName ?? 'this title'}",
     );
     ref.read(currentTabIndexProvider.notifier).set(2);
   }
@@ -376,7 +374,6 @@ class MediaHubHomeScreen extends ConsumerWidget {
                               hue: (shows[i].id * 37 % 360).toDouble(),
                               title: shows[i].name,
                               subtitle: shows[i].year,
-                              quality: '4K',
                               onTap: () => Navigator.of(context).push(
                                 MaterialPageRoute(
                                   builder: (_) =>
@@ -419,7 +416,6 @@ class MediaHubHomeScreen extends ConsumerWidget {
                               hue: (movies[i].id * 53 % 360).toDouble(),
                               title: movies[i].title,
                               subtitle: movies[i].year,
-                              quality: '4K',
                               onTap: () => Navigator.of(context).push(
                                 MaterialPageRoute(
                                   builder: (_) =>
@@ -590,7 +586,7 @@ class _HeroCard extends StatelessWidget {
                         compact: true,
                         tone: hero != null
                             ? AppColors.seedColor
-                            : AppColors.accentTertiary,
+                            : AppColors.accentAmber,
                       ),
                       if (hero?.episodeCode != null)
                         EditorialBadge(
@@ -696,7 +692,7 @@ class _ProgressBar extends StatelessWidget {
         height: 4,
         child: Stack(
           children: [
-            Container(color: Colors.white.withAlpha(38)),
+            Container(color: AppColors.glassBorder),
             FractionallySizedBox(
               widthFactor: progress.clamp(0.0, 1.0),
               child: Container(
@@ -841,10 +837,7 @@ class _ContinueCard extends ConsumerWidget {
                           gradient: LinearGradient(
                             begin: Alignment.topCenter,
                             end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.transparent,
-                              Colors.black.withAlpha(160),
-                            ],
+                            colors: [Colors.transparent, AppColors.scrimStrong],
                           ),
                         ),
                       ),
@@ -862,10 +855,7 @@ class _ContinueCard extends ConsumerWidget {
                         color: Colors.white,
                         shape: BoxShape.circle,
                         boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withAlpha(80),
-                            blurRadius: 10,
-                          ),
+                          BoxShadow(color: AppColors.scrimSoft, blurRadius: 10),
                         ],
                       ),
                       child: const Icon(
@@ -883,7 +873,7 @@ class _ContinueCard extends ConsumerWidget {
                       height: 3,
                       child: Stack(
                         children: [
-                          Container(color: Colors.white.withAlpha(38)),
+                          Container(color: AppColors.glassBorder),
                           FractionallySizedBox(
                             widthFactor: progressFraction.clamp(0.0, 1.0),
                             child: Container(color: AppColors.seedColor),
@@ -930,7 +920,6 @@ class _PosterTile extends StatefulWidget {
     required this.hue,
     required this.title,
     required this.subtitle,
-    required this.quality,
     required this.onTap,
   });
 
@@ -938,7 +927,6 @@ class _PosterTile extends StatefulWidget {
   final double hue;
   final String title;
   final String? subtitle;
-  final String quality;
   final VoidCallback onTap;
 
   @override
@@ -984,26 +972,12 @@ class _PosterTileState extends State<_PosterTile> {
                         )
                       else
                         _hueBackdrop(widget.hue.toInt()),
-                      Positioned(
-                        top: AppSpacing.sm,
-                        right: AppSpacing.sm,
-                        child: EditorialBadge(
-                          widget.quality,
-                          compact: true,
-                          tone: widget.quality.qualityColor,
-                        ),
-                      ),
                     ],
                   ),
                 ),
               ),
               const SizedBox(height: AppSpacing.sm + 2),
-              SerifTitle(
-                widget.title,
-                size: 18,
-                height: 1.1,
-                maxLines: 1,
-              ),
+              SerifTitle(widget.title, size: 18, height: 1.1, maxLines: 1),
               if (widget.subtitle != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
@@ -1093,12 +1067,7 @@ class _FreshTile extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: AppSpacing.sm + 2),
-          SerifTitle(
-            _shortName(t.name),
-            size: 18,
-            height: 1.1,
-            maxLines: 1,
-          ),
+          SerifTitle(_shortName(t.name), size: 18, height: 1.1, maxLines: 1),
           const SizedBox(height: 4),
           MonoLabel(
             'NEW · ${quality.toUpperCase()}',
@@ -1179,10 +1148,7 @@ class _PanelEmpty extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
-      child: Text(
-        label,
-        style: AppType.ui(size: 12, color: AppColors.fg2),
-      ),
+      child: Text(label, style: AppType.ui(size: 12, color: AppColors.fg2)),
     );
   }
 }

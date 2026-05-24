@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../design/app_tokens.dart';
 import '../models/torrent.dart';
+import '../utils/feedback_utils.dart';
 import '../utils/formatters.dart';
 
 /// Tab widget for displaying torrent info/properties
@@ -163,11 +164,10 @@ class _InfoRow extends StatelessWidget {
               icon: const Icon(Icons.copy, size: 16),
               onPressed: () {
                 Clipboard.setData(ClipboardData(text: value));
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Copied to clipboard'),
-                    duration: Duration(seconds: 1),
-                  ),
+                AppSnackBar.showInfo(
+                  context,
+                  message: 'Copied to clipboard',
+                  duration: const Duration(seconds: 1),
                 );
               },
               tooltip: 'Copy',

@@ -2,8 +2,9 @@ import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app.dart';
-import '../design/app_tokens.dart';
 import '../design/app_theme.dart';
+import '../design/app_tokens.dart';
+import '../design/app_typography.dart';
 import '../models/torrent.dart';
 import '../providers/auto_download_provider.dart';
 import '../providers/connection_provider.dart' as connection_provider;
@@ -286,11 +287,9 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
   ) async {
     if (!connectionState.isConnected) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Connect to qBittorrent to add torrents'),
-            behavior: SnackBarBehavior.floating,
-          ),
+        AppSnackBar.showWarning(
+          context,
+          message: 'Connect to qBittorrent to add torrents',
         );
         Navigator.of(
           context,
@@ -305,13 +304,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
   Future<void> _showAddTorrentDialog(BuildContext context) async {
     final result = await showAddTorrentDialog(context);
     if (result == true && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Torrent added successfully'),
-          behavior: SnackBarBehavior.floating,
-          margin: const EdgeInsets.all(AppSpacing.screenPadding),
-        ),
-      );
+      AppSnackBar.showSuccess(context, message: 'Torrent added successfully');
     }
   }
 
@@ -738,8 +731,9 @@ class _DownloadsContentState extends ConsumerState<_DownloadsContent> {
       ref.read(selectedTorrentHashesProvider.notifier).clear();
       ref.read(selectionModeProvider.notifier).disable();
     } else if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to pause selected torrents')),
+      AppSnackBar.showError(
+        context,
+        message: 'Failed to pause selected torrents',
       );
     }
   }
@@ -757,8 +751,9 @@ class _DownloadsContentState extends ConsumerState<_DownloadsContent> {
       ref.read(selectedTorrentHashesProvider.notifier).clear();
       ref.read(selectionModeProvider.notifier).disable();
     } else if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to resume selected torrents')),
+      AppSnackBar.showError(
+        context,
+        message: 'Failed to resume selected torrents',
       );
     }
   }
@@ -788,8 +783,9 @@ class _DownloadsContentState extends ConsumerState<_DownloadsContent> {
       ref.read(selectedTorrentHashesProvider.notifier).clear();
       ref.read(selectionModeProvider.notifier).disable();
     } else if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to delete selected torrents')),
+      AppSnackBar.showError(
+        context,
+        message: 'Failed to delete selected torrents',
       );
     }
   }
@@ -826,22 +822,14 @@ class _TransfersSpeedPill extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 4),
-          Text(
-            arrow,
-            style: const TextStyle(
-              fontSize: 11,
-              color: AppColors.fg2,
-              fontFamily: 'monospace',
-            ),
-          ),
+          Text(arrow, style: AppType.mono(size: 11, color: AppColors.fg2)),
           const SizedBox(width: 2),
           Text(
             Formatters.formatSpeed(bytes),
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
+            style: AppType.mono(
+              size: 12,
               color: AppColors.fg,
-              fontFamily: 'monospace',
+              weight: FontWeight.w600,
             ),
           ),
         ],

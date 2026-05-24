@@ -135,12 +135,11 @@ class VideoControlsOverlay extends ConsumerWidget {
                     padding: const EdgeInsets.only(bottom: 4),
                     child: Text(
                       '${file.episodeCode!} · NOW PLAYING',
-                      style: TextStyle(
+                      style: AppType.mono(
+                        size: 10,
                         color: AppColors.accent,
-                        fontSize: 10,
-                        fontFamily: 'monospace',
-                        letterSpacing: 1.4,
-                        fontWeight: FontWeight.w500,
+                        weight: FontWeight.w500,
+                        letterSpacing: 0.14,
                       ),
                     ),
                   ),
@@ -572,7 +571,8 @@ class _SubtitleButton extends ConsumerWidget {
     final groupedSubs = _groupSubtitlesByLanguage(openSubtitles);
     final hasSubtitleContext = ref.read(subtitleContextProvider) != null;
     final offSelected =
-        currentEmbeddedTrack == SubtitleTrack.no() && currentExternalSub == null;
+        currentEmbeddedTrack == SubtitleTrack.no() &&
+        currentExternalSub == null;
 
     MediaHubPickerSheet.show(
       context: context,
@@ -593,9 +593,7 @@ class _SubtitleButton extends ConsumerWidget {
                   ref
                       .read(playerServiceProvider)
                       .setSubtitleTrack(SubtitleTrack.no());
-                  ref
-                      .read(currentExternalSubtitleProvider.notifier)
-                      .clear();
+                  ref.read(currentExternalSubtitleProvider.notifier).clear();
                   Navigator.pop(context);
                 },
               ),
@@ -604,15 +602,13 @@ class _SubtitleButton extends ConsumerWidget {
                 for (final track in embeddedTracks)
                   PickerSheetTile(
                     icon: Icons.subtitles_rounded,
-                    title:
-                        track.title ?? track.language ?? 'Track ${track.id}',
+                    title: track.title ?? track.language ?? 'Track ${track.id}',
                     subtitle: track.title != null ? track.language : null,
-                    selected: currentEmbeddedTrack?.id == track.id &&
+                    selected:
+                        currentEmbeddedTrack?.id == track.id &&
                         currentExternalSub == null,
                     onTap: () {
-                      ref
-                          .read(playerServiceProvider)
-                          .setSubtitleTrack(track);
+                      ref.read(playerServiceProvider).setSubtitleTrack(track);
                       ref
                           .read(currentExternalSubtitleProvider.notifier)
                           .clear();
@@ -642,8 +638,9 @@ class _SubtitleButton extends ConsumerWidget {
                           height: 12,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            valueColor:
-                                AlwaysStoppedAnimation(AppColors.accent),
+                            valueColor: AlwaysStoppedAnimation(
+                              AppColors.accent,
+                            ),
                           ),
                         ),
                       ],

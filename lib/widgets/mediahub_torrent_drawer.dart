@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
+import '../design/app_typography.dart';
 import '../models/torrentio_stream.dart';
 import '../services/torrentio_api_service.dart';
+import 'common/mediahub_drawer_header.dart';
 import 'editorial/editorial.dart';
 import 'mediahub_drawer.dart';
 
@@ -148,7 +150,12 @@ class _DrawerPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        _Header(title: title, subtitle: subtitle, onClose: onCancel),
+        MediaHubDrawerHeader(
+          kicker: 'CHOOSE A SOURCE',
+          title: title,
+          subtitle: subtitle,
+          onClose: onCancel,
+        ),
         _FilterBar(
           total: total,
           qualityFilter: qualityFilter,
@@ -303,110 +310,15 @@ class _TierHeader extends StatelessWidget {
           const SizedBox(width: AppSpacing.sm),
           Text(
             label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.6,
+            style: AppType.mono(
+              size: 11,
               color: accent,
-              fontFamily: 'monospace',
+              weight: FontWeight.w700,
+              letterSpacing: 0.05,
             ),
           ),
           const SizedBox(width: 6),
-          Text(
-            '· $count',
-            style: const TextStyle(
-              fontSize: 11,
-              color: AppColors.fg2,
-              fontFamily: 'monospace',
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Header extends StatelessWidget {
-  const _Header({
-    required this.title,
-    required this.subtitle,
-    required this.onClose,
-  });
-
-  final String title;
-  final String? subtitle;
-  final VoidCallback onClose;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.xl,
-        AppSpacing.xl,
-        AppSpacing.xl,
-        AppSpacing.lg,
-      ),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: AppColors.line, width: 1)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 4,
-            height: 64,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [AppColors.seedColor, AppColors.accentTertiary],
-              ),
-              borderRadius: BorderRadius.circular(2),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.seedColor.withAlpha(120),
-                  blurRadius: 12,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                MonoLabel(
-                  'CHOOSE A SOURCE',
-                  color: AppColors.accent,
-                  letterSpacing: 0.14,
-                ),
-                const SizedBox(height: 6),
-                SerifTitle(title, size: 26, height: 1.1, maxLines: 2),
-                if (subtitle != null && subtitle!.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  MonoLabel(
-                    subtitle!,
-                    color: AppColors.fg2,
-                    letterSpacing: 0.06,
-                    uppercase: false,
-                  ),
-                ],
-              ],
-            ),
-          ),
-          IconButton(
-            onPressed: onClose,
-            tooltip: 'Close (Esc)',
-            icon: const Icon(Icons.close_rounded, size: 16),
-            style: IconButton.styleFrom(
-              foregroundColor: AppColors.fg2,
-              backgroundColor: AppColors.bgSurface,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppRadius.sm),
-                side: const BorderSide(color: AppColors.line),
-              ),
-            ),
-          ),
+          Text('· $count', style: AppType.mono(size: 11, color: AppColors.fg2)),
         ],
       ),
     );
@@ -488,9 +400,7 @@ class _FilterBar extends StatelessWidget {
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w600,
-              color: selected
-                  ? AppColors.fg
-                  : AppColors.fg2,
+              color: selected ? AppColors.fg : AppColors.fg2,
             ),
           ),
         ),
@@ -598,7 +508,7 @@ class _SourceRowState extends State<_SourceRow> {
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
+        duration: AppDuration.fast,
         margin: const EdgeInsets.only(bottom: 4),
         decoration: BoxDecoration(
           color: _hover ? AppColors.bgSurfaceHi : Colors.transparent,
@@ -628,14 +538,13 @@ class _SourceRowState extends State<_SourceRow> {
                       bottomRight: Radius.circular(4),
                     ),
                   ),
-                  child: const Text(
+                  child: Text(
                     '★ BEST',
-                    style: TextStyle(
-                      fontSize: 8,
+                    style: AppType.mono(
+                      size: 8,
                       color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.6,
-                      fontFamily: 'monospace',
+                      weight: FontWeight.w800,
+                      letterSpacing: 0.075,
                     ),
                   ),
                 ),
@@ -664,16 +573,15 @@ class _SourceRowState extends State<_SourceRow> {
                       // through the source name; we use a heuristic.
                       if (s.name.toLowerCase().contains('cached') ||
                           s.name.toLowerCase().contains('rd+'))
-                        const Padding(
-                          padding: EdgeInsets.only(top: 4),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
                           child: Text(
                             '● CACHED',
-                            style: TextStyle(
-                              fontSize: 8,
-                              fontWeight: FontWeight.w700,
+                            style: AppType.mono(
+                              size: 8,
                               color: AppColors.seeding,
-                              letterSpacing: 0.5,
-                              fontFamily: 'monospace',
+                              weight: FontWeight.w700,
+                              letterSpacing: 0.06,
                             ),
                           ),
                         ),
@@ -689,11 +597,10 @@ class _SourceRowState extends State<_SourceRow> {
                           s.title.split('\n').first,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 12,
+                          style: AppType.mono(
+                            size: 12,
                             color: AppColors.fg,
-                            fontWeight: FontWeight.w500,
-                            fontFamily: 'monospace',
+                            weight: FontWeight.w500,
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -707,14 +614,13 @@ class _SourceRowState extends State<_SourceRow> {
                             ],
                             if (s.isSeasonPack) ...[
                               const _Dot(),
-                              const Text(
+                              Text(
                                 'FULL SEASON',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontFamily: 'monospace',
-                                  fontWeight: FontWeight.w700,
+                                style: AppType.mono(
+                                  size: 10,
                                   color: AppColors.accentPrimary,
-                                  letterSpacing: 0.5,
+                                  weight: FontWeight.w700,
+                                  letterSpacing: 0.05,
                                 ),
                               ),
                             ],
@@ -730,11 +636,10 @@ class _SourceRowState extends State<_SourceRow> {
                     children: [
                       Text(
                         '● ${s.seeders}',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
+                        style: AppType.mono(
+                          size: 11,
                           color: AppColors.seeding,
-                          fontFamily: 'monospace',
+                          weight: FontWeight.w700,
                         ),
                       ),
                       const SizedBox(height: 2),
@@ -744,11 +649,7 @@ class _SourceRowState extends State<_SourceRow> {
                         s.isSeasonPack
                             ? 'pack'
                             : (s.isSingleFile ? 'single' : 'multi'),
-                        style: const TextStyle(
-                          fontSize: 10,
-                          color: AppColors.fg2,
-                          fontFamily: 'monospace',
-                        ),
+                        style: AppType.mono(size: 10, color: AppColors.fg2),
                       ),
                     ],
                   ),
@@ -800,14 +701,13 @@ class _SourceRowState extends State<_SourceRow> {
                           const SizedBox(width: 4),
                           Text(
                             'GRAB',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              fontFamily: 'monospace',
-                              letterSpacing: 0.5,
+                            style: AppType.mono(
+                              size: 11,
                               color: widget.best || _hover
                                   ? Colors.white
                                   : AppColors.seedColor,
+                              weight: FontWeight.w700,
+                              letterSpacing: 0.05,
                             ),
                           ),
                         ],
@@ -834,9 +734,8 @@ class _MetaBit extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       text,
-      style: TextStyle(
-        fontSize: 10,
-        fontFamily: 'monospace',
+      style: AppType.mono(
+        size: 10,
         color: brighter ? AppColors.fg1 : AppColors.fg2,
       ),
     );
@@ -850,10 +749,7 @@ class _Dot extends StatelessWidget {
   Widget build(BuildContext context) {
     return const Padding(
       padding: EdgeInsets.symmetric(horizontal: 6),
-      child: Text(
-        '·',
-        style: TextStyle(color: AppColors.fg3, fontSize: 10),
-      ),
+      child: Text('·', style: TextStyle(color: AppColors.fg3, fontSize: 10)),
     );
   }
 }
@@ -885,11 +781,7 @@ class _Footer extends StatelessWidget {
           Expanded(
             child: Text(
               '$count sources · sorted by $sortLabel',
-              style: const TextStyle(
-                fontSize: 11,
-                color: AppColors.fg2,
-                fontFamily: 'monospace',
-              ),
+              style: AppType.mono(size: 11, color: AppColors.fg2),
             ),
           ),
           OutlinedButton(
@@ -949,12 +841,11 @@ class _StreamabilityChip extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: TextStyle(
-          fontSize: 9,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.4,
+        style: AppType.mono(
+          size: 9,
           color: color,
-          fontFamily: 'monospace',
+          weight: FontWeight.w700,
+          letterSpacing: 0.045,
         ),
       ),
     );

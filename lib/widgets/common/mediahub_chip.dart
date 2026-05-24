@@ -53,7 +53,7 @@ class _MediaHubFilterChipState extends State<MediaHubFilterChip> {
         onTap: widget.onTap,
         behavior: HitTestBehavior.opaque,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
+          duration: AppDuration.fast,
           padding: const EdgeInsets.symmetric(
             horizontal: AppSpacing.md,
             vertical: AppSpacing.xs,

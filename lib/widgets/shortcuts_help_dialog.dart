@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
+import '../design/app_typography.dart';
+import 'common/editorial_dialog_shell.dart';
+import 'editorial/serif_title.dart';
 
 /// Modal dialog that lists the player's keyboard shortcuts.
 ///
@@ -13,10 +17,10 @@ class ShortcutsHelpDialog extends StatelessWidget {
     _ShortcutEntry(keys: ['Space'], label: 'Play / Pause'),
     _ShortcutEntry(keys: ['F'], label: 'Toggle fullscreen'),
     _ShortcutEntry(keys: ['M'], label: 'Mute / Unmute'),
-    _ShortcutEntry(keys: ['\u2190'], label: 'Seek back 10s'),
-    _ShortcutEntry(keys: ['\u2192'], label: 'Seek forward 10s'),
-    _ShortcutEntry(keys: ['\u2191'], label: 'Volume up'),
-    _ShortcutEntry(keys: ['\u2193'], label: 'Volume down'),
+    _ShortcutEntry(keys: ['←'], label: 'Seek back 10s'),
+    _ShortcutEntry(keys: ['→'], label: 'Seek forward 10s'),
+    _ShortcutEntry(keys: ['↑'], label: 'Volume up'),
+    _ShortcutEntry(keys: ['↓'], label: 'Volume down'),
     _ShortcutEntry(keys: ['Esc'], label: 'Exit fullscreen / close player'),
     _ShortcutEntry(keys: ['?'], label: 'Show this help'),
   ];
@@ -31,46 +35,32 @@ class ShortcutsHelpDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Dialog(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.lg),
-      ),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.xl),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return EditorialDialogShell(
+      maxWidth: 420,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              Row(
-                children: [
-                  Icon(
-                    Icons.keyboard_rounded,
-                    color: theme.colorScheme.primary,
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Text(
-                    'Keyboard shortcuts',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    icon: const Icon(Icons.close_rounded),
-                    onPressed: () => Navigator.of(context).pop(),
-                    tooltip: 'Close',
-                  ),
-                ],
+              const Icon(
+                Icons.keyboard_rounded,
+                color: AppColors.accent,
+                size: AppIconSize.lg,
               ),
-              const SizedBox(height: AppSpacing.md),
-              ..._shortcuts.map((s) => _ShortcutRow(entry: s)),
+              const SizedBox(width: AppSpacing.sm),
+              const SerifTitle('Keyboard shortcuts', size: 22, height: 1.05),
+              const Spacer(),
+              IconButton(
+                icon: const Icon(Icons.close_rounded, color: AppColors.fg2),
+                onPressed: () => Navigator.of(context).pop(),
+                tooltip: 'Close',
+              ),
             ],
           ),
-        ),
+          const SizedBox(height: AppSpacing.md),
+          ..._shortcuts.map((s) => _ShortcutRow(entry: s)),
+        ],
       ),
     );
   }
@@ -90,8 +80,6 @@ class _ShortcutRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
       child: Row(
@@ -104,7 +92,12 @@ class _ShortcutRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: AppSpacing.md),
-          Expanded(child: Text(entry.label, style: theme.textTheme.bodyMedium)),
+          Expanded(
+            child: Text(
+              entry.label,
+              style: AppType.ui(size: 13, color: AppColors.fg1),
+            ),
+          ),
         ],
       ),
     );
@@ -118,28 +111,22 @@ class _KeyCap extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.sm,
         vertical: 3,
       ),
       decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest,
+        color: AppColors.bgSurfaceHi,
         borderRadius: BorderRadius.circular(AppRadius.xs),
-        border: Border.all(
-          color: scheme.outlineVariant,
-          width: AppBorderWidth.thin,
-        ),
+        border: Border.all(color: AppColors.line, width: AppBorderWidth.thin),
       ),
       child: Text(
         label,
-        style: theme.textTheme.labelMedium?.copyWith(
-          fontFamily: 'monospace',
-          fontWeight: FontWeight.w600,
-          color: scheme.onSurface,
+        style: AppType.mono(
+          size: 11,
+          color: AppColors.fg,
+          weight: FontWeight.w600,
         ),
       ),
     );

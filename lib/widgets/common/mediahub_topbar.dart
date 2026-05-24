@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../design/app_colors.dart';
+import '../../design/app_tokens.dart';
 import '../../design/app_typography.dart';
 import '../editorial/mono_label.dart';
 import '../editorial/serif_title.dart';
@@ -19,6 +20,7 @@ class MediaHubTopBar extends StatelessWidget implements PreferredSizeWidget {
     this.onSearchChanged,
     this.searchController,
     this.actions = const [],
+    this.leading,
   });
 
   @override
@@ -35,9 +37,19 @@ class MediaHubTopBar extends StatelessWidget implements PreferredSizeWidget {
   final TextEditingController? searchController;
   final List<Widget> actions;
 
+  /// Optional widget placed before the title — typically a back button on
+  /// pushed routes (e.g. Settings). Pass `null` on root screens.
+  final Widget? leading;
+
   @override
   Widget build(BuildContext context) {
     return Container(
+      // Match preferredSize so the inner Row vertically centers inside
+      // the full slot the Scaffold reserves; otherwise contents sit
+      // top-aligned with ~30px of empty space below and the trailing
+      // actions (settings button etc.) hug the macOS title bar instead
+      // of sitting on the topbar's centerline.
+      height: preferredSize.height,
       padding: const EdgeInsets.symmetric(horizontal: 28),
       decoration: const BoxDecoration(
         color: AppColors.bgPage,
@@ -46,7 +58,15 @@ class MediaHubTopBar extends StatelessWidget implements PreferredSizeWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Flexible(
+          if (leading != null) ...[
+            leading!,
+            const SizedBox(width: 12),
+          ],
+          // Title row takes all available space on the left so the
+          // trailing actions (Wrap below) get pushed against the right
+          // edge. `Flexible` here would split free space with a
+          // `Spacer` and leave the gear button stranded in the middle.
+          Expanded(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               mainAxisSize: MainAxisSize.min,
@@ -62,11 +82,7 @@ class MediaHubTopBar extends StatelessWidget implements PreferredSizeWidget {
                 ),
                 if (subtitle != null && subtitle!.isNotEmpty) ...[
                   const SizedBox(width: 14),
-                  Container(
-                    width: 1,
-                    height: 14,
-                    color: AppColors.line,
-                  ),
+                  Container(width: 1, height: 14, color: AppColors.line),
                   const SizedBox(width: 14),
                   Flexible(
                     child: MonoLabel(
@@ -80,7 +96,6 @@ class MediaHubTopBar extends StatelessWidget implements PreferredSizeWidget {
               ],
             ),
           ),
-          const Spacer(),
           if (showSearch) ...[
             ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 320, minWidth: 220),
@@ -118,7 +133,7 @@ class _SearchField extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.bgSurface,
         border: Border.all(color: AppColors.line, width: 1),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(AppRadius.xs),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
@@ -228,7 +243,7 @@ class _MediaHubIconButtonState extends State<MediaHubIconButton> {
               color: widget.active
                   ? AppColors.bgSurfaceHi
                   : (_hover ? AppColors.bgSurface : Colors.transparent),
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: BorderRadius.circular(AppRadius.xs),
               border: Border.all(
                 color: widget.active ? AppColors.lineStrong : AppColors.line,
                 width: 1,

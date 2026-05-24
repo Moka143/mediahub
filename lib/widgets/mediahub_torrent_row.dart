@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import '../design/app_colors.dart';
 import '../design/app_theme.dart';
 import '../design/app_tokens.dart';
+import '../design/app_typography.dart';
 import '../models/torrent.dart';
 import '../utils/constants.dart';
 import '../utils/formatters.dart';
+import 'common/mediahub_popup_menu.dart';
 import 'editorial/editorial.dart';
 
 /// Pull a short display quality token (`4K` / `1080p` / `720p` / `SD`)
@@ -84,12 +86,11 @@ class MediaHubTorrentHeader extends StatelessWidget {
         children: [
           Text(
             col.label.toUpperCase(),
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
+            style: AppType.mono(
+              size: 10,
               color: color,
-              letterSpacing: 1.0,
-              fontFamily: 'monospace',
+              weight: FontWeight.w700,
+              letterSpacing: 0.1,
             ),
           ),
           if (active) ...[
@@ -266,11 +267,10 @@ class _MediaHubTorrentRowState extends State<MediaHubTorrentRow>
                             t.name,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontFamily: 'monospace',
-                              fontWeight: FontWeight.w500,
+                            style: AppType.mono(
+                              size: 12,
                               color: AppColors.fg,
+                              weight: FontWeight.w500,
                             ),
                           ),
                         ),
@@ -283,11 +283,7 @@ class _MediaHubTorrentRowState extends State<MediaHubTorrentRow>
                     width: 64,
                     child: Text(
                       Formatters.formatBytes(t.size),
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontFamily: 'monospace',
-                        color: AppColors.fg1,
-                      ),
+                      style: AppType.mono(size: 11, color: AppColors.fg1),
                     ),
                   ),
                   if (!widget.compact) ...[
@@ -329,11 +325,10 @@ class _MediaHubTorrentRowState extends State<MediaHubTorrentRow>
                             child: Text(
                               '${(t.progress * 100).toStringAsFixed(0)}%',
                               textAlign: TextAlign.right,
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontFamily: 'monospace',
-                                fontWeight: FontWeight.w700,
+                              style: AppType.mono(
+                                size: 11,
                                 color: stateColor,
+                                weight: FontWeight.w700,
                               ),
                             ),
                           ),
@@ -347,12 +342,9 @@ class _MediaHubTorrentRowState extends State<MediaHubTorrentRow>
                     width: 70,
                     child: Text(
                       t.dlspeed > 0 ? Formatters.formatSpeed(t.dlspeed) : '—',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontFamily: 'monospace',
-                        color: t.dlspeed > 0
-                            ? ac.downloading
-                            : AppColors.fg3,
+                      style: AppType.mono(
+                        size: 11,
+                        color: t.dlspeed > 0 ? ac.downloading : AppColors.fg3,
                       ),
                     ),
                   ),
@@ -362,12 +354,9 @@ class _MediaHubTorrentRowState extends State<MediaHubTorrentRow>
                       width: 70,
                       child: Text(
                         t.upspeed > 0 ? Formatters.formatSpeed(t.upspeed) : '—',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontFamily: 'monospace',
-                          color: t.upspeed > 0
-                              ? ac.seeding
-                              : AppColors.fg3,
+                        style: AppType.mono(
+                          size: 11,
+                          color: t.upspeed > 0 ? ac.seeding : AppColors.fg3,
                         ),
                       ),
                     ),
@@ -378,11 +367,7 @@ class _MediaHubTorrentRowState extends State<MediaHubTorrentRow>
                         (t.eta > 0 && t.eta < 8640000)
                             ? Formatters.formatDuration(t.eta)
                             : '—',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontFamily: 'monospace',
-                          color: AppColors.fg1,
-                        ),
+                        style: AppType.mono(size: 11, color: AppColors.fg1),
                       ),
                     ),
                   ],
@@ -480,11 +465,7 @@ class _RowIconButtonState extends State<_RowIconButton> {
               borderRadius: BorderRadius.circular(AppRadius.sm),
             ),
             child: Center(
-              child: Icon(
-                widget.icon,
-                size: 14,
-                color: AppColors.fg1,
-              ),
+              child: Icon(widget.icon, size: 14, color: AppColors.fg1),
             ),
           ),
         ),
@@ -515,7 +496,8 @@ class _RowOverflowMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     return PopupMenuButton<_RowAction>(
       tooltip: 'More',
-      color: AppColors.bgSurfaceHi,
+      color: kMediaHubPopupColor,
+      shape: kMediaHubPopupShape,
       padding: EdgeInsets.zero,
       icon: const Icon(
         Icons.more_horiz_rounded,
@@ -535,14 +517,14 @@ class _RowOverflowMenu extends StatelessWidget {
       itemBuilder: (_) => [
         PopupMenuItem(
           value: _RowAction.pauseResume,
-          child: _menuItem(
+          child: mediaHubMenuLabel(
             icon: isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
             label: isPaused ? 'Resume' : 'Pause',
           ),
         ),
         PopupMenuItem(
           value: _RowAction.select,
-          child: _menuItem(
+          child: mediaHubMenuLabel(
             icon: Icons.check_box_outlined,
             label: 'Select',
           ),
@@ -550,28 +532,12 @@ class _RowOverflowMenu extends StatelessWidget {
         const PopupMenuDivider(),
         PopupMenuItem(
           value: _RowAction.delete,
-          child: _menuItem(
+          child: mediaHubMenuLabel(
             icon: Icons.delete_outline,
             label: 'Delete',
             destructive: true,
           ),
         ),
-      ],
-    );
-  }
-
-  Widget _menuItem({
-    required IconData icon,
-    required String label,
-    bool destructive = false,
-  }) {
-    final color = destructive ? AppColors.err : AppColors.fg1;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 14, color: color),
-        const SizedBox(width: AppSpacing.sm),
-        Text(label, style: TextStyle(fontSize: 12, color: color)),
       ],
     );
   }

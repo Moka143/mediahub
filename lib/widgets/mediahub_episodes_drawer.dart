@@ -3,13 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
+import '../design/app_typography.dart';
 import '../models/episode.dart';
 import '../models/season.dart';
 import '../models/show.dart';
 import '../providers/shows_provider.dart' show tmdbApiServiceProvider;
 import '../providers/torrent_provider.dart';
 import '../providers/watch_progress_provider.dart';
-import 'editorial/editorial.dart';
+import 'common/mediahub_drawer_header.dart';
 import 'mediahub_drawer.dart';
 
 /// Right-side drawer presenting a show's seasons + episodes — replaces
@@ -88,7 +89,7 @@ class _MediaHubEpisodesDrawerState
     if (ctx != null) {
       Scrollable.ensureVisible(
         ctx,
-        duration: const Duration(milliseconds: 300),
+        duration: AppDuration.normal,
         curve: Curves.easeOutCubic,
         alignment: 0.0,
       );
@@ -164,8 +165,14 @@ class _MediaHubEpisodesDrawerState
       padding: const EdgeInsets.only(left: MediaHubDrawer.dragGripWidth),
       child: Column(
         children: [
-          _DrawerHeader(
-            show: widget.show,
+          MediaHubDrawerHeader(
+            kicker: 'BROWSE EPISODES',
+            title: widget.show.name,
+            subtitle:
+                '${widget.show.numberOfSeasons ?? 0} '
+                '${(widget.show.numberOfSeasons ?? 0) == 1 ? 'SEASON' : 'SEASONS'}'
+                ' · ${widget.show.numberOfEpisodes ?? 0} EPISODES',
+            subtitleUppercase: true,
             onClose: () => Navigator.of(context).pop(),
           ),
           _SeasonTabs(
@@ -232,87 +239,6 @@ class _MediaHubEpisodesDrawerState
   }
 }
 
-class _DrawerHeader extends StatelessWidget {
-  const _DrawerHeader({required this.show, required this.onClose});
-
-  final Show show;
-  final VoidCallback onClose;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.xl,
-        AppSpacing.xl,
-        AppSpacing.xl,
-        AppSpacing.lg,
-      ),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: AppColors.line, width: 1)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 4,
-            height: 64,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [AppColors.seedColor, AppColors.accentTertiary],
-              ),
-              borderRadius: BorderRadius.circular(2),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.seedColor.withAlpha(120),
-                  blurRadius: 12,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                MonoLabel(
-                  'BROWSE EPISODES',
-                  color: AppColors.accent,
-                  letterSpacing: 0.14,
-                ),
-                const SizedBox(height: 6),
-                SerifTitle(show.name, size: 26, height: 1.1, maxLines: 2),
-                const SizedBox(height: 6),
-                MonoLabel(
-                  '${show.numberOfSeasons ?? 0} '
-                  '${(show.numberOfSeasons ?? 0) == 1 ? 'SEASON' : 'SEASONS'}'
-                  ' · ${show.numberOfEpisodes ?? 0} EPISODES',
-                  color: AppColors.fg2,
-                  letterSpacing: 0.1,
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            onPressed: onClose,
-            tooltip: 'Close (Esc)',
-            icon: const Icon(Icons.close_rounded, size: 16),
-            style: IconButton.styleFrom(
-              foregroundColor: AppColors.fg2,
-              backgroundColor: AppColors.bgSurface,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppRadius.sm),
-                side: const BorderSide(color: AppColors.line),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _SeasonTabs extends StatelessWidget {
   const _SeasonTabs({
     required this.seasonNumbers,
@@ -336,14 +262,13 @@ class _SeasonTabs extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Text(
+          Text(
             'SEASON',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
+            style: AppType.mono(
+              size: 10,
               color: AppColors.fg2,
-              letterSpacing: 0.88,
-              fontFamily: 'monospace',
+              weight: FontWeight.w700,
+              letterSpacing: 0.088,
             ),
           ),
           const SizedBox(width: AppSpacing.sm),
@@ -399,11 +324,10 @@ class _SeasonChip extends StatelessWidget {
         alignment: Alignment.center,
         child: Text(
           number.toString().padLeft(2, '0'),
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            fontFamily: 'monospace',
+          style: AppType.mono(
+            size: 12,
             color: selected ? Colors.white : AppColors.fg1,
+            weight: FontWeight.w700,
           ),
         ),
       ),
@@ -466,16 +390,15 @@ class _EpisodePicker extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Padding(
-            padding: EdgeInsets.only(right: AppSpacing.sm, top: 6),
+          Padding(
+            padding: const EdgeInsets.only(right: AppSpacing.sm, top: 6),
             child: Text(
               'EPISODE',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
+              style: AppType.mono(
+                size: 10,
                 color: AppColors.fg2,
-                letterSpacing: 0.88,
-                fontFamily: 'monospace',
+                weight: FontWeight.w700,
+                letterSpacing: 0.088,
               ),
             ),
           ),
@@ -538,13 +461,10 @@ class _EpisodePill extends StatelessWidget {
           children: [
             Text(
               episode.episodeNumber.toString().padLeft(2, '0'),
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                fontFamily: 'monospace',
-                color: isWatched
-                    ? AppColors.fg2
-                    : AppColors.fg1,
+              style: AppType.mono(
+                size: 12,
+                color: isWatched ? AppColors.fg2 : AppColors.fg1,
+                weight: FontWeight.w700,
               ),
             ),
             if (status != _EpisodeStatus.none)
@@ -614,9 +534,7 @@ class _EpisodeRowState extends State<_EpisodeRow> {
             decoration: BoxDecoration(
               color: _hover ? AppColors.bgSurfaceHi : AppColors.bgSurface,
               border: Border.all(
-                color: _hover
-                    ? const Color(0x33FFFFFF)
-                    : AppColors.line,
+                color: _hover ? const Color(0x33FFFFFF) : AppColors.line,
               ),
               borderRadius: BorderRadius.circular(AppRadius.md),
               boxShadow: _hover
@@ -640,16 +558,15 @@ class _EpisodeRowState extends State<_EpisodeRow> {
                       Text(
                         ep.episodeNumber.toString().padLeft(2, '0'),
                         textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                          // Watched episodes dim slightly so the user
-                          // can scan unwatched ones at a glance.
+                        // Watched episodes dim slightly so the user
+                        // can scan unwatched ones at a glance.
+                        style: AppType.mono(
+                          size: 18,
                           color: widget.status == _EpisodeStatus.watched
                               ? AppColors.fg2
                               : AppColors.fg,
-                          letterSpacing: -0.36,
-                          fontFamily: 'monospace',
+                          weight: FontWeight.w800,
+                          letterSpacing: -0.02,
                         ),
                       ),
                       if (widget.status.icon != null)
@@ -721,11 +638,10 @@ class _EpisodeRowState extends State<_EpisodeRow> {
                               if (ep.airDate != null) ep.airDate!.toUpperCase(),
                               if (ep.runtime != null) '${ep.runtime}m',
                             ].join(' · '),
-                            style: const TextStyle(
-                              fontSize: 10,
+                            style: AppType.mono(
+                              size: 10,
                               color: AppColors.fg2,
-                              letterSpacing: 0.4,
-                              fontFamily: 'monospace',
+                              letterSpacing: 0.04,
                             ),
                           ),
                           if (widget.status != _EpisodeStatus.none) ...[
@@ -743,12 +659,11 @@ class _EpisodeRowState extends State<_EpisodeRow> {
                               ),
                               child: Text(
                                 widget.status.label.toUpperCase(),
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w700,
-                                  fontFamily: 'monospace',
-                                  letterSpacing: 0.5,
+                                style: AppType.mono(
+                                  size: 9,
                                   color: widget.status.color,
+                                  weight: FontWeight.w700,
+                                  letterSpacing: 0.055,
                                 ),
                               ),
                             ),
@@ -833,12 +748,11 @@ class _ActionButton extends StatelessWidget {
             const SizedBox(width: 4),
             Text(
               spec.label,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.5,
-                fontFamily: 'monospace',
+              style: AppType.mono(
+                size: 11,
                 color: hover ? Colors.white : spec.color,
+                weight: FontWeight.w700,
+                letterSpacing: 0.05,
               ),
             ),
           ],

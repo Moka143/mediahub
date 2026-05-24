@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'design/app_theme.dart';
-import 'providers/settings_provider.dart';
 import 'screens/splash_screen.dart';
 import 'utils/constants.dart';
 
@@ -20,13 +19,14 @@ class TorrentClientApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final themeMode = ref.watch(themeModeProvider);
-
     return MaterialApp(
       title: AppConstants.appName,
       debugShowCheckedModeBanner: false,
-      themeMode: themeMode,
-      theme: buildLightTheme(),
+      // MediaHub ships dark-only — the editorial palette doesn't have a
+      // light variant. We pin themeMode to dark rather than honouring
+      // system preference so users on light-mode OS don't get a black-
+      // text-on-black surface.
+      themeMode: ThemeMode.dark,
       darkTheme: buildDarkTheme(),
       scaffoldMessengerKey: rootScaffoldMessengerKey,
       navigatorKey: rootNavigatorKey,

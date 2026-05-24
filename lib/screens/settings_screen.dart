@@ -5,14 +5,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../design/app_colors.dart';
 import '../design/app_theme.dart';
 import '../design/app_tokens.dart';
+import '../design/app_typography.dart';
 import '../widgets/common/mediahub_confirm_dialog.dart';
+import '../widgets/common/mediahub_topbar.dart';
 import '../providers/auto_download_provider.dart';
 import '../providers/connection_provider.dart';
 import '../providers/settings_provider.dart';
-import '../utils/debouncer.dart';
 import '../utils/constants.dart';
+import '../utils/debouncer.dart';
+import '../utils/feedback_utils.dart';
 import '../widgets/common/section_header.dart';
 import '../widgets/tmdb_account_section.dart';
 
@@ -327,28 +331,52 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     final appColors = context.appColors;
     final theme = Theme.of(context);
 
+    final canPop = Navigator.of(context).canPop();
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Settings'),
-        centerTitle: false,
-        bottom: TabBar(
-          controller: _tabController,
-          isScrollable: false,
-          tabs: const [
-            Tab(icon: Icon(Icons.link_rounded), text: 'Connection'),
-            Tab(icon: Icon(Icons.download_rounded), text: 'Downloads'),
-            Tab(icon: Icon(Icons.palette_rounded), text: 'Appearance'),
-            Tab(icon: Icon(Icons.info_rounded), text: 'About'),
-          ],
-        ),
+      appBar: MediaHubTopBar(
+        title: 'Settings',
+        showSearch: false,
+        leading: canPop
+            ? MediaHubIconButton(
+                icon: Icons.arrow_back_rounded,
+                tooltip: 'Back',
+                onPressed: () => Navigator.of(context).pop(),
+              )
+            : null,
       ),
-      body: TabBarView(
-        controller: _tabController,
+      body: Column(
         children: [
-          _buildConnectionTab(theme, appColors),
-          _buildDownloadsTab(theme, appColors),
-          _buildAppearanceTab(theme, appColors),
-          _buildAboutTab(theme, appColors),
+          // TabBar lives in the body so the editorial topbar stays clean.
+          Container(
+            decoration: const BoxDecoration(
+              color: AppColors.bgPage,
+              border: Border(
+                bottom: BorderSide(color: AppColors.line, width: 1),
+              ),
+            ),
+            child: TabBar(
+              controller: _tabController,
+              isScrollable: false,
+              tabs: const [
+                Tab(icon: Icon(Icons.link_rounded), text: 'Connection'),
+                Tab(icon: Icon(Icons.download_rounded), text: 'Downloads'),
+                Tab(icon: Icon(Icons.palette_rounded), text: 'Appearance'),
+                Tab(icon: Icon(Icons.info_rounded), text: 'About'),
+              ],
+            ),
+          ),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildConnectionTab(theme, appColors),
+                _buildDownloadsTab(theme, appColors),
+                _buildAppearanceTab(theme, appColors),
+                _buildAboutTab(theme, appColors),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -940,58 +968,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.screenPadding),
       children: [
-        // Theme
-        const SettingsSectionHeader(
-          title: 'Theme',
-          icon: Icons.dark_mode_rounded,
-        ),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.cardPadding),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Choose your preferred theme',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: appColors.mutedText,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                SegmentedButton<ThemeMode>(
-                  segments: const [
-                    ButtonSegment(
-                      value: ThemeMode.system,
-                      icon: Icon(Icons.brightness_auto_rounded),
-                      label: Text('System'),
-                    ),
-                    ButtonSegment(
-                      value: ThemeMode.dark,
-                      icon: Icon(Icons.dark_mode_rounded),
-                      label: Text('Dark'),
-                    ),
-                  ],
-                  // Persisted ThemeMode.light values from earlier builds
-                  // are coerced to System for the segmented-button
-                  // selection — the buildLightTheme stub still renders
-                  // dark, so the visible behaviour matches either way.
-                  selected: {
-                    settings.themeMode == ThemeMode.light
-                        ? ThemeMode.system
-                        : settings.themeMode,
-                  },
-                  onSelectionChanged: (modes) {
-                    ref
-                        .read(settingsProvider.notifier)
-                        .setThemeMode(modes.first);
-                  },
-                ),
-              ],
-            ),
-          ),
-        ),
-
-        const SizedBox(height: AppSpacing.sectionSpacing),
+        // Theme: MediaHub is dark-only — the editorial palette doesn't
+        // have a light variant. Theme picker intentionally absent.
 
         // Update Interval
         const SettingsSectionHeader(
@@ -1431,9 +1409,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           ),
           child: Text(
             shortcut,
-            style: theme.textTheme.labelLarge?.copyWith(
-              fontFamily: 'monospace',
-              fontWeight: FontWeight.w600,
+            style: AppType.mono(
+              size: 13,
+              color: AppColors.fg,
+              weight: FontWeight.w600,
             ),
           ),
         ),
@@ -1460,23 +1439,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     final apiService = ref.read(qbApiServiceProvider);
     final success = await apiService.setDownloadLimit(limitBytes);
     if (!success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          behavior: SnackBarBehavior.floating,
-          content: Row(
-            children: [
-              const Icon(Icons.error_rounded, color: Colors.white),
-              const SizedBox(width: AppSpacing.sm),
-              const Text(
-                'Failed to apply download limit. Check your connection.',
-              ),
-            ],
-          ),
-          action: SnackBarAction(
-            label: 'Retry',
-            onPressed: () => _applyDownloadLimit(limitBytes),
-          ),
-        ),
+      AppSnackBar.showError(
+        context,
+        message: 'Failed to apply download limit. Check your connection.',
+        actionLabel: 'Retry',
+        onAction: () => _applyDownloadLimit(limitBytes),
       );
     }
   }
@@ -1488,23 +1455,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     final apiService = ref.read(qbApiServiceProvider);
     final success = await apiService.setUploadLimit(limitBytes);
     if (!success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          behavior: SnackBarBehavior.floating,
-          content: Row(
-            children: [
-              const Icon(Icons.error_rounded, color: Colors.white),
-              const SizedBox(width: AppSpacing.sm),
-              const Text(
-                'Failed to apply upload limit. Check your connection.',
-              ),
-            ],
-          ),
-          action: SnackBarAction(
-            label: 'Retry',
-            onPressed: () => _applyUploadLimit(limitBytes),
-          ),
-        ),
+      AppSnackBar.showError(
+        context,
+        message: 'Failed to apply upload limit. Check your connection.',
+        actionLabel: 'Retry',
+        onAction: () => _applyUploadLimit(limitBytes),
       );
     }
   }
@@ -1536,24 +1491,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       _uploadLimitController.text = '';
 
       if (context.mounted) {
-        final appColors = context.appColors;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            behavior: SnackBarBehavior.floating,
-            margin: const EdgeInsets.all(AppSpacing.md),
-            content: Row(
-              children: [
-                Icon(
-                  Icons.check_circle_rounded,
-                  color: appColors.success,
-                  size: 20,
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                const Text('Settings reset to defaults'),
-              ],
-            ),
-          ),
-        );
+        AppSnackBar.showSuccess(context, message: 'Settings reset to defaults');
       }
     }
   }

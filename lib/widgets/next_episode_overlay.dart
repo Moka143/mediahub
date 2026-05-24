@@ -44,7 +44,7 @@ class _NextEpisodeOverlayState extends State<NextEpisodeOverlay>
 
     // Slide in from the right
     _animationController = AnimationController(
-      duration: const Duration(milliseconds: 420),
+      duration: AppDuration.slow,
       vsync: this,
     );
     _slideAnimation =

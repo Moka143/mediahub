@@ -55,10 +55,7 @@ class BrowseSearchPill extends StatelessWidget {
                 enabledBorder: InputBorder.none,
                 focusedBorder: InputBorder.none,
                 hintText: hint,
-                hintStyle: const TextStyle(
-                  fontSize: 12,
-                  color: AppColors.fg3,
-                ),
+                hintStyle: const TextStyle(fontSize: 12, color: AppColors.fg3),
                 filled: false,
               ),
             ),

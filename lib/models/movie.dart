@@ -1,3 +1,6 @@
+import 'cast_member.dart';
+import 'video.dart';
+
 /// Represents a Movie from TMDB API
 class Movie {
   final int id;
@@ -23,6 +26,13 @@ class Movie {
   final bool adult;
   final double popularity;
 
+  /// Trailers / teasers from `/videos`. Populated only when the
+  /// details fetch includes `append_to_response=videos`.
+  final List<Video> videos;
+
+  /// Top cast from `/credits`. Populated only on details fetches.
+  final List<CastMember> cast;
+
   Movie({
     required this.id,
     required this.title,
@@ -43,9 +53,33 @@ class Movie {
     this.tagline,
     this.adult = false,
     this.popularity = 0.0,
+    this.videos = const [],
+    this.cast = const [],
   });
 
   factory Movie.fromJson(Map<String, dynamic> json) {
+    List<Video> parseVideos() {
+      final v = json['videos'];
+      if (v is! Map<String, dynamic>) return const [];
+      final results = v['results'];
+      if (results is! List) return const [];
+      return results
+          .whereType<Map<String, dynamic>>()
+          .map(Video.fromJson)
+          .toList();
+    }
+
+    List<CastMember> parseCast() {
+      final c = json['credits'];
+      if (c is! Map<String, dynamic>) return const [];
+      final castList = c['cast'];
+      if (castList is! List) return const [];
+      return castList
+          .whereType<Map<String, dynamic>>()
+          .map(CastMember.fromJson)
+          .toList();
+    }
+
     return Movie(
       id: json['id'] as int,
       title:
@@ -71,6 +105,8 @@ class Movie {
       tagline: json['tagline'] as String?,
       adult: json['adult'] as bool? ?? false,
       popularity: (json['popularity'] as num?)?.toDouble() ?? 0.0,
+      videos: parseVideos(),
+      cast: parseCast(),
     );
   }
 

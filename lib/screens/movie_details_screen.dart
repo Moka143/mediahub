@@ -19,8 +19,14 @@ import '../providers/navigation_provider.dart';
 import '../providers/streaming_provider.dart';
 import '../providers/torrentio_provider.dart';
 import '../services/streaming_service.dart';
+import '../utils/feedback_utils.dart';
 import '../utils/formatters.dart';
+import '../widgets/common/floating_header_action.dart';
+import '../widgets/common/loading_state.dart';
+import '../widgets/media/cast_row.dart';
+import '../widgets/media/trailers_row.dart';
 import '../widgets/mediahub_backdrop_hero.dart';
+import '_details_playback_controller.dart';
 import '../widgets/media/media_poster_card.dart';
 import '../widgets/mediahub_torrent_drawer.dart';
 import '../widgets/streaming_progress_overlay.dart';
@@ -46,29 +52,26 @@ class MovieDetailsScreen extends ConsumerStatefulWidget {
   ConsumerState<MovieDetailsScreen> createState() => _MovieDetailsScreenState();
 }
 
-class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
+class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
+    with DetailsPlaybackController<MovieDetailsScreen> {
   bool _isLoadingStreams = false;
   bool _isStreaming = false;
   bool _autoPickerFired = false;
-  OverlayEntry? _streamingOverlay;
-  ValueNotifier<StreamingOverlayData>? _streamingOverlayData;
-  // Driven by the Riverpod notifier's state (not the streaming service's
-  // broadcast stream) so it can't miss early state transitions that happen
-  // between startStreaming() returning and the listener subscribing.
-  ProviderSubscription<StreamingSessionsState>? _monitorSubscription;
+  // Streaming overlay + subscription lifecycle (streamingOverlay,
+  // streamingOverlayData, monitorSubscription) lives on
+  // DetailsPlaybackController; tear down via disposePlaybackController().
 
   @override
   void dispose() {
-    _monitorSubscription?.close();
-    _streamingOverlay?.remove();
-    _streamingOverlayData?.dispose();
+    disposePlaybackController();
     super.dispose();
   }
 
   Future<void> _onDownloadTap(Movie movieDetails) async {
     if (movieDetails.imdbId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('IMDB ID not available for this movie')),
+      AppSnackBar.showError(
+        context,
+        message: 'IMDB ID not available for this movie',
       );
       return;
     }
@@ -82,10 +85,9 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
 
       if (response.streams.isEmpty) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('No streams available for this movie'),
-            ),
+          AppSnackBar.showInfo(
+            context,
+            message: 'No streams available for this movie',
           );
         }
         return;
@@ -216,8 +218,8 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
   ) async {
     final containerRef = ProviderScope.containerOf(context);
 
-    _streamingOverlay?.remove();
-    _streamingOverlayData?.dispose();
+    streamingOverlay?.remove();
+    streamingOverlayData?.dispose();
 
     final result = showUpdatableStreamingOverlay(
       context,
@@ -228,20 +230,20 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
       isIndeterminate: true,
       showClose: true,
       onClose: () {
-        _streamingOverlay = null;
-        _streamingOverlayData = null;
+        streamingOverlay = null;
+        streamingOverlayData = null;
       },
       onViewDownloads: () {
-        _streamingOverlay?.remove();
-        _streamingOverlay = null;
-        _streamingOverlayData?.dispose();
-        _streamingOverlayData = null;
+        streamingOverlay?.remove();
+        streamingOverlay = null;
+        streamingOverlayData?.dispose();
+        streamingOverlayData = null;
         containerRef.read(currentTabIndexProvider.notifier).set(1);
         rootNavigatorKey.currentState?.popUntil((route) => route.isFirst);
       },
     );
-    _streamingOverlay = result.entry;
-    _streamingOverlayData = result.data;
+    streamingOverlay = result.entry;
+    streamingOverlayData = result.data;
 
     setState(() => _isStreaming = true);
     final session = await ref
@@ -249,10 +251,10 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
         .startStreaming(stream: stream, movieImdbId: movie.imdbId);
 
     if (session == null) {
-      _streamingOverlay?.remove();
-      _streamingOverlay = null;
-      _streamingOverlayData?.dispose();
-      _streamingOverlayData = null;
+      streamingOverlay?.remove();
+      streamingOverlay = null;
+      streamingOverlayData?.dispose();
+      streamingOverlayData = null;
       if (mounted) setState(() => _isStreaming = false);
       rootScaffoldMessengerKey.currentState?.showSnackBar(
         const SnackBar(
@@ -274,8 +276,8 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
   /// state on registration, so if the session has already advanced
   /// (e.g. fast-path to ready), we react right away.
   void _monitorStreamingSession(String sessionId, Movie movie) {
-    _monitorSubscription?.close();
-    _monitorSubscription = ref.listenManual<StreamingSessionsState>(
+    monitorSubscription?.close();
+    monitorSubscription = ref.listenManual<StreamingSessionsState>(
       streamingSessionsProvider,
       (prev, next) {
         final session = next.sessions[sessionId];
@@ -299,7 +301,7 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
         final speedSuffix = speed > 0
             ? ' • ${Formatters.formatSpeed(speed)}'
             : '';
-        _streamingOverlayData?.value = StreamingOverlayData(
+        streamingOverlayData?.value = StreamingOverlayData(
           title: '$titlePrefix "${movie.title}"',
           subtitle: pct > 0
               ? '${pct.toStringAsFixed(1)}% ready$speedSuffix'
@@ -310,11 +312,11 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
 
       case StreamingState.ready:
       case StreamingState.playing:
-        _monitorSubscription?.close();
-        _streamingOverlay?.remove();
-        _streamingOverlay = null;
-        _streamingOverlayData?.dispose();
-        _streamingOverlayData = null;
+        monitorSubscription?.close();
+        streamingOverlay?.remove();
+        streamingOverlay = null;
+        streamingOverlayData?.dispose();
+        streamingOverlayData = null;
         if (mounted) setState(() => _isStreaming = false);
 
         ref.read(streamingSessionsProvider.notifier).clearActiveSession();
@@ -338,11 +340,11 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
         }
 
       case StreamingState.error:
-        _monitorSubscription?.close();
-        _streamingOverlay?.remove();
-        _streamingOverlay = null;
-        _streamingOverlayData?.dispose();
-        _streamingOverlayData = null;
+        monitorSubscription?.close();
+        streamingOverlay?.remove();
+        streamingOverlay = null;
+        streamingOverlayData?.dispose();
+        streamingOverlayData = null;
         if (mounted) setState(() => _isStreaming = false);
         rootScaffoldMessengerKey.currentState?.showSnackBar(
           SnackBar(
@@ -355,11 +357,11 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
         );
 
       case StreamingState.cancelled:
-        _monitorSubscription?.close();
-        _streamingOverlay?.remove();
-        _streamingOverlay = null;
-        _streamingOverlayData?.dispose();
-        _streamingOverlayData = null;
+        monitorSubscription?.close();
+        streamingOverlay?.remove();
+        streamingOverlay = null;
+        streamingOverlayData?.dispose();
+        streamingOverlayData = null;
         if (mounted) setState(() => _isStreaming = false);
 
       case StreamingState.idle:
@@ -455,7 +457,7 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
     return Scaffold(
       body: movieDetails.when(
         data: (movie) => _buildContent(movie),
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const LoadingIndicator(),
         error: (error, _) => Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -488,16 +490,16 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
         ? null
         : ref.watch(movieLocalFileProvider(movie.title));
 
-    return CustomScrollView(
-      slivers: [
-        // Cinematic MediaHub backdrop hero — replaces the previous
-        // SliverAppBar + duplicated poster/title row. Provides full-
-        // bleed backdrop, big display title, mono metadata pills, and
-        // the primary Get-torrent CTA.
-        SliverToBoxAdapter(
-          child: Stack(
-            children: [
-              MediaHubBackdropHero(
+    return Stack(
+      children: [
+        CustomScrollView(
+          slivers: [
+            // Cinematic MediaHub backdrop hero — replaces the previous
+            // SliverAppBar + duplicated poster/title row. Provides full-
+            // bleed backdrop, big display title, mono metadata pills, and
+            // the primary Get-torrent CTA.
+            SliverToBoxAdapter(
+              child: MediaHubBackdropHero(
                 title: movie.title,
                 year: movie.year,
                 posterUrl: movie.posterUrl,
@@ -588,112 +590,10 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
                   ],
                 ),
               ),
-              // Floating back button — overlaid in the top-left of
-              // the cinematic hero, glassmorphic styling.
-              Positioned(
-                top: AppSpacing.lg,
-                left: AppSpacing.xxl,
-                child: SafeArea(
-                  child: Material(
-                    color: Colors.white.withAlpha(20),
-                    shape: const CircleBorder(),
-                    child: IconButton(
-                      icon: const Icon(
-                        Icons.arrow_back_rounded,
-                        color: Colors.white,
-                      ),
-                      tooltip: 'Back',
-                      onPressed: () => Navigator.of(context).pop(),
-                    ),
-                  ),
-                ),
-              ),
-              // Floating top-right actions: favorite, watchlist, settings.
-              Positioned(
-                top: AppSpacing.lg,
-                right: AppSpacing.xxl,
-                child: SafeArea(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Consumer(
-                        builder: (context, ref, _) {
-                          final fav = ref.watch(
-                            isMovieFavoriteProvider(movie.id),
-                          );
-                          return Material(
-                            color: Colors.white.withAlpha(20),
-                            shape: const CircleBorder(),
-                            child: IconButton(
-                              onPressed: () => ref
-                                  .read(favoritesProvider.notifier)
-                                  .toggleMovieFavorite(movie.id, movie: movie),
-                              icon: Icon(
-                                fav
-                                    ? Icons.favorite_rounded
-                                    : Icons.favorite_outline_rounded,
-                                color: fav ? Colors.redAccent : Colors.white,
-                              ),
-                              tooltip: fav
-                                  ? 'Remove from favorites'
-                                  : 'Add to favorites',
-                            ),
-                          );
-                        },
-                      ),
-                      const SizedBox(width: AppSpacing.xs),
-                      Consumer(
-                        builder: (context, ref, _) {
-                          final wl = ref.watch(
-                            isMovieOnWatchlistProvider(movie.id),
-                          );
-                          return Material(
-                            color: Colors.white.withAlpha(20),
-                            shape: const CircleBorder(),
-                            child: IconButton(
-                              onPressed: () => ref
-                                  .read(watchlistProvider.notifier)
-                                  .toggleMovie(movie.id),
-                              icon: Icon(
-                                wl
-                                    ? Icons.bookmark_rounded
-                                    : Icons.bookmark_outline_rounded,
-                                color: wl ? Colors.amberAccent : Colors.white,
-                              ),
-                              tooltip: wl
-                                  ? 'Remove from watchlist'
-                                  : 'Add to watchlist',
-                            ),
-                          );
-                        },
-                      ),
-                      const SizedBox(width: AppSpacing.xs),
-                      Material(
-                        color: Colors.white.withAlpha(20),
-                        shape: const CircleBorder(),
-                        child: IconButton(
-                          icon: const Icon(
-                            Icons.settings_outlined,
-                            color: Colors.white,
-                          ),
-                          tooltip: 'Settings',
-                          onPressed: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => const SettingsScreen(),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
+            ),
 
-        // Movie info — content below the cinematic hero
-        SliverToBoxAdapter(
+            // Movie info — content below the cinematic hero
+            SliverToBoxAdapter(
           child: Padding(
             padding: EdgeInsets.all(AppSpacing.screenPadding),
             child: Column(
@@ -720,8 +620,37 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
                   ),
                   SizedBox(height: AppSpacing.xl),
                 ],
+              ],
+            ),
+          ),
+        ),
 
-                // Similar movies
+        // Trailers + Cast — separate slivers so the horizontal scrollers
+        // can extend edge-to-edge instead of being inset by the
+        // screen-padding wrapper above.
+        if (movie.videos.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
+              child: TrailersRow(videos: movie.videos),
+            ),
+          ),
+        if (movie.cast.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
+              child: CastRow(cast: movie.cast),
+            ),
+          ),
+
+        // Similar movies — back inside its own padded sliver.
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: AppSpacing.screenPadding),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // (Hero already provides Resume/Get primary actions.)
                 similarMovies.when(
                   data: (movies) => movies.isNotEmpty
                       ? Column(
@@ -758,8 +687,8 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
                                           : null,
                                       overlayRatingTone:
                                           similar.voteAverage >= 8
-                                              ? AppColors.accent
-                                              : null,
+                                          ? AppColors.accent
+                                          : null,
                                       onTap: () {
                                         Navigator.of(context).push(
                                           MaterialPageRoute(
@@ -783,6 +712,82 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen> {
                 ),
 
                 SizedBox(height: AppSpacing.xl),
+              ],
+            ),
+          ),
+        ),
+          ],
+        ),
+        // Floating back button — overlaid in the top-left.
+        // Stays pinned regardless of scroll position.
+        Positioned(
+          top: AppSpacing.lg,
+          left: AppSpacing.xxl,
+          child: SafeArea(
+            child: FloatingHeaderAction(
+              icon: Icons.arrow_back_rounded,
+              tooltip: 'Back',
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+          ),
+        ),
+        // Floating top-right actions: favorite, watchlist, settings.
+        Positioned(
+          top: AppSpacing.lg,
+          right: AppSpacing.xxl,
+          child: SafeArea(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Consumer(
+                  builder: (context, ref, _) {
+                    final fav = ref.watch(
+                      isMovieFavoriteProvider(movie.id),
+                    );
+                    return FloatingHeaderAction(
+                      icon: fav
+                          ? Icons.favorite_rounded
+                          : Icons.favorite_outline_rounded,
+                      iconColor: fav ? Colors.redAccent : Colors.white,
+                      tooltip: fav
+                          ? 'Remove from favorites'
+                          : 'Add to favorites',
+                      onPressed: () => ref
+                          .read(favoritesProvider.notifier)
+                          .toggleMovieFavorite(movie.id, movie: movie),
+                    );
+                  },
+                ),
+                const SizedBox(width: AppSpacing.xs),
+                Consumer(
+                  builder: (context, ref, _) {
+                    final wl = ref.watch(
+                      isMovieOnWatchlistProvider(movie.id),
+                    );
+                    return FloatingHeaderAction(
+                      icon: wl
+                          ? Icons.bookmark_rounded
+                          : Icons.bookmark_outline_rounded,
+                      iconColor: wl ? Colors.amberAccent : Colors.white,
+                      tooltip: wl
+                          ? 'Remove from watchlist'
+                          : 'Add to watchlist',
+                      onPressed: () => ref
+                          .read(watchlistProvider.notifier)
+                          .toggleMovie(movie.id),
+                    );
+                  },
+                ),
+                const SizedBox(width: AppSpacing.xs),
+                FloatingHeaderAction(
+                  icon: Icons.settings_outlined,
+                  tooltip: 'Settings',
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const SettingsScreen(),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),

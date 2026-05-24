@@ -346,7 +346,9 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
 
     // Check if already in queue
     if (state.downloadQueue.contains(queueKey)) {
-      debugPrint('[AutoDownload] $queueKey already in download queue — skipping');
+      debugPrint(
+        '[AutoDownload] $queueKey already in download queue — skipping',
+      );
       return;
     }
 

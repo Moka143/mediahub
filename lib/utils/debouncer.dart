@@ -39,39 +39,3 @@ class Debouncer {
     cancel();
   }
 }
-
-/// A debouncer that also tracks the last value passed to it.
-///
-/// Useful for debouncing search inputs where you need to
-/// access the most recent value.
-class ValueDebouncer<T> {
-  final Duration delay;
-  Timer? _timer;
-  T? _lastValue;
-
-  ValueDebouncer({this.delay = const Duration(milliseconds: 300)});
-
-  /// The last value that was passed to [run].
-  T? get lastValue => _lastValue;
-
-  /// Runs the [action] with the given [value] after the debounce delay.
-  void run(T value, void Function(T) action) {
-    _lastValue = value;
-    _timer?.cancel();
-    _timer = Timer(delay, () => action(value));
-  }
-
-  /// Cancels any pending action.
-  void cancel() {
-    _timer?.cancel();
-    _timer = null;
-  }
-
-  /// Whether there's a pending action.
-  bool get isPending => _timer?.isActive ?? false;
-
-  /// Disposes the debouncer.
-  void dispose() {
-    cancel();
-  }
-}

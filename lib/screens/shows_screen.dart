@@ -8,7 +8,10 @@ import '../design/app_tokens.dart';
 import '../models/show.dart';
 import '../providers/shows_provider.dart';
 import '../widgets/common/browse_filter_bar.dart';
+import '../widgets/common/browse_pagination_footer.dart';
+import '../widgets/common/browse_sort_picker.dart';
 import '../widgets/common/empty_state.dart';
+import '../widgets/common/loading_state.dart';
 import '../widgets/media/media_poster_card.dart';
 import '../widgets/mediahub_spotlight.dart';
 import 'show_details_screen.dart';
@@ -163,7 +166,10 @@ class _ShowsScreenState extends ConsumerState<ShowsScreen> {
     );
   }
 
-  void _navigateToShowDetails(Show show, {bool autoOpenEpisodesDrawer = false}) {
+  void _navigateToShowDetails(
+    Show show, {
+    bool autoOpenEpisodesDrawer = false,
+  }) {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => ShowDetailsScreen(
@@ -233,7 +239,6 @@ class _ShowsScreenState extends ConsumerState<ShowsScreen> {
                                 ? _items.first.genres.first
                                 : 'Drama',
                             rating: _items.first.voteAverage,
-                            quality: '4K',
                             hue: _hueFromId(_items.first.id),
                             backdropUrl: _items.first.backdropUrl,
                             posterUrl: _items.first.posterUrl,
@@ -260,8 +265,10 @@ class _ShowsScreenState extends ConsumerState<ShowsScreen> {
                     setState(() => _genre = g);
                     _resetAndLoad();
                   },
-                  sortPicker: _FeedSortPicker(
+                  sortPicker: BrowseSortPicker<_ShowsFeed>(
                     value: _feed,
+                    options: _ShowsFeed.values,
+                    labelOf: (f) => f.label,
                     onChanged: (f) {
                       setState(() => _feed = f);
                       _resetAndLoad();
@@ -286,7 +293,7 @@ class _ShowsScreenState extends ConsumerState<ShowsScreen> {
                   curve: Curves.easeOutCubic,
                   alignment: Alignment.topCenter,
                   child: !isSearching
-                      ? _PaginationFooter(
+                      ? BrowsePaginationFooter(
                           loading: _loading,
                           exhausted: _exhausted && _items.isNotEmpty,
                           hasItems: _items.isNotEmpty,
@@ -305,10 +312,7 @@ class _ShowsScreenState extends ConsumerState<ShowsScreen> {
   List<Widget> _buildFeedSlivers() {
     if (_items.isEmpty && _loading) {
       return const [
-        SliverFillRemaining(
-          hasScrollBody: false,
-          child: Center(child: CircularProgressIndicator()),
-        ),
+        SliverFillRemaining(hasScrollBody: false, child: LoadingIndicator()),
       ];
     }
     if (_error != null && _items.isEmpty) {
@@ -387,10 +391,7 @@ class _ShowsScreenState extends ConsumerState<ShowsScreen> {
 
     if (isInitialLoad) {
       return const [
-        SliverFillRemaining(
-          hasScrollBody: false,
-          child: Center(child: CircularProgressIndicator()),
-        ),
+        SliverFillRemaining(hasScrollBody: false, child: LoadingIndicator()),
       ];
     }
 
@@ -431,102 +432,5 @@ class _ShowsScreenState extends ConsumerState<ShowsScreen> {
         ),
       ),
     ];
-  }
-}
-
-class _PaginationFooter extends StatelessWidget {
-  const _PaginationFooter({
-    required this.loading,
-    required this.exhausted,
-    required this.hasItems,
-  });
-
-  final bool loading;
-  final bool exhausted;
-  final bool hasItems;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!hasItems) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(
-        bottom: AppSpacing.huge,
-        top: AppSpacing.md,
-      ),
-      child: Center(
-        child: loading
-            ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : exhausted
-            ? const Text(
-                'You\'ve reached the end.',
-                style: TextStyle(color: AppColors.fg3, fontSize: 12),
-              )
-            : const SizedBox.shrink(),
-      ),
-    );
-  }
-}
-
-class _FeedSortPicker extends StatelessWidget {
-  const _FeedSortPicker({required this.value, required this.onChanged});
-
-  final _ShowsFeed value;
-  final ValueChanged<_ShowsFeed> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return PopupMenuButton<_ShowsFeed>(
-      initialValue: value,
-      tooltip: 'Sort feed',
-      onSelected: onChanged,
-      color: AppColors.bgSurfaceHi,
-      itemBuilder: (_) => _ShowsFeed.values
-          .map(
-            (f) => PopupMenuItem(
-              value: f,
-              child: Text(
-                f.label,
-                style: const TextStyle(fontSize: 12, color: AppColors.fg),
-              ),
-            ),
-          )
-          .toList(),
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: 6,
-        ),
-        decoration: BoxDecoration(
-          color: AppColors.bgSurface,
-          border: Border.all(color: AppColors.line),
-          borderRadius: BorderRadius.circular(AppRadius.md),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.sort_rounded, size: 12, color: AppColors.fg2),
-            const SizedBox(width: 6),
-            Text(
-              value.label,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: AppColors.fg,
-              ),
-            ),
-            const SizedBox(width: 4),
-            const Icon(
-              Icons.keyboard_arrow_down_rounded,
-              size: 14,
-              color: AppColors.fg2,
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }

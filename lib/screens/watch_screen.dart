@@ -232,7 +232,10 @@ class _WatchScreenState extends ConsumerState<WatchScreen> {
   }
 
   void _navigateToDiscover() {
-    ref.read(currentTabIndexProvider.notifier).set(1);
+    // Tab indices in MainNavigationScreen: 0 Home, 1 Downloads, 2 Shows,
+    // 3 Movies, 4 Watch, 5 Calendar, 6 Favorites. The empty-library CTA
+    // says "Discover Shows" so jump to Shows.
+    ref.read(currentTabIndexProvider.notifier).set(2);
   }
 
   void _playFile(LocalMediaFile file) {

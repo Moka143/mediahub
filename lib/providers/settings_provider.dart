@@ -21,11 +21,6 @@ final settingsProvider = NotifierProvider<SettingsNotifier, AppSettings>(
   SettingsNotifier.new,
 );
 
-/// Provider for theme mode derived from settings
-final themeModeProvider = Provider<ThemeMode>((ref) {
-  return ref.watch(settingsProvider).themeMode;
-});
-
 /// Provider for current filter
 final currentFilterProvider =
     NotifierProvider<CurrentFilterNotifier, TorrentFilter>(
@@ -165,12 +160,6 @@ class SettingsNotifier extends Notifier<AppSettings> {
   /// Update upload speed limit
   Future<void> setUploadSpeedLimit(int limit) async {
     state = state.copyWith(uploadSpeedLimit: limit);
-    await _saveSettings();
-  }
-
-  /// Update theme mode
-  Future<void> setThemeMode(ThemeMode mode) async {
-    state = state.copyWith(themeMode: mode);
     await _saveSettings();
   }
 

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../design/app_colors.dart';
-import '../../design/app_theme.dart';
+import '../../design/app_tokens.dart';
 import '../../design/app_typography.dart';
 import '../editorial/editorial_button.dart';
 import '../editorial/editorial_led.dart';
@@ -63,10 +63,6 @@ class MediaHubSidebar extends StatefulWidget {
     required this.collapsed,
     required this.onToggleCollapse,
     this.brandSubtitle = 'CONNECTED',
-    this.dlSpeed,
-    this.ulSpeed,
-    this.freeSpace,
-    this.qbitVersion,
   });
 
   final List<SidebarItem> items;
@@ -76,12 +72,6 @@ class MediaHubSidebar extends StatefulWidget {
   final bool collapsed;
   final VoidCallback onToggleCollapse;
   final String brandSubtitle;
-
-  /// Optional live status data rendered in the footer.
-  final String? dlSpeed;
-  final String? ulSpeed;
-  final String? freeSpace;
-  final String? qbitVersion;
 
   @override
   State<MediaHubSidebar> createState() => _MediaHubSidebarState();
@@ -133,26 +123,15 @@ class _MediaHubSidebarState extends State<MediaHubSidebar> {
                             onTap: () => widget.onDestinationSelected(i),
                           );
                         }),
-                        const SizedBox(height: 8),
-                        if (!widget.collapsed)
-                          const _SectionLabel(label: 'SOURCES'),
-                        if (!widget.collapsed) ...const [
-                          _SourceRow(label: 'TMDB', status: 'OK'),
-                          _SourceRow(label: 'EZTV', status: 'OK'),
-                          _SourceRow(label: 'Torrentio', status: 'OK'),
-                          _SourceRow(label: 'OpenSubtitles', status: '—', ok: false),
-                        ],
                       ],
                     ),
                   ),
                   _Footer(
                     collapsed: widget.collapsed,
                     onAddTorrent: widget.onAddTorrent,
-                    dlSpeed: widget.dlSpeed,
-                    ulSpeed: widget.ulSpeed,
-                    freeSpace: widget.freeSpace,
-                    qbitVersion: widget.qbitVersion,
-                    connected: widget.brandSubtitle.toUpperCase().contains('CONNECT'),
+                    connected: widget.brandSubtitle.toUpperCase().contains(
+                      'CONNECT',
+                    ),
                   ),
                 ],
               ),
@@ -191,7 +170,7 @@ class _Brand extends StatelessWidget {
               width: 28,
               height: 28,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: BorderRadius.circular(AppRadius.xs),
                 color: AppColors.accentSoft,
                 border: Border.all(color: AppColors.accent, width: 1),
               ),
@@ -305,7 +284,7 @@ class _NavRowState extends State<_NavRow> {
               Container(
                 decoration: BoxDecoration(
                   color: bg,
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: BorderRadius.circular(AppRadius.xs),
                 ),
                 padding: EdgeInsets.symmetric(
                   horizontal: widget.collapsed ? 0 : 10,
@@ -335,10 +314,11 @@ class _NavRowState extends State<_NavRow> {
                           ),
                         ),
                       ),
-                      if (widget.item.badge > 0) _CountTag(
-                            count: widget.item.badge,
-                            isError: widget.item.errorBadge,
-                          ),
+                      if (widget.item.badge > 0)
+                        _CountTag(
+                          count: widget.item.badge,
+                          isError: widget.item.errorBadge,
+                        ),
                       if (widget.item.dot)
                         _StatusDot(pulse: widget.item.dotPulse),
                     ],
@@ -433,71 +413,15 @@ class _StatusDotState extends State<_StatusDot>
   }
 }
 
-class _SourceRow extends StatelessWidget {
-  const _SourceRow({required this.label, required this.status, this.ok = true});
-  final String label;
-  final String status;
-  final bool ok;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 5),
-      child: Row(
-        children: [
-          Icon(
-            ok ? Icons.public_rounded : Icons.cloud_off_rounded,
-            size: 14,
-            color: AppColors.fg2,
-          ),
-          const SizedBox(width: 11),
-          Expanded(
-            child: Text(
-              label,
-              style: AppType.ui(size: 12, color: AppColors.fg1, height: 1.0),
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(
-              color: ok
-                  ? AppColors.okSoft
-                  : Colors.white.withValues(alpha: 0.04),
-              borderRadius: BorderRadius.circular(3),
-            ),
-            child: Text(
-              status,
-              style: AppType.mono(
-                size: 9,
-                color: ok ? AppColors.ok : AppColors.fg3,
-                letterSpacing: 0.04,
-                weight: FontWeight.w500,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _Footer extends StatelessWidget {
   const _Footer({
     required this.collapsed,
     required this.onAddTorrent,
-    required this.dlSpeed,
-    required this.ulSpeed,
-    required this.freeSpace,
-    required this.qbitVersion,
     required this.connected,
   });
 
   final bool collapsed;
   final VoidCallback onAddTorrent;
-  final String? dlSpeed;
-  final String? ulSpeed;
-  final String? freeSpace;
-  final String? qbitVersion;
   final bool connected;
 
   @override
@@ -542,11 +466,9 @@ class _Footer extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: MonoLabel(
-                    qbitVersion != null
-                        ? 'QBITTORRENT · ${qbitVersion!.toUpperCase()}'
-                        : (connected
-                            ? 'QBITTORRENT · CONNECTED'
-                            : 'QBITTORRENT · OFFLINE'),
+                    connected
+                        ? 'QBITTORRENT · CONNECTED'
+                        : 'QBITTORRENT · OFFLINE',
                     color: AppColors.fg2,
                     letterSpacing: 0.08,
                     maxLines: 1,
@@ -554,46 +476,6 @@ class _Footer extends StatelessWidget {
                 ),
               ],
             ),
-            if (dlSpeed != null || ulSpeed != null) ...[
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  MonoLabel(
-                    '↓ ${dlSpeed ?? '—'}',
-                    color: AppColors.fg3,
-                    letterSpacing: 0.06,
-                    uppercase: false,
-                  ),
-                  const Spacer(),
-                  MonoLabel(
-                    '↑ ${ulSpeed ?? '—'}',
-                    color: AppColors.fg3,
-                    letterSpacing: 0.06,
-                    uppercase: false,
-                  ),
-                ],
-              ),
-            ],
-            if (freeSpace != null) ...[
-              const SizedBox(height: 8),
-              const Divider(height: 1),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  MonoLabel(
-                    'STORAGE',
-                    color: AppColors.fg3,
-                  ),
-                  const Spacer(),
-                  MonoLabel(
-                    freeSpace!,
-                    color: AppColors.fg2,
-                    uppercase: false,
-                    letterSpacing: 0.06,
-                  ),
-                ],
-              ),
-            ],
           ],
         ],
       ),
@@ -615,7 +497,7 @@ class _CollapseToggle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AnimatedOpacity(
-      duration: const Duration(milliseconds: 150),
+      duration: AppDuration.fast,
       opacity: hover ? 1.0 : 0.4,
       child: Material(
         color: AppColors.bgSurfaceHi,
@@ -644,10 +526,4 @@ class _CollapseToggle extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Re-export — preserved for call sites that import the palette
-/// extension via the sidebar barrel.
-extension MediaHubSidebarPalette on BuildContext {
-  AppColorsExtension get mediaHubColors => appColors;
 }

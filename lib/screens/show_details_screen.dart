@@ -6,8 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app.dart';
 import '../design/app_colors.dart';
-import '../design/app_theme.dart';
 import '../design/app_tokens.dart';
+import '../design/app_typography.dart';
 import '../models/local_media_file.dart';
 import '../models/show.dart';
 import '../models/season.dart';
@@ -23,8 +23,15 @@ import '../providers/torrentio_provider.dart';
 import '../providers/eztv_provider.dart';
 import '../providers/streaming_provider.dart';
 import '../services/streaming_service.dart';
+import '../utils/feedback_utils.dart';
 import '../utils/formatters.dart';
+import '../widgets/common/floating_header_action.dart';
+import '../widgets/common/loading_state.dart';
+import '../widgets/media/cast_row.dart';
+import '../widgets/media/next_episode_chip.dart';
+import '../widgets/media/trailers_row.dart';
 import '../widgets/mediahub_backdrop_hero.dart';
+import '_details_playback_controller.dart';
 import '../widgets/mediahub_episodes_drawer.dart';
 import '../widgets/mediahub_torrent_drawer.dart';
 import '../widgets/streaming_progress_overlay.dart';
@@ -50,16 +57,13 @@ class ShowDetailsScreen extends ConsumerStatefulWidget {
   ConsumerState<ShowDetailsScreen> createState() => _ShowDetailsScreenState();
 }
 
-class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
+class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
+    with DetailsPlaybackController<ShowDetailsScreen> {
   bool _isLoadingTorrents = false;
   bool _autoDrawerFired = false;
-  OverlayEntry? _streamingOverlay;
-  ValueNotifier<StreamingOverlayData>? _streamingOverlayData;
-  // Subscription survives the screen being popped — uses root keys for navigation.
-  // Driven by the Riverpod notifier's state (not the streaming service's
-  // broadcast stream), so it can't miss the early state transitions that
-  // happen between startStreaming() returning and the listener subscribing.
-  ProviderSubscription<StreamingSessionsState>? _monitorSubscription;
+  // Streaming overlay + subscription lifecycle (streamingOverlay,
+  // streamingOverlayData, monitorSubscription) lives on
+  // DetailsPlaybackController; tear down via disposePlaybackController().
 
   @override
   void initState() {
@@ -69,9 +73,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
 
   @override
   void dispose() {
-    _monitorSubscription?.close();
-    _streamingOverlay?.remove();
-    _streamingOverlayData?.dispose();
+    disposePlaybackController();
     super.dispose();
   }
 
@@ -122,8 +124,9 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
 
   Future<void> _onEpisodeTap(Episode episode, Show showDetails) async {
     if (showDetails.imdbId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('IMDB ID not available for this show')),
+      AppSnackBar.showError(
+        context,
+        message: 'IMDB ID not available for this show',
       );
       return;
     }
@@ -140,10 +143,9 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
 
       if (response.streams.isEmpty) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('No streams available for this episode'),
-            ),
+          AppSnackBar.showInfo(
+            context,
+            message: 'No streams available for this episode',
           );
         }
         return;
@@ -295,8 +297,8 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
     // Show initial streaming overlay (updatable, so _monitorStreamingSession
     // can update it in-place without replaying the entrance animation).
     final isSingleFile = stream.isSingleFile;
-    _streamingOverlay?.remove();
-    _streamingOverlayData?.dispose();
+    streamingOverlay?.remove();
+    streamingOverlayData?.dispose();
 
     final result = showUpdatableStreamingOverlay(
       context,
@@ -307,20 +309,20 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
       isIndeterminate: true,
       showClose: true,
       onClose: () {
-        _streamingOverlay = null;
-        _streamingOverlayData = null;
+        streamingOverlay = null;
+        streamingOverlayData = null;
       },
       onViewDownloads: () {
-        _streamingOverlay?.remove();
-        _streamingOverlay = null;
-        _streamingOverlayData?.dispose();
-        _streamingOverlayData = null;
+        streamingOverlay?.remove();
+        streamingOverlay = null;
+        streamingOverlayData?.dispose();
+        streamingOverlayData = null;
         containerRef.read(currentTabIndexProvider.notifier).set(1);
         rootNavigatorKey.currentState?.popUntil((route) => route.isFirst);
       },
     );
-    _streamingOverlay = result.entry;
-    _streamingOverlayData = result.data;
+    streamingOverlay = result.entry;
+    streamingOverlayData = result.data;
 
     final session = await ref
         .read(streamingSessionsProvider.notifier)
@@ -334,8 +336,8 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
         );
 
     if (session == null) {
-      _streamingOverlay?.remove();
-      _streamingOverlay = null;
+      streamingOverlay?.remove();
+      streamingOverlay = null;
 
       rootScaffoldMessengerKey.currentState?.showSnackBar(
         const SnackBar(
@@ -399,8 +401,8 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
 
     // Reuse the overlay created by _startStreamingSession if it's already up;
     // otherwise create one (e.g. when called from a different entry point).
-    if (mounted && _streamingOverlayData != null) {
-      _streamingOverlayData!.value = StreamingOverlayData(
+    if (mounted && streamingOverlayData != null) {
+      streamingOverlayData!.value = StreamingOverlayData(
         title: 'Preparing ${episode.episodeCode}',
         subtitle: episode.name,
         isIndeterminate: true,
@@ -413,20 +415,20 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
         isIndeterminate: true,
         showClose: true,
         onClose: () {
-          _streamingOverlay = null;
-          _streamingOverlayData = null;
+          streamingOverlay = null;
+          streamingOverlayData = null;
         },
         onViewDownloads: () {
-          _streamingOverlay?.remove();
-          _streamingOverlay = null;
-          _streamingOverlayData?.dispose();
-          _streamingOverlayData = null;
+          streamingOverlay?.remove();
+          streamingOverlay = null;
+          streamingOverlayData?.dispose();
+          streamingOverlayData = null;
           containerRef.read(currentTabIndexProvider.notifier).set(1);
           rootNavigatorKey.currentState?.popUntil((route) => route.isFirst);
         },
       );
-      _streamingOverlay = result.entry;
-      _streamingOverlayData = result.data;
+      streamingOverlay = result.entry;
+      streamingOverlayData = result.data;
     }
 
     // Listen to the *notifier's* state instead of the streaming service's
@@ -438,8 +440,8 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
     // `fireImmediately: true` makes the listener tick once with the current
     // state — so if the session has already advanced (e.g. fast-path to
     // ready), we react right away.
-    _monitorSubscription?.close();
-    _monitorSubscription = ref.listenManual<StreamingSessionsState>(
+    monitorSubscription?.close();
+    monitorSubscription = ref.listenManual<StreamingSessionsState>(
       streamingSessionsProvider,
       (prev, next) {
         final session = next.sessions[sessionId];
@@ -471,7 +473,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
         final speedSuffix = speed > 0
             ? ' • ${Formatters.formatSpeed(speed)}'
             : '';
-        _streamingOverlayData?.value = StreamingOverlayData(
+        streamingOverlayData?.value = StreamingOverlayData(
           title: '$titlePrefix ${episode.episodeCode}',
           subtitle: pct > 0
               ? '${pct.toStringAsFixed(1)}% ready$speedSuffix'
@@ -482,11 +484,11 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
 
       case StreamingState.ready:
       case StreamingState.playing:
-        _monitorSubscription?.close();
-        _streamingOverlay?.remove();
-        _streamingOverlay = null;
-        _streamingOverlayData?.dispose();
-        _streamingOverlayData = null;
+        monitorSubscription?.close();
+        streamingOverlay?.remove();
+        streamingOverlay = null;
+        streamingOverlayData?.dispose();
+        streamingOverlayData = null;
 
         // Clear the active session so the safety-net listener in
         // main_navigation_screen doesn't also open the player.
@@ -518,11 +520,11 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
         }
 
       case StreamingState.error:
-        _monitorSubscription?.close();
-        _streamingOverlay?.remove();
-        _streamingOverlay = null;
-        _streamingOverlayData?.dispose();
-        _streamingOverlayData = null;
+        monitorSubscription?.close();
+        streamingOverlay?.remove();
+        streamingOverlay = null;
+        streamingOverlayData?.dispose();
+        streamingOverlayData = null;
 
         rootScaffoldMessengerKey.currentState?.showSnackBar(
           SnackBar(
@@ -535,11 +537,11 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
         );
 
       case StreamingState.cancelled:
-        _monitorSubscription?.close();
-        _streamingOverlay?.remove();
-        _streamingOverlay = null;
-        _streamingOverlayData?.dispose();
-        _streamingOverlayData = null;
+        monitorSubscription?.close();
+        streamingOverlay?.remove();
+        streamingOverlay = null;
+        streamingOverlayData?.dispose();
+        streamingOverlayData = null;
 
       case StreamingState.idle:
         break;
@@ -653,7 +655,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
     return Scaffold(
       body: showDetails.when(
         data: (show) => _buildContent(show, seasons, isFavorite),
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const LoadingIndicator(),
         error: (error, _) => Center(child: Text('Error: $error')),
       ),
     );
@@ -687,10 +689,12 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
       );
     }
 
-    return CustomScrollView(
-      slivers: [
-        // Cinematic backdrop hero — left full-bleed.
-        _buildSliverAppBar(show, isFavorite, seasons),
+    return Stack(
+      children: [
+        CustomScrollView(
+          slivers: [
+            // Cinematic backdrop hero — left full-bleed.
+            _buildSliverAppBar(show, isFavorite, seasons),
 
         // Next-episode card (renders only when nextEpisodeToAir set).
         contentSliver(_buildShowInfo(show), padding: EdgeInsets.zero),
@@ -710,6 +714,24 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
             0,
           ),
         ),
+
+        // Trailers + Cast — full-bleed slivers (their internal headers
+        // handle the screen padding, the horizontal scrollers extend
+        // edge-to-edge).
+        if (show.videos.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.only(top: AppSpacing.xxl),
+              child: TrailersRow(videos: show.videos),
+            ),
+          ),
+        if (show.cast.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.only(top: AppSpacing.xxl),
+              child: CastRow(cast: show.cast),
+            ),
+          ),
 
         // Storyline + Quick facts in a two-column layout when wide,
         // single-column when narrow.
@@ -776,6 +798,9 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
 
         // Bottom padding
         const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.huge)),
+          ],
+        ),
+        _buildFloatingHeaderControls(show, isFavorite),
       ],
     );
   }
@@ -786,175 +811,149 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
     AsyncValue<List<Season>> seasons,
   ) {
     // Cinematic MediaHub backdrop hero — full-bleed image, big
-    // display title, mono metadata pills, overlaid back/favorite
-    // controls. Replaces the old SliverAppBar.
+    // display title, mono metadata pills. Floating back/favorite/etc
+    // overlays now live at the screen level (see _buildContent) so they
+    // stay pinned during scroll.
     return SliverToBoxAdapter(
-      child: Stack(
-        children: [
-          MediaHubBackdropHero(
-            title: show.name,
-            year: show.year,
-            posterUrl: show.posterUrl,
-            backdropUrl: show.backdropUrl,
-            fallbackHue: (show.id * 37 % 360).toDouble(),
-            description: show.overview,
-            posterPlaceholderIcon: Icons.live_tv_rounded,
-            metaPills: [
-              if (show.statusLabel != null)
-                MediaHubMetaPill(
-                  label: show.statusLabel!,
-                  color: AppColors.accentTertiary,
-                ),
-              if (show.numberOfSeasons != null)
-                MediaHubMetaPill(
-                  label:
-                      '${show.numberOfSeasons} ${show.numberOfSeasons == 1 ? "SEASON" : "SEASONS"}',
-                  color: AppColors.fg1,
-                ),
-              if (show.numberOfEpisodes != null)
-                MediaHubMetaPill(
-                  label: '${show.numberOfEpisodes} EP',
-                  color: AppColors.fg1,
-                ),
-              if (show.voteAverage > 0)
-                MediaHubMetaPill(
-                  label: '★ ${show.voteAverage.toStringAsFixed(1)}',
-                  color: getRatingColor(show.voteAverage),
-                ),
-              ...show.genres
-                  .take(2)
-                  .map(
-                    (g) => MediaHubMetaPill(
-                      label: g,
-                      color: AppColors.accentPrimary,
-                    ),
-                  ),
-            ],
-            primaryAction: FilledButton.icon(
-              onPressed: seasons.hasValue && seasons.value!.isNotEmpty
-                  ? () => _openEpisodesDrawer(show, seasons.value!)
-                  : null,
-              icon: const Icon(Icons.play_arrow_rounded),
-              label: const Text('Browse episodes'),
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.xl,
-                  vertical: AppSpacing.md,
+      child: MediaHubBackdropHero(
+        title: show.name,
+        year: show.year,
+        posterUrl: show.posterUrl,
+        backdropUrl: show.backdropUrl,
+        fallbackHue: (show.id * 37 % 360).toDouble(),
+        description: show.overview,
+        posterPlaceholderIcon: Icons.live_tv_rounded,
+        metaPills: [
+          if (show.statusLabel != null)
+            MediaHubMetaPill(
+              label: show.statusLabel!,
+              color: AppColors.accentAmber,
+            ),
+          if (show.numberOfSeasons != null)
+            MediaHubMetaPill(
+              label:
+                  '${show.numberOfSeasons} ${show.numberOfSeasons == 1 ? "SEASON" : "SEASONS"}',
+              color: AppColors.fg1,
+            ),
+          if (show.numberOfEpisodes != null)
+            MediaHubMetaPill(
+              label: '${show.numberOfEpisodes} EP',
+              color: AppColors.fg1,
+            ),
+          if (show.voteAverage > 0)
+            MediaHubMetaPill(
+              label: '★ ${show.voteAverage.toStringAsFixed(1)}',
+              color: getRatingColor(show.voteAverage),
+            ),
+          ...show.genres
+              .take(2)
+              .map(
+                (g) => MediaHubMetaPill(
+                  label: g,
+                  color: AppColors.accentPrimary,
                 ),
               ),
-            ),
-          ),
-          // Floating top controls — back + favorite
-          Positioned(
-            top: AppSpacing.lg,
-            left: AppSpacing.xxl,
-            child: SafeArea(
-              child: Material(
-                color: Colors.white.withAlpha(20),
-                shape: const CircleBorder(),
-                child: IconButton(
-                  icon: const Icon(
-                    Icons.arrow_back_rounded,
-                    color: Colors.white,
-                  ),
-                  tooltip: 'Back',
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            top: AppSpacing.lg,
-            right: AppSpacing.xxl,
-            child: SafeArea(
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Material(
-                    color: Colors.white.withAlpha(20),
-                    shape: const CircleBorder(),
-                    child: IconButton(
-                      onPressed: () {
-                        ref
-                            .read(favoritesProvider.notifier)
-                            .toggleFavorite(show.id, show: show);
-                      },
-                      icon: Icon(
-                        isFavorite
-                            ? Icons.favorite_rounded
-                            : Icons.favorite_outline_rounded,
-                        color: isFavorite ? Colors.redAccent : Colors.white,
-                      ),
-                      tooltip: isFavorite
-                          ? 'Remove from favorites'
-                          : 'Add to favorites',
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.xs),
-                  Consumer(
-                    builder: (context, ref, _) {
-                      final onWatchlist = ref.watch(
-                        isOnWatchlistProvider(show.id),
-                      );
-                      return Material(
-                        color: Colors.white.withAlpha(20),
-                        shape: const CircleBorder(),
-                        child: IconButton(
-                          onPressed: () => ref
-                              .read(watchlistProvider.notifier)
-                              .toggleShow(show.id),
-                          icon: Icon(
-                            onWatchlist
-                                ? Icons.bookmark_rounded
-                                : Icons.bookmark_outline_rounded,
-                            color: onWatchlist
-                                ? Colors.amberAccent
-                                : Colors.white,
-                          ),
-                          tooltip: onWatchlist
-                              ? 'Remove from watchlist'
-                              : 'Add to watchlist',
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(width: AppSpacing.xs),
-                  Material(
-                    color: Colors.white.withAlpha(20),
-                    shape: const CircleBorder(),
-                    child: IconButton(
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const SettingsScreen(),
-                        ),
-                      ),
-                      icon: const Icon(
-                        Icons.settings_outlined,
-                        color: Colors.white,
-                      ),
-                      tooltip: 'Settings',
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
         ],
+        primaryAction: FilledButton.icon(
+          onPressed: seasons.hasValue && seasons.value!.isNotEmpty
+              ? () => _openEpisodesDrawer(show, seasons.value!)
+              : null,
+          icon: const Icon(Icons.play_arrow_rounded),
+          label: const Text('Browse episodes'),
+          style: FilledButton.styleFrom(
+            backgroundColor: Colors.white,
+            foregroundColor: Colors.black,
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.xl,
+              vertical: AppSpacing.md,
+            ),
+          ),
+        ),
       ),
     );
   }
 
+  Widget _buildFloatingHeaderControls(Show show, bool isFavorite) {
+    return Stack(
+      children: [
+        // Floating back button — overlaid in the top-left. Stays pinned
+        // regardless of scroll position because it's a screen-level
+        // overlay rather than part of the scrolling sliver.
+        Positioned(
+          top: AppSpacing.lg,
+          left: AppSpacing.xxl,
+          child: SafeArea(
+            child: FloatingHeaderAction(
+              icon: Icons.arrow_back_rounded,
+              tooltip: 'Back',
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+          ),
+        ),
+        Positioned(
+          top: AppSpacing.lg,
+          right: AppSpacing.xxl,
+          child: SafeArea(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FloatingHeaderAction(
+                  icon: isFavorite
+                      ? Icons.favorite_rounded
+                      : Icons.favorite_outline_rounded,
+                  iconColor: isFavorite ? Colors.redAccent : Colors.white,
+                  tooltip: isFavorite
+                      ? 'Remove from favorites'
+                      : 'Add to favorites',
+                  onPressed: () {
+                    ref
+                        .read(favoritesProvider.notifier)
+                        .toggleFavorite(show.id, show: show);
+                  },
+                ),
+                const SizedBox(width: AppSpacing.xs),
+                Consumer(
+                  builder: (context, ref, _) {
+                    final onWatchlist = ref.watch(
+                      isOnWatchlistProvider(show.id),
+                    );
+                    return FloatingHeaderAction(
+                      icon: onWatchlist
+                          ? Icons.bookmark_rounded
+                          : Icons.bookmark_outline_rounded,
+                      iconColor: onWatchlist
+                          ? Colors.amberAccent
+                          : Colors.white,
+                      tooltip: onWatchlist
+                          ? 'Remove from watchlist'
+                          : 'Add to watchlist',
+                      onPressed: () => ref
+                          .read(watchlistProvider.notifier)
+                          .toggleShow(show.id),
+                    );
+                  },
+                ),
+                const SizedBox(width: AppSpacing.xs),
+                FloatingHeaderAction(
+                  icon: Icons.settings_outlined,
+                  tooltip: 'Settings',
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildShowInfo(Show show) {
-    final theme = Theme.of(context);
-    final appColors = context.appColors;
-
-    // The MediaHub hero already presents rating / seasons / episodes /
-    // genres / overview, so this section just shows the upcoming
-    // episode card when available.
-    if (show.nextEpisodeToAir == null) return const SizedBox.shrink();
-
+    // NextEpisodeChip handles its own visibility: returns SizedBox.shrink
+    // when the show has no scheduled / recently-aired episode. The chip
+    // also covers the "recently aired" case which the old primitive
+    // upcoming-only card missed.
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.screenPadding,
@@ -964,64 +963,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen> {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Next episode info
-          if (show.nextEpisodeToAir != null) ...[
-            Container(
-              padding: EdgeInsets.all(AppSpacing.md),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    appColors.warningBackground,
-                    appColors.warningBackground.withAlpha(AppOpacity.medium),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(AppRadius.md),
-                border: Border.all(
-                  color: appColors.warning.withAlpha(AppOpacity.light),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(AppSpacing.sm),
-                    decoration: BoxDecoration(
-                      color: appColors.warning.withAlpha(AppOpacity.light),
-                      borderRadius: BorderRadius.circular(AppRadius.sm),
-                    ),
-                    child: Icon(
-                      Icons.schedule_rounded,
-                      color: appColors.warning,
-                      size: 20,
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.md),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Upcoming Episode',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: appColors.warning,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      Text(
-                        show.nextEpisodeToAir!,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: appColors.warning,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ],
+        children: [NextEpisodeChip(show: show)],
       ),
     );
   }
@@ -1109,11 +1051,7 @@ class _BrowseEpisodesCta extends StatelessWidget {
                         loading: () => 'Loading seasons…',
                         orElse: () => 'Episode picker',
                       ),
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: AppColors.fg2,
-                        fontFamily: 'monospace',
-                      ),
+                      style: AppType.mono(size: 12, color: AppColors.fg2),
                     ),
                   ],
                 ),
@@ -1125,10 +1063,7 @@ class _BrowseEpisodesCta extends StatelessWidget {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               else
-                const Icon(
-                  Icons.chevron_right_rounded,
-                  color: AppColors.fg1,
-                ),
+                const Icon(Icons.chevron_right_rounded, color: AppColors.fg1),
             ],
           ),
         ),
@@ -1152,12 +1087,11 @@ class _InfoSection extends StatelessWidget {
       children: [
         Text(
           title.toUpperCase(),
-          style: const TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
+          style: AppType.mono(
+            size: 11,
             color: AppColors.fg2,
-            letterSpacing: 0.88,
-            fontFamily: 'monospace',
+            weight: FontWeight.w700,
+            letterSpacing: 0.08,
           ),
         ),
         const SizedBox(height: AppSpacing.sm),
@@ -1209,21 +1143,17 @@ class _QuickFactsGrid extends StatelessWidget {
                     width: 120,
                     child: Text(
                       facts[i].$1.toUpperCase(),
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontFamily: 'monospace',
+                      style: AppType.mono(
+                        size: 11,
                         color: AppColors.fg2,
-                        letterSpacing: 0.5,
+                        letterSpacing: 0.05,
                       ),
                     ),
                   ),
                   Expanded(
                     child: Text(
                       facts[i].$2,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppColors.fg,
-                      ),
+                      style: const TextStyle(fontSize: 13, color: AppColors.fg),
                     ),
                   ),
                 ],

@@ -9,7 +9,10 @@ import '../models/movie.dart';
 import '../providers/movies_provider.dart';
 import '../providers/shows_provider.dart' show tmdbApiServiceProvider;
 import '../widgets/common/browse_filter_bar.dart';
+import '../widgets/common/browse_pagination_footer.dart';
+import '../widgets/common/browse_sort_picker.dart';
 import '../widgets/common/empty_state.dart';
+import '../widgets/common/loading_state.dart';
 import '../widgets/media/media_poster_card.dart';
 import '../widgets/mediahub_spotlight.dart';
 import 'movie_details_screen.dart';
@@ -157,7 +160,10 @@ class _MoviesScreenState extends ConsumerState<MoviesScreen> {
     );
   }
 
-  void _navigateToMovieDetails(Movie movie, {bool autoOpenTorrentPicker = false}) {
+  void _navigateToMovieDetails(
+    Movie movie, {
+    bool autoOpenTorrentPicker = false,
+  }) {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => MovieDetailsScreen(
@@ -208,7 +214,6 @@ class _MoviesScreenState extends ConsumerState<MoviesScreen> {
                                 ? _items.first.genres.first
                                 : 'Drama',
                             rating: _items.first.voteAverage,
-                            quality: '4K',
                             hue: (_items.first.id * 53 % 360).toDouble(),
                             backdropUrl: _items.first.backdropUrl,
                             posterUrl: _items.first.posterUrl,
@@ -237,8 +242,10 @@ class _MoviesScreenState extends ConsumerState<MoviesScreen> {
                     setState(() => _genre = g);
                     _resetAndLoad();
                   },
-                  sortPicker: _MoviesFeedSortPicker(
+                  sortPicker: BrowseSortPicker<_MoviesFeed>(
                     value: _feed,
+                    options: _MoviesFeed.values,
+                    labelOf: (f) => f.label,
                     onChanged: (f) {
                       setState(() => _feed = f);
                       _resetAndLoad();
@@ -263,7 +270,7 @@ class _MoviesScreenState extends ConsumerState<MoviesScreen> {
                   curve: Curves.easeOutCubic,
                   alignment: Alignment.topCenter,
                   child: !isSearching
-                      ? _MoviesPaginationFooter(
+                      ? BrowsePaginationFooter(
                           loading: _loading,
                           exhausted: _exhausted && _items.isNotEmpty,
                           hasItems: _items.isNotEmpty,
@@ -283,10 +290,7 @@ class _MoviesScreenState extends ConsumerState<MoviesScreen> {
   List<Widget> _buildFeedSlivers() {
     if (_items.isEmpty && _loading) {
       return const [
-        SliverFillRemaining(
-          hasScrollBody: false,
-          child: Center(child: CircularProgressIndicator()),
-        ),
+        SliverFillRemaining(hasScrollBody: false, child: LoadingIndicator()),
       ];
     }
     if (_error != null && _items.isEmpty) {
@@ -383,10 +387,7 @@ class _MoviesScreenState extends ConsumerState<MoviesScreen> {
 
     if (isInitialLoad) {
       return const [
-        SliverFillRemaining(
-          hasScrollBody: false,
-          child: Center(child: CircularProgressIndicator()),
-        ),
+        SliverFillRemaining(hasScrollBody: false, child: LoadingIndicator()),
       ];
     }
 
@@ -427,102 +428,5 @@ class _MoviesScreenState extends ConsumerState<MoviesScreen> {
         ),
       ),
     ];
-  }
-}
-
-class _MoviesPaginationFooter extends StatelessWidget {
-  const _MoviesPaginationFooter({
-    required this.loading,
-    required this.exhausted,
-    required this.hasItems,
-  });
-
-  final bool loading;
-  final bool exhausted;
-  final bool hasItems;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!hasItems) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(
-        bottom: AppSpacing.huge,
-        top: AppSpacing.md,
-      ),
-      child: Center(
-        child: loading
-            ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : exhausted
-            ? const Text(
-                'You\'ve reached the end.',
-                style: TextStyle(color: AppColors.fg3, fontSize: 12),
-              )
-            : const SizedBox.shrink(),
-      ),
-    );
-  }
-}
-
-class _MoviesFeedSortPicker extends StatelessWidget {
-  const _MoviesFeedSortPicker({required this.value, required this.onChanged});
-
-  final _MoviesFeed value;
-  final ValueChanged<_MoviesFeed> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return PopupMenuButton<_MoviesFeed>(
-      initialValue: value,
-      tooltip: 'Sort feed',
-      onSelected: onChanged,
-      color: AppColors.bgSurfaceHi,
-      itemBuilder: (_) => _MoviesFeed.values
-          .map(
-            (f) => PopupMenuItem(
-              value: f,
-              child: Text(
-                f.label,
-                style: const TextStyle(fontSize: 12, color: AppColors.fg),
-              ),
-            ),
-          )
-          .toList(),
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: 6,
-        ),
-        decoration: BoxDecoration(
-          color: AppColors.bgSurface,
-          border: Border.all(color: AppColors.line),
-          borderRadius: BorderRadius.circular(AppRadius.md),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.sort_rounded, size: 12, color: AppColors.fg2),
-            const SizedBox(width: 6),
-            Text(
-              value.label,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: AppColors.fg,
-              ),
-            ),
-            const SizedBox(width: 4),
-            const Icon(
-              Icons.keyboard_arrow_down_rounded,
-              size: 14,
-              color: AppColors.fg2,
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }

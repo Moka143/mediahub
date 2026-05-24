@@ -11,6 +11,7 @@ import '../providers/navigation_provider.dart';
 import '../providers/watchlist_provider.dart';
 import '../design/app_colors.dart';
 import '../widgets/common/empty_state.dart';
+import '../widgets/common/loading_state.dart';
 import '../widgets/media/media_poster_card.dart';
 import 'movie_details_screen.dart';
 import 'show_details_screen.dart';
@@ -92,7 +93,7 @@ class _TvFavoritesTab extends ConsumerWidget {
                   : const SizedBox.shrink(),
               loading: () => const Padding(
                 padding: EdgeInsets.all(AppSpacing.xxl),
-                child: Center(child: CircularProgressIndicator()),
+                child: LoadingIndicator(),
               ),
               error: (_, _) => const SizedBox.shrink(),
             ),
@@ -112,7 +113,7 @@ class _TvFavoritesTab extends ConsumerWidget {
               data: (shows) => _ShowsGrid(shows: shows),
               loading: () => const Padding(
                 padding: EdgeInsets.all(AppSpacing.xxl),
-                child: Center(child: CircularProgressIndicator()),
+                child: LoadingIndicator(),
               ),
               error: (error, _) => EmptyState.error(
                 message: error.toString(),
@@ -212,7 +213,7 @@ class _MovieFavoritesTab extends ConsumerWidget {
               data: (list) => _MoviesGrid(movies: list),
               loading: () => const Padding(
                 padding: EdgeInsets.all(AppSpacing.xxl),
-                child: Center(child: CircularProgressIndicator()),
+                child: LoadingIndicator(),
               ),
               error: (e, _) => EmptyState.error(
                 message: e.toString(),
@@ -280,7 +281,7 @@ class _WatchlistTab extends ConsumerWidget {
                 data: (s) => _ShowsGrid(shows: s),
                 loading: () => const Padding(
                   padding: EdgeInsets.all(AppSpacing.xl),
-                  child: Center(child: CircularProgressIndicator()),
+                  child: LoadingIndicator(),
                 ),
                 error: (e, _) =>
                     EmptyState.error(message: e.toString(), onRetry: null),
@@ -305,7 +306,7 @@ class _WatchlistTab extends ConsumerWidget {
                 data: (m) => _MoviesGrid(movies: m),
                 loading: () => const Padding(
                   padding: EdgeInsets.all(AppSpacing.xl),
-                  child: Center(child: CircularProgressIndicator()),
+                  child: LoadingIndicator(),
                 ),
                 error: (e, _) =>
                     EmptyState.error(message: e.toString(), onRetry: null),

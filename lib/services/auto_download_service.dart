@@ -505,7 +505,9 @@ class AutoDownloadService {
       debugPrint('[AutoDownload] Torrentio lookup failed: $e');
     }
 
-    debugPrint('[AutoDownload] No torrent found for $imdbId S${season}E$episode');
+    debugPrint(
+      '[AutoDownload] No torrent found for $imdbId S${season}E$episode',
+    );
     return null;
   }
 
@@ -580,7 +582,9 @@ class AutoDownloadService {
         }
       } else {
         if (fileIdx == null) {
-          debugPrint('[AutoDownload] No fileIdx provided - downloading all files');
+          debugPrint(
+            '[AutoDownload] No fileIdx provided - downloading all files',
+          );
         }
         if (infoHash == null || infoHash.isEmpty) {
           debugPrint('[AutoDownload] No infoHash provided');

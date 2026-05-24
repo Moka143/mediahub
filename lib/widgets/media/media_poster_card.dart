@@ -240,8 +240,7 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
                     compact: true,
                   ),
                 ),
-              if (widget.isWatched && !_isHovered)
-                _watchedCheckmark(),
+              if (widget.isWatched && !_isHovered) _watchedCheckmark(),
               if (hasProgress) _progressBar(theme),
             ],
           ),
@@ -304,16 +303,17 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
               left: 10,
               child: Text(
                 widget.overlayYear!,
-                style: AppType.mono(
-                  size: 10,
-                  color: Colors.white.withValues(alpha: 0.85),
-                  letterSpacing: 0.12,
-                  weight: FontWeight.w500,
-                ).copyWith(
-                  shadows: const [
-                    Shadow(color: Color(0x99000000), blurRadius: 6),
-                  ],
-                ),
+                style:
+                    AppType.mono(
+                      size: 10,
+                      color: Colors.white.withValues(alpha: 0.85),
+                      letterSpacing: 0.12,
+                      weight: FontWeight.w500,
+                    ).copyWith(
+                      shadows: const [
+                        Shadow(color: Color(0x99000000), blurRadius: 6),
+                      ],
+                    ),
               ),
             ),
 
@@ -356,16 +356,17 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
                     widget.subtitle!.toUpperCase(),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: AppType.mono(
-                      size: 10,
-                      color: Colors.white.withValues(alpha: 0.7),
-                      letterSpacing: 0.1,
-                      weight: FontWeight.w500,
-                    ).copyWith(
-                      shadows: const [
-                        Shadow(color: Color(0x99000000), blurRadius: 6),
-                      ],
-                    ),
+                    style:
+                        AppType.mono(
+                          size: 10,
+                          color: Colors.white.withValues(alpha: 0.7),
+                          letterSpacing: 0.1,
+                          weight: FontWeight.w500,
+                        ).copyWith(
+                          shadows: const [
+                            Shadow(color: Color(0x99000000), blurRadius: 6),
+                          ],
+                        ),
                   ),
                 ],
               ],
@@ -449,11 +450,7 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
           color: Color(0xFF10B981),
           shape: BoxShape.circle,
         ),
-        child: const Icon(
-          Icons.check_rounded,
-          size: 14,
-          color: Colors.white,
-        ),
+        child: const Icon(Icons.check_rounded, size: 14, color: Colors.white),
       ),
     );
   }

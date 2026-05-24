@@ -153,14 +153,19 @@ class TmdbApiService {
     }
   }
 
-  /// Get show details with external IDs in one call
+  /// Get show details with external IDs + trailers + cast in one call.
+  ///
+  /// Uses `append_to_response` to fold four endpoints into a single
+  /// request: external_ids (for IMDB), videos (trailers/teasers),
+  /// aggregate_credits (show-level cast across all seasons — better
+  /// than per-season credits for the details page).
   Future<Show> getShowDetailsWithImdb(int showId) async {
     try {
       final response = await _dio.get(
         '/tv/$showId',
         queryParameters: {
           ..._defaultParams,
-          'append_to_response': 'external_ids',
+          'append_to_response': 'external_ids,videos,aggregate_credits',
         },
       );
 
@@ -435,14 +440,18 @@ class TmdbApiService {
     }
   }
 
-  /// Get movie details with external IDs in one call
+  /// Get movie details with external IDs + trailers + cast in one call.
+  ///
+  /// Uses `append_to_response` to fold three endpoints into a single
+  /// request: external_ids (for IMDB), videos (trailers/teasers),
+  /// credits (top cast).
   Future<Movie> getMovieDetailsWithImdb(int movieId) async {
     try {
       final response = await _dio.get(
         '/movie/$movieId',
         queryParameters: {
           ..._defaultParams,
-          'append_to_response': 'external_ids',
+          'append_to_response': 'external_ids,videos,credits',
         },
       );
 

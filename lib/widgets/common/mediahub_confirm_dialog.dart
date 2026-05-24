@@ -4,6 +4,7 @@ import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
 import '../../design/app_typography.dart';
 import '../editorial/editorial.dart';
+import 'editorial_dialog_shell.dart';
 
 /// Editorial confirm dialog — dark surface, hairline border, serif
 /// title, mono buttons. Used for delete / reset / discard prompts so
@@ -61,71 +62,50 @@ class MediaHubConfirmDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: AppColors.bgSurface,
-      elevation: 0,
-      insetPadding: const EdgeInsets.all(AppSpacing.xxl),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.lg),
-        side: BorderSide(color: AppColors.line, width: 1),
-      ),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 440),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.xxl,
-            AppSpacing.xl,
-            AppSpacing.xxl,
-            AppSpacing.lg,
+    return EditorialDialogShell(
+      maxWidth: 440,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (icon != null) ...[
+            Icon(
+              icon,
+              color: destructive ? AppColors.err : AppColors.fg1,
+              size: AppIconSize.xl,
+            ),
+            const SizedBox(height: AppSpacing.md),
+          ],
+          SerifTitle(title, size: 22, height: 1.05),
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            message,
+            style: AppType.ui(size: 14, color: AppColors.fg1, height: 1.5),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+          if (extraContent != null) ...[
+            const SizedBox(height: AppSpacing.lg),
+            extraContent!,
+          ],
+          const SizedBox(height: AppSpacing.xl),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              if (icon != null) ...[
-                Icon(
-                  icon,
-                  color: destructive ? AppColors.err : AppColors.fg1,
-                  size: AppIconSize.xl,
-                ),
-                const SizedBox(height: AppSpacing.md),
-              ],
-              SerifTitle(title, size: 22, height: 1.05),
-              const SizedBox(height: AppSpacing.md),
-              Text(
-                message,
-                style: AppType.ui(
-                  size: 14,
-                  color: AppColors.fg1,
-                  height: 1.5,
-                ),
+              EditorialButton(
+                label: cancelLabel,
+                kind: EditorialButtonKind.ghost,
+                onPressed: () => Navigator.of(context).pop(false),
               ),
-              if (extraContent != null) ...[
-                const SizedBox(height: AppSpacing.lg),
-                extraContent!,
-              ],
-              const SizedBox(height: AppSpacing.xl),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  EditorialButton(
-                    label: cancelLabel,
-                    kind: EditorialButtonKind.ghost,
-                    onPressed: () => Navigator.of(context).pop(false),
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  EditorialButton(
-                    label: confirmLabel,
-                    kind: destructive
-                        ? EditorialButtonKind.danger
-                        : EditorialButtonKind.accent,
-                    onPressed: () => Navigator.of(context).pop(true),
-                  ),
-                ],
+              const SizedBox(width: AppSpacing.sm),
+              EditorialButton(
+                label: confirmLabel,
+                kind: destructive
+                    ? EditorialButtonKind.danger
+                    : EditorialButtonKind.accent,
+                onPressed: () => Navigator.of(context).pop(true),
               ),
             ],
           ),
-        ),
+        ],
       ),
     );
   }

@@ -1,3 +1,7 @@
+import 'cast_member.dart';
+import 'episode.dart';
+import 'video.dart';
+
 /// Represents a TV show from TMDB API
 class Show {
   final int id;
@@ -19,8 +23,28 @@ class Show {
   /// only populated for trending / popular / top-rated lists.
   final List<int> genreIds;
   final List<int>? episodeRunTime;
+
+  /// Air date of the next unaired episode (`next_episode_to_air.air_date`).
+  /// Kept for back-compat; prefer [nextEpisode] for richer display.
   final String? nextEpisodeToAir;
+
+  /// Full record for the next-to-air episode (season/episode numbers,
+  /// name, runtime). Null when the show has ended or TMDB hasn't yet
+  /// announced the next episode.
+  final Episode? nextEpisode;
+
+  /// Full record for the most recently aired episode.
+  final Episode? lastEpisode;
+
   final bool inProduction;
+
+  /// Trailers / teasers / clips from `/videos`. Populated only when the
+  /// details fetch includes `append_to_response=videos`.
+  final List<Video> videos;
+
+  /// Top cast from `/credits` (or aggregated across seasons for TV via
+  /// `/aggregate_credits`). Populated only on details fetches.
+  final List<CastMember> cast;
 
   Show({
     required this.id,
@@ -39,12 +63,59 @@ class Show {
     this.genreIds = const [],
     this.episodeRunTime,
     this.nextEpisodeToAir,
+    this.nextEpisode,
+    this.lastEpisode,
     this.inProduction = false,
+    this.videos = const [],
+    this.cast = const [],
   });
 
   factory Show.fromJson(Map<String, dynamic> json) {
+    final showId = json['id'] as int;
+
+    // Parse next/last episode subobjects. TMDB attaches show_id only on
+    // top-level episode fetches, so we splice it in.
+    Episode? parseEpisode(String key) {
+      final raw = json[key];
+      if (raw is! Map<String, dynamic>) return null;
+      return Episode.fromJson({...raw, 'show_id': showId});
+    }
+
+    // Trailers / teasers come back under `videos.results` when appended.
+    List<Video> parseVideos() {
+      final videos = json['videos'];
+      if (videos is! Map<String, dynamic>) return const [];
+      final results = videos['results'];
+      if (results is! List) return const [];
+      return results
+          .whereType<Map<String, dynamic>>()
+          .map(Video.fromJson)
+          .toList();
+    }
+
+    // Cast comes back under `credits.cast` (or `aggregate_credits.cast`
+    // for TV). Prefer aggregate_credits when present — that's the
+    // show-level role list across all seasons.
+    List<CastMember> parseCast() {
+      Map<String, dynamic>? creditsObj;
+      final agg = json['aggregate_credits'];
+      if (agg is Map<String, dynamic>) {
+        creditsObj = agg;
+      } else {
+        final c = json['credits'];
+        if (c is Map<String, dynamic>) creditsObj = c;
+      }
+      if (creditsObj == null) return const [];
+      final castList = creditsObj['cast'];
+      if (castList is! List) return const [];
+      return castList
+          .whereType<Map<String, dynamic>>()
+          .map(CastMember.fromJson)
+          .toList();
+    }
+
     return Show(
-      id: json['id'] as int,
+      id: showId,
       name: json['name'] as String? ?? json['original_name'] as String? ?? '',
       overview: json['overview'] as String?,
       posterPath: json['poster_path'] as String?,
@@ -68,7 +139,11 @@ class Show {
       nextEpisodeToAir: json['next_episode_to_air'] != null
           ? json['next_episode_to_air']['air_date'] as String?
           : null,
+      nextEpisode: parseEpisode('next_episode_to_air'),
+      lastEpisode: parseEpisode('last_episode_to_air'),
       inProduction: json['in_production'] as bool? ?? false,
+      videos: parseVideos(),
+      cast: parseCast(),
     );
   }
 

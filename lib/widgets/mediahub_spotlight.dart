@@ -16,11 +16,11 @@ class MediaHubSpotlight extends StatelessWidget {
     required this.year,
     required this.genre,
     required this.rating,
-    required this.quality,
     required this.hue,
     required this.metaSuffix,
     required this.onPrimaryTap,
     required this.onSecondaryTap,
+    this.quality,
     this.backdropUrl,
     this.posterUrl,
     this.scatteredHues = const [200, 35, 280, 130, 10],
@@ -31,7 +31,11 @@ class MediaHubSpotlight extends StatelessWidget {
   final String? year;
   final String? genre;
   final double rating;
-  final String quality;
+
+  /// Resolution / source-quality badge. Null when no source has been
+  /// resolved yet — TMDB metadata alone can't truthfully claim a
+  /// resolution, so we leave the badge off rather than fake it.
+  final String? quality;
   final double hue;
   final String metaSuffix; // e.g. "2 SEASONS" or "2H 26M"
   final VoidCallback onPrimaryTap;
@@ -150,13 +154,14 @@ class MediaHubSpotlight extends StatelessWidget {
                         const EditorialBadge(
                           '▲ Trending',
                           compact: true,
-                          tone: AppColors.accentTertiary,
+                          tone: AppColors.accentAmber,
                         ),
-                      EditorialBadge(
-                        quality,
-                        compact: true,
-                        tone: quality.qualityColor,
-                      ),
+                      if (quality != null)
+                        EditorialBadge(
+                          quality!,
+                          compact: true,
+                          tone: quality!.qualityColor,
+                        ),
                       if (rating > 0)
                         EditorialBadge(
                           '★ ${rating.toStringAsFixed(1)}',

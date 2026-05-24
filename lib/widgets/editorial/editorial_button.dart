@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../design/app_colors.dart';
+import '../../design/app_tokens.dart';
 import '../../design/app_typography.dart';
 
 /// Editorial button — three kinds (accent, primary, ghost) and two
@@ -57,46 +58,46 @@ class EditorialButton extends StatelessWidget {
 
     final (bg, fg, border) = switch (kind) {
       EditorialButtonKind.accent => (
-          AppColors.accent,
-          AppColors.bgPage,
-          AppColors.accent,
-        ),
+        AppColors.accent,
+        AppColors.bgPage,
+        AppColors.accent,
+      ),
       EditorialButtonKind.primary => (
-          AppColors.fg,
-          AppColors.bgPage,
-          AppColors.fg,
-        ),
+        AppColors.fg,
+        AppColors.bgPage,
+        AppColors.fg,
+      ),
       EditorialButtonKind.ghost => (
-          Colors.transparent,
-          AppColors.fg,
-          AppColors.lineStrong,
-        ),
+        Colors.transparent,
+        AppColors.fg,
+        AppColors.lineStrong,
+      ),
       EditorialButtonKind.subtle => (
-          AppColors.bgSurface,
-          AppColors.fg,
-          AppColors.line,
-        ),
+        AppColors.bgSurface,
+        AppColors.fg,
+        AppColors.line,
+      ),
       EditorialButtonKind.outlined => (
-          Colors.transparent,
-          AppColors.fg1,
-          AppColors.line,
-        ),
+        Colors.transparent,
+        AppColors.fg1,
+        AppColors.line,
+      ),
       EditorialButtonKind.danger => (
-          AppColors.err,
-          Colors.white,
-          AppColors.err,
-        ),
+        AppColors.err,
+        Colors.white,
+        AppColors.err,
+      ),
     };
 
     final child = Material(
       color: bg,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(AppRadius.xs),
         side: BorderSide(color: border, width: 1),
       ),
       child: InkWell(
         onTap: onPressed,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(AppRadius.xs),
         child: Padding(
           padding: EdgeInsets.symmetric(horizontal: padH, vertical: padV),
           child: Row(
@@ -161,7 +162,7 @@ class EditorialIconButton extends StatelessWidget {
       child: Material(
         color: active ? AppColors.accentSoft : AppColors.bgSurface,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(AppRadius.xs),
           side: BorderSide(
             color: active ? AppColors.accent : AppColors.line,
             width: 1,
@@ -169,7 +170,7 @@ class EditorialIconButton extends StatelessWidget {
         ),
         child: InkWell(
           onTap: onPressed,
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(AppRadius.xs),
           child: Center(
             child: Icon(
               icon,

@@ -83,102 +83,60 @@ abstract final class AppColors {
   static const Color err = Color(0xFFFF5F5B);
 
   // ==========================================================================
-  // Legacy aliases — keep existing call sites compiling while we migrate.
-  // These all resolve to the new editorial palette so the visual identity
-  // is consistent even where code hasn't been updated yet.
+  // Glass overlays — used by floating chrome stacked over hero artwork
+  // (back / favorite / watchlist buttons on details, etc.). Constants
+  // rather than `Colors.white.withAlpha(N)` literals so call sites stay
+  // `const`-correct.
+  // ==========================================================================
+  /// 8% white — base glass fill
+  static const Color glassFill = Color(0x14FFFFFF);
+
+  /// 11% white — slightly stronger glass fill (hover state)
+  static const Color glassFillStrong = Color(0x1CFFFFFF);
+
+  /// 15% white — glass border / emphasis stroke
+  static const Color glassBorder = Color(0x26FFFFFF);
+
+  /// 30% black — soft scrim over imagery (gradient top)
+  static const Color scrimSoft = Color(0x50000000);
+
+  /// 60% black — stronger scrim over imagery (gradient bottom / text)
+  static const Color scrimStrong = Color(0xA0000000);
+
+  // ==========================================================================
+  // Legacy aliases — kept for call sites that haven't migrated yet. Each
+  // alias has confirmed external references; the dead 45+ siblings of
+  // these were removed in the editorial consolidation. See git log for
+  // the full deletion list.
   // ==========================================================================
   static const Color seedColor = accent;
   static const Color accentPrimary = accent;
-  static const Color accentSecondary = ok;
-  static const Color accentTertiary = warn;
-  static const Color seedDeep = accent;
-  static const Color accentPrimaryDeep = accentHi;
-  static const Color accentTertiaryDeep = warn;
 
-  /// Status colors — torrent states map to the restrained palette.
+  /// Warm amber attention accent — distinct from the primary orange
+  /// and the green ok. Used for decorative gradients and "draw the eye"
+  /// callouts (drawer header gradient, AUTO-GRAB button, calendar week
+  /// chip).
+  static const Color accentAmber = warn;
+
   static const Color success = ok;
-  static const Color successLight = okSoft;
-  static const Color successDark = ok;
-
   static const Color warning = warn;
-  static const Color warningLight = Color(0x24F3B94C);
-  static const Color warningDark = warn;
-
   static const Color error = err;
-  static const Color errorLight = Color(0x29FF5F5B);
-  static const Color errorDark = err;
-
   static const Color info = accent;
-  static const Color infoLight = accentSoft;
-  static const Color infoDark = accentHi;
 
-  // Torrent states — downloading = accent, seeding = ok, paused = muted,
-  // queued = warn, checking = warn, error = err.
   static const Color downloading = accent;
-  static const Color downloadingLight = accentSoft;
-  static const Color downloadingDark = accentHi;
-
   static const Color seeding = ok;
-  static const Color seedingLight = okSoft;
-  static const Color seedingDark = ok;
-
   static const Color paused = fg3;
-  static const Color pausedLight = bgSurfaceHi;
-  static const Color pausedDark = fg2;
-
-  static const Color queued = warn;
-  static const Color queuedLight = Color(0x24F3B94C);
-  static const Color queuedDark = warn;
-
-  static const Color checking = warn;
-  static const Color checkingLight = Color(0x24F3B94C);
-  static const Color checkingDark = warn;
-
   static const Color errorState = err;
-  static const Color errorStateLight = Color(0x29FF5F5B);
-  static const Color errorStateDark = err;
 
-  // Quality badges — in the editorial design these are all neutral mono
-  // tags; 4K gets the accent treatment when emphasized. Light variants
-  // map to subtle surface tints so the legacy code still renders.
-  static const Color quality4K = accent;
-  static const Color quality4KLight = accentSoft;
-  static const Color quality1080p = fg1;
-  static const Color quality1080pLight = bgSurfaceHi;
-  static const Color quality720p = fg2;
-  static const Color quality720pLight = bgSurface;
-  static const Color qualitySD = fg3;
-  static const Color qualitySDLight = bgSurface;
-
-  // Health/signal indicators
-  static const Color healthGood = ok;
-  static const Color healthMedium = warn;
-  static const Color healthPoor = err;
-
-  // Rating colors — use accent for highlights, muted for everything else.
+  // Used by `getRatingColor`. Rating thresholds are quality-of-source
+  // signals, not status semantics — keep them mapped to the palette.
   static const Color ratingExcellent = ok;
   static const Color ratingGood = accent;
   static const Color ratingFair = warn;
   static const Color ratingPoor = err;
 
-  // Connection status
-  static const Color connected = ok;
-  static const Color connecting = warn;
-  static const Color disconnected = err;
-
-  // Surface aliases
-  static const Color surfaceLight = Color(0xFFFAFAFA);
-  static const Color surfaceMedium = Color(0xFFF4F4F5);
-  static const Color surfaceDark = bgSurface;
-  static const Color surfaceDarkElevated = bgSurfaceHi;
-
-  // Gradient presets — kept for legacy hero/CTA call sites.
-  // The editorial design uses a single accent + restraint; these
-  // resolve to subtle accent-to-foreground washes instead of the
-  // previous indigo→pink candy gradient.
-  static const List<Color> gradientPrimary = [accent, accentHi];
-  static const List<Color> gradientSuccess = [ok, ok];
-  static const List<Color> gradientWarning = [warn, accent];
+  // Gradient preset — used by `empty_state.dart` for the error
+  // illustration backdrop.
   static const List<Color> gradientError = [err, err];
 }
 
@@ -204,51 +162,17 @@ extension TorrentStateColor on String {
       case 'queueddl':
       case 'queuedup':
       case 'queued':
-        return AppColors.queued;
+        return AppColors.warn;
       case 'checkingdl':
       case 'checkingup':
       case 'checkingresumedata':
       case 'checking':
-        return AppColors.checking;
+        return AppColors.warn;
       case 'error':
       case 'missingfiles':
         return AppColors.errorState;
       default:
         return AppColors.paused;
-    }
-  }
-
-  Color get torrentStateLightColor {
-    switch (toLowerCase()) {
-      case 'downloading':
-      case 'dl':
-      case 'forceddl':
-        return AppColors.downloadingLight;
-      case 'uploading':
-      case 'seeding':
-      case 'stalledup':
-      case 'forcedup':
-        return AppColors.seedingLight;
-      case 'pauseddl':
-      case 'pausedup':
-      case 'stoppeddl':
-      case 'stoppedup':
-      case 'paused':
-        return AppColors.pausedLight;
-      case 'queueddl':
-      case 'queuedup':
-      case 'queued':
-        return AppColors.queuedLight;
-      case 'checkingdl':
-      case 'checkingup':
-      case 'checkingresumedata':
-      case 'checking':
-        return AppColors.checkingLight;
-      case 'error':
-      case 'missingfiles':
-        return AppColors.errorStateLight;
-      default:
-        return AppColors.pausedLight;
     }
   }
 }
@@ -261,28 +185,13 @@ extension QualityColor on String {
     if (lower.contains('2160') ||
         lower.contains('4k') ||
         lower.contains('uhd')) {
-      return AppColors.quality4K;
+      return AppColors.accent;
     } else if (lower.contains('1080')) {
-      return AppColors.quality1080p;
+      return AppColors.fg1;
     } else if (lower.contains('720')) {
-      return AppColors.quality720p;
+      return AppColors.fg2;
     } else {
-      return AppColors.qualitySD;
-    }
-  }
-
-  Color get qualityLightColor {
-    final lower = toLowerCase();
-    if (lower.contains('2160') ||
-        lower.contains('4k') ||
-        lower.contains('uhd')) {
-      return AppColors.quality4KLight;
-    } else if (lower.contains('1080')) {
-      return AppColors.quality1080pLight;
-    } else if (lower.contains('720')) {
-      return AppColors.quality720pLight;
-    } else {
-      return AppColors.qualitySDLight;
+      return AppColors.fg3;
     }
   }
 }
@@ -292,10 +201,4 @@ Color getRatingColor(double rating) {
   if (rating >= 6.0) return AppColors.ratingGood;
   if (rating >= 4.0) return AppColors.ratingFair;
   return AppColors.ratingPoor;
-}
-
-Color getHealthColor(int seeds) {
-  if (seeds >= 10) return AppColors.healthGood;
-  if (seeds >= 3) return AppColors.healthMedium;
-  return AppColors.healthPoor;
 }

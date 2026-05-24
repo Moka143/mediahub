@@ -14,6 +14,7 @@ import '../providers/favorites_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/shows_provider.dart';
 import '../services/auto_download_service.dart';
+import '../utils/feedback_utils.dart';
 import '../widgets/common/empty_state.dart';
 import '../widgets/common/loading_state.dart';
 import 'show_details_screen.dart';
@@ -324,9 +325,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to load show details')),
-        );
+        AppSnackBar.showError(context, message: 'Failed to load show details');
       }
     }
   }
@@ -340,8 +339,9 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       final show = await tmdbService.getShowDetails(episode.showId);
       if (show.imdbId == null) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No IMDB ID found for this show')),
+          AppSnackBar.showError(
+            context,
+            message: 'No IMDB ID found for this show',
           );
         }
         return;
@@ -359,12 +359,10 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
 
       if (torrent == null) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
+          AppSnackBar.showInfo(
+            context,
+            message:
                 'No torrent found for ${episode.showName} ${episode.episodeCode}',
-              ),
-            ),
           );
         }
         ref
@@ -394,15 +392,14 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       );
 
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              success
-                  ? 'Downloading ${episode.showName} ${episode.episodeCode}'
-                  : 'Failed to start download',
-            ),
-          ),
-        );
+        if (success) {
+          AppSnackBar.showSuccess(
+            context,
+            message: 'Downloading ${episode.showName} ${episode.episodeCode}',
+          );
+        } else {
+          AppSnackBar.showError(context, message: 'Failed to start download');
+        }
       }
 
       if (success) {
@@ -424,9 +421,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Download failed: $e')));
+        AppSnackBar.showError(context, message: 'Download failed: $e');
       }
     }
   }
@@ -539,9 +534,7 @@ class _WeekColumn extends StatelessWidget {
             ? AppColors.seedColor.withAlpha(36)
             : AppColors.bgSurface,
         border: Border.all(
-          color: isToday
-              ? AppColors.seedColor.withAlpha(0x66)
-              : AppColors.line,
+          color: isToday ? AppColors.seedColor.withAlpha(0x66) : AppColors.line,
         ),
         borderRadius: BorderRadius.circular(AppRadius.lg),
       ),
@@ -576,11 +569,7 @@ class _WeekColumn extends StatelessWidget {
               padding: const EdgeInsets.only(top: 2),
               child: Text(
                 '+${episodes.length - 3} more',
-                style: const TextStyle(
-                  fontSize: 10,
-                  fontFamily: 'monospace',
-                  color: AppColors.fg2,
-                ),
+                style: AppType.mono(size: 10, color: AppColors.fg2),
               ),
             ),
         ],
@@ -701,7 +690,7 @@ class _AiringRow extends StatelessWidget {
           color: AppColors.bgSurface,
           border: Border.all(
             color: isLive
-                ? AppColors.accentTertiary.withAlpha(0x66)
+                ? AppColors.accentAmber.withAlpha(0x66)
                 : AppColors.line,
           ),
           borderRadius: BorderRadius.circular(AppRadius.md),
@@ -716,12 +705,11 @@ class _AiringRow extends StatelessWidget {
                 children: [
                   Text(
                     DateFormat('E').format(airDate).toUpperCase(),
-                    style: const TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.66,
+                    style: AppType.mono(
+                      size: 10,
                       color: AppColors.fg2,
-                      fontFamily: 'monospace',
+                      weight: FontWeight.w700,
+                      letterSpacing: 0.066,
                     ),
                   ),
                   Text(
@@ -777,11 +765,7 @@ class _AiringRow extends StatelessWidget {
                     '${episode.episodeCode} · ${DateFormat('h:mm a').format(episode.airDate)}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: AppColors.fg2,
-                      fontFamily: 'monospace',
-                    ),
+                    style: AppType.mono(size: 11, color: AppColors.fg2),
                   ),
                 ],
               ),
@@ -795,17 +779,16 @@ class _AiringRow extends StatelessWidget {
                       vertical: 3,
                     ),
                     decoration: BoxDecoration(
-                      color: AppColors.accentTertiary.withAlpha(36),
+                      color: AppColors.accentAmber.withAlpha(36),
                       borderRadius: BorderRadius.circular(AppRadius.xs),
                     ),
                     child: Text(
                       '● LIVE IN ${inHours.clamp(1, 99)}H',
-                      style: const TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.5,
-                        color: AppColors.accentTertiary,
-                        fontFamily: 'monospace',
+                      style: AppType.mono(
+                        size: 10,
+                        color: AppColors.accentAmber,
+                        weight: FontWeight.w700,
+                        letterSpacing: 0.05,
                       ),
                     ),
                   )
@@ -818,14 +801,13 @@ class _AiringRow extends StatelessWidget {
                       color: Colors.white.withAlpha(AppOpacity.subtle),
                       borderRadius: BorderRadius.circular(AppRadius.xs),
                     ),
-                    child: const Text(
+                    child: Text(
                       'SCHEDULED',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.5,
+                      style: AppType.mono(
+                        size: 10,
                         color: AppColors.fg2,
-                        fontFamily: 'monospace',
+                        weight: FontWeight.w700,
+                        letterSpacing: 0.05,
                       ),
                     ),
                   ),
@@ -842,19 +824,22 @@ class _AiringRow extends StatelessWidget {
                   color: AppColors.seedColor,
                   borderRadius: BorderRadius.circular(AppRadius.sm),
                 ),
-                child: const Row(
+                child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.download_rounded, size: 11, color: Colors.white),
-                    SizedBox(width: 4),
+                    const Icon(
+                      Icons.download_rounded,
+                      size: 11,
+                      color: Colors.white,
+                    ),
+                    const SizedBox(width: 4),
                     Text(
                       'AUTO-GRAB',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
+                      style: AppType.mono(
+                        size: 11,
                         color: Colors.white,
-                        letterSpacing: 0.5,
-                        fontFamily: 'monospace',
+                        weight: FontWeight.w700,
+                        letterSpacing: 0.05,
                       ),
                     ),
                   ],
