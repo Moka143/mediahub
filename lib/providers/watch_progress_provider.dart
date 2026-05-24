@@ -481,19 +481,37 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
     await _saveProgress();
   }
 
-  /// Remove watch progress entries whose files no longer exist on disk
+  /// Remove watch progress entries whose files no longer exist on disk.
+  ///
+  /// Entries marked completed (`isCompleted = true`) survive cleanup so that
+  /// the user's "watched" mark persists across file deletes / re-downloads —
+  /// the entry stays as a watched-only record (position is zeroed since it
+  /// no longer refers to a real file). Non-completed stale entries are
+  /// dropped as before.
   Future<void> cleanupStaleEntries() async {
-    final staleKeys = state.entries
-        .where((e) => !File(e.value.filePath).existsSync())
-        .map((e) => e.key)
-        .toList();
+    final newState = <String, WatchProgress>{};
+    var changed = false;
 
-    if (staleKeys.isEmpty) return;
-
-    final newState = Map<String, WatchProgress>.from(state);
-    for (final key in staleKeys) {
-      newState.remove(key);
+    for (final entry in state.entries) {
+      if (File(entry.value.filePath).existsSync()) {
+        newState[entry.key] = entry.value;
+        continue;
+      }
+      if (!entry.value.isCompleted) {
+        // Stale + not watched → drop.
+        changed = true;
+        continue;
+      }
+      // Stale + watched → keep, zeroed position.
+      if (entry.value.position == Duration.zero) {
+        newState[entry.key] = entry.value;
+      } else {
+        newState[entry.key] = entry.value.copyWith(position: Duration.zero);
+        changed = true;
+      }
     }
+
+    if (!changed) return;
     state = newState;
     await _saveProgress();
   }

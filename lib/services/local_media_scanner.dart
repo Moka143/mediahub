@@ -1,5 +1,4 @@
 import 'package:flutter/foundation.dart';
-import 'dart:async';
 import 'dart:io';
 
 import 'package:watcher/watcher.dart';
@@ -9,8 +8,6 @@ import '../models/local_media_file.dart';
 /// Service for scanning local media files from the download folder
 class LocalMediaScanner {
   final String downloadPath;
-  DirectoryWatcher? _watcher;
-  StreamController<List<LocalMediaFile>>? _streamController;
   List<LocalMediaFile> _cachedFiles = [];
 
   LocalMediaScanner(this.downloadPath);
@@ -48,38 +45,41 @@ class LocalMediaScanner {
   /// Get cached files (from last scan)
   List<LocalMediaFile> get cachedFiles => _cachedFiles;
 
-  /// Watch for file changes in the download directory
-  Stream<List<LocalMediaFile>> watchDirectory() {
-    _streamController?.close();
-    _streamController = StreamController<List<LocalMediaFile>>.broadcast();
+  /// Watch for file changes in the download directory.
+  ///
+  /// First emission is the initial scan; each subsequent emission is a
+  /// rescan triggered by a filesystem event. Previously this used a
+  /// broadcast [StreamController] with the initial scan side-channeled in
+  /// via `.add()` — which raced against the subscriber: if the controller
+  /// emitted before Riverpod's [StreamProvider] subscribed, the initial
+  /// emission was lost and the Library tab showed the empty state until
+  /// the user hit Refresh. Using an `async*` generator instead, the
+  /// initial scan is part of the subscribed stream itself (yielded
+  /// *after* the subscriber is in place), so there's nothing to race.
+  Stream<List<LocalMediaFile>> watchDirectory() async* {
+    yield await scanDirectory();
 
-    // Initial scan
-    scanDirectory().then((files) {
-      _streamController?.add(files);
-    });
-
-    // Set up watcher
+    final DirectoryWatcher watcher;
     try {
-      _watcher = DirectoryWatcher(downloadPath);
-      _watcher!.events.listen((event) async {
-        // Rescan on any file change — not just video files, because
-        // deletions often happen at the directory level
-        final files = await scanDirectory();
-        _streamController?.add(files);
-      });
+      watcher = DirectoryWatcher(downloadPath);
     } catch (e) {
       debugPrint('Error setting up file watcher: $e');
+      return;
     }
 
-    return _streamController!.stream;
+    await for (final _ in watcher.events) {
+      // Rescan on any file change — not just video files, because
+      // deletions often happen at the directory level.
+      yield await scanDirectory();
+    }
   }
 
-  /// Stop watching directory
-  void stopWatching() {
-    _streamController?.close();
-    _streamController = null;
-    _watcher = null;
-  }
+  /// Stop watching the directory.
+  ///
+  /// No-op — the `async*` generator in [watchDirectory] cleans itself up
+  /// when the subscriber cancels (which happens automatically when
+  /// [localMediaScannerProvider] is invalidated). Kept for API stability.
+  void stopWatching() {}
 
   /// Get files grouped by show name
   Map<String, List<LocalMediaFile>> groupByShow(List<LocalMediaFile> files) {

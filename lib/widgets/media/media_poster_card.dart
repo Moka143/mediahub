@@ -110,6 +110,7 @@ class MediaPosterCard extends ConsumerStatefulWidget {
 
 class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
   bool _isHovered = false;
+  bool _menuOpen = false;
 
   Color _progressColor(ThemeData theme) {
     final p = widget.progress ?? 0;
@@ -159,52 +160,73 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
                 ),
 
                 // Overflow action menu — sibling of the InkWell so the
-                // popup button captures taps independently.
-                if (_isHovered && widget.actions.isNotEmpty)
+                // popup button captures taps independently. Stays mounted
+                // regardless of hover; visibility is toggled via opacity +
+                // IgnorePointer. If we conditionally remove it on hover-out,
+                // opening the menu disposes the PopupMenuButton's State (the
+                // modal barrier triggers MouseRegion.onExit → setState → tree
+                // rebuilds without the button), and showMenu's `.then` then
+                // sees `!mounted` and silently drops `onSelected` — so the
+                // menu opens and closes but the action never fires.
+                if (widget.actions.isNotEmpty)
                   Positioned(
                     top: AppSpacing.xs,
                     right: AppSpacing.xs,
-                    child: Material(
-                      color: Colors.black54,
-                      borderRadius: BorderRadius.circular(AppRadius.full),
-                      child: PopupMenuButton<MediaCardAction>(
-                        tooltip: 'More',
-                        icon: const Padding(
-                          padding: EdgeInsets.all(2),
-                          child: Icon(
-                            Icons.more_vert_rounded,
-                            size: 18,
-                            color: Colors.white,
-                          ),
-                        ),
-                        padding: EdgeInsets.zero,
-                        onSelected: (a) => a.onSelected(),
-                        itemBuilder: (_) => [
-                          for (final a in widget.actions)
-                            PopupMenuItem<MediaCardAction>(
-                              value: a,
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    a.icon,
-                                    size: 18,
-                                    color: a.destructive
-                                        ? theme.colorScheme.error
-                                        : null,
-                                  ),
-                                  const SizedBox(width: AppSpacing.sm),
-                                  Text(
-                                    a.label,
-                                    style: TextStyle(
-                                      color: a.destructive
-                                          ? theme.colorScheme.error
-                                          : null,
-                                    ),
-                                  ),
-                                ],
+                    child: AnimatedOpacity(
+                      duration: AppDuration.fast,
+                      opacity: (_isHovered || _menuOpen) ? 1.0 : 0.0,
+                      child: IgnorePointer(
+                        ignoring: !(_isHovered || _menuOpen),
+                        child: Material(
+                          color: Colors.black54,
+                          borderRadius: BorderRadius.circular(AppRadius.full),
+                          child: PopupMenuButton<MediaCardAction>(
+                            tooltip: 'More',
+                            icon: const Padding(
+                              padding: EdgeInsets.all(2),
+                              child: Icon(
+                                Icons.more_vert_rounded,
+                                size: 18,
+                                color: Colors.white,
                               ),
                             ),
-                        ],
+                            padding: EdgeInsets.zero,
+                            onOpened: () =>
+                                setState(() => _menuOpen = true),
+                            onCanceled: () =>
+                                setState(() => _menuOpen = false),
+                            onSelected: (a) {
+                              setState(() => _menuOpen = false);
+                              a.onSelected();
+                            },
+                            itemBuilder: (_) => [
+                              for (final a in widget.actions)
+                                PopupMenuItem<MediaCardAction>(
+                                  value: a,
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        a.icon,
+                                        size: 18,
+                                        color: a.destructive
+                                            ? theme.colorScheme.error
+                                            : null,
+                                      ),
+                                      const SizedBox(width: AppSpacing.sm),
+                                      Text(
+                                        a.label,
+                                        style: TextStyle(
+                                          color: a.destructive
+                                              ? theme.colorScheme.error
+                                              : null,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                   ),

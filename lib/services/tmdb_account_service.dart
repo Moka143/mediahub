@@ -162,6 +162,57 @@ class TmdbAccountService {
   }
 
   // ============================================================================
+  // Ratings (used as "watched" proxy)
+  // ============================================================================
+  //
+  // TMDB has no native "mark watched" endpoint at any level. Ratings are the
+  // only per-item state we can persist server-side for individual episodes,
+  // so we use them as a stand-in: rate=10 ↔ watched, DELETE rating ↔ unwatched.
+  // See lib/services/library_actions.dart for the wiring.
+
+  /// Default value posted for "mark watched". 10 is the max and the strongest
+  /// "I've seen this" signal; users can manually re-rate from TMDB.
+  static const double watchedRatingValue = 10.0;
+
+  Future<void> rateMovie({required int movieId, required double value}) =>
+      _putRating('/3/movie/$movieId/rating', value);
+
+  Future<void> deleteMovieRating({required int movieId}) =>
+      _deleteRating('/3/movie/$movieId/rating');
+
+  Future<void> rateShow({required int seriesId, required double value}) =>
+      _putRating('/3/tv/$seriesId/rating', value);
+
+  Future<void> deleteShowRating({required int seriesId}) =>
+      _deleteRating('/3/tv/$seriesId/rating');
+
+  Future<void> rateEpisode({
+    required int seriesId,
+    required int seasonNumber,
+    required int episodeNumber,
+    required double value,
+  }) => _putRating(
+    '/3/tv/$seriesId/season/$seasonNumber/episode/$episodeNumber/rating',
+    value,
+  );
+
+  Future<void> deleteEpisodeRating({
+    required int seriesId,
+    required int seasonNumber,
+    required int episodeNumber,
+  }) => _deleteRating(
+    '/3/tv/$seriesId/season/$seasonNumber/episode/$episodeNumber/rating',
+  );
+
+  Future<void> _putRating(String path, double value) async {
+    await _dio.post(path, data: {'value': value});
+  }
+
+  Future<void> _deleteRating(String path) async {
+    await _dio.delete(path);
+  }
+
+  // ============================================================================
   // Account list reads (for sync)
   // ============================================================================
 
@@ -178,6 +229,50 @@ class TmdbAccountService {
 
   Future<Set<int>> getWatchlistMovieIds({required int accountId}) =>
       _collectAllPages('/3/account/$accountId/watchlist/movies');
+
+  /// Returns every rated movie id across all pages — used to reconcile local
+  /// "watched" state from TMDB.
+  Future<Set<int>> getRatedMovieIds({required int accountId}) =>
+      _collectAllPages('/3/account/$accountId/rated/movies');
+
+  /// Returns every rated TV show id across all pages.
+  Future<Set<int>> getRatedShowIds({required int accountId}) =>
+      _collectAllPages('/3/account/$accountId/rated/tv');
+
+  /// Returns every rated TV episode as (showId, season, episode) tuples across
+  /// all pages. Used to mark local files watched from server state on refresh.
+  Future<List<TmdbRatedEpisode>> getRatedEpisodes({
+    required int accountId,
+  }) async {
+    final episodes = <TmdbRatedEpisode>[];
+    var page = 1;
+    while (true) {
+      final r = await _dio.get(
+        '/3/account/$accountId/rated/tv/episodes',
+        queryParameters: {'page': page},
+      );
+      final results = (r.data['results'] as List<dynamic>?) ?? const [];
+      for (final item in results) {
+        final m = item as Map<String, dynamic>;
+        final showId = m['show_id'];
+        final season = m['season_number'];
+        final episode = m['episode_number'];
+        if (showId is int && season is int && episode is int) {
+          episodes.add(
+            TmdbRatedEpisode(
+              showId: showId,
+              seasonNumber: season,
+              episodeNumber: episode,
+            ),
+          );
+        }
+      }
+      final totalPages = r.data['total_pages'] as int? ?? page;
+      if (page >= totalPages) break;
+      page++;
+    }
+    return episodes;
+  }
 
   /// Per-item check used when opening a details screen so the heart/bookmark
   /// state reflects the *current* server truth, not a stale local cache.
@@ -260,6 +355,18 @@ class TmdbAccountStates {
       rating: rating,
     );
   }
+}
+
+class TmdbRatedEpisode {
+  const TmdbRatedEpisode({
+    required this.showId,
+    required this.seasonNumber,
+    required this.episodeNumber,
+  });
+
+  final int showId;
+  final int seasonNumber;
+  final int episodeNumber;
 }
 
 class TmdbAccountException implements Exception {

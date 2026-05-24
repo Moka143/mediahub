@@ -219,7 +219,11 @@ class _WatchScreenState extends ConsumerState<WatchScreen> {
     ref.invalidate(localMediaFilesProvider);
     await ref.read(localMediaFilesProvider.future);
     // Clean up watch progress entries for files that no longer exist
+    // (watched-only entries are preserved so the user keeps history).
     await ref.read(watchProgressProvider.notifier).cleanupStaleEntries();
+    // Pull TMDB rated episodes/movies/shows and reconcile local watched state.
+    // Additive — never demotes a locally-watched item back to unwatched.
+    await syncWatchedFromTmdb(ref);
   }
 
   /// Same as [_handleRefresh] but surfaces a confirmation snackbar — wired
@@ -1231,7 +1235,10 @@ class _LocalMediaGrid extends StatelessWidget {
         maxCrossAxisExtent: 180,
         mainAxisSpacing: AppSpacing.md,
         crossAxisSpacing: AppSpacing.md,
-        childAspectRatio: 152 / 252,
+        // 2:3 poster (width * 1.5) + ~45px caption block = needs ~width / 0.56.
+        // Anything tighter clips the title row and triggers Flutter's striped
+        // overflow indicator at the card's bottom edge.
+        childAspectRatio: 152 / 272,
       ),
       itemCount: files.length,
       itemBuilder: (_, index) {
@@ -1273,7 +1280,10 @@ class _ShowsGrid extends StatelessWidget {
         maxCrossAxisExtent: 180,
         mainAxisSpacing: AppSpacing.md,
         crossAxisSpacing: AppSpacing.md,
-        childAspectRatio: 152 / 252,
+        // 2:3 poster (width * 1.5) + ~45px caption block = needs ~width / 0.56.
+        // Anything tighter clips the title row and triggers Flutter's striped
+        // overflow indicator at the card's bottom edge.
+        childAspectRatio: 152 / 272,
       ),
       itemCount: shows.length,
       itemBuilder: (_, index) {

@@ -97,24 +97,27 @@ final localMediaScannerProvider = Provider<LocalMediaScanner>((ref) {
   return scanner;
 });
 
-/// Provider for all local media files (scanned once)
+/// Snapshot of all local media files.
+///
+/// Derived from [localMediaStreamProvider] so it reflects the live watcher
+/// state — every `DirectoryWatcher` event re-emits through the stream,
+/// which re-runs this provider, which then propagates to all derived
+/// providers (recentDownloadsProvider, localMoviesProvider,
+/// localMediaByShowAndSeasonProvider, etc.).
+///
+/// Previously this was an independent one-shot `FutureProvider` doing its
+/// own scan. Result: the stream-driven UI saw new files (the "All" count
+/// updated) but the derived sub-section lists stayed frozen at the
+/// initial scan. Bridging it to the stream gives everything one source
+/// of truth.
 final localMediaFilesProvider = FutureProvider<List<LocalMediaFile>>((
   ref,
 ) async {
-  final scanner = ref.watch(localMediaScannerProvider);
-  final files = await scanner.scanDirectory();
-
-  // Filter out files that no longer exist on disk
-  final existingFiles = files.where((f) => File(f.path).existsSync()).toList();
-
-  // Attach watch progress to files
-  final progressMap = ref.watch(watchProgressProvider);
-
-  return existingFiles.map((file) {
-    final hash = WatchProgress.generateHash(file.path);
-    final progress = progressMap[hash];
-    return progress != null ? file.copyWith(progress: progress) : file;
-  }).toList();
+  final streamAsync = ref.watch(localMediaStreamProvider);
+  if (streamAsync.hasError) throw streamAsync.error!;
+  if (streamAsync.hasValue) return streamAsync.value!;
+  // Loading — wait for the stream's first emission (initial scan).
+  return await ref.watch(localMediaStreamProvider.future);
 });
 
 /// Provider for watching local media files (stream)
