@@ -32,6 +32,7 @@ import '../widgets/mediahub_torrent_row.dart';
 import '../providers/favorites_provider.dart';
 import '../providers/tmdb_account_provider.dart';
 import '../providers/watchlist_provider.dart';
+import '../services/library_actions.dart';
 import 'calendar_screen.dart';
 import 'favorites_screen.dart';
 import 'mediahub_home_screen.dart';
@@ -74,12 +75,16 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
     super.initState();
     // Pull authoritative favorites/watchlist from TMDB on launch when
     // already signed in. Best-effort: failures stay silent and the user
-    // still sees the local cache.
+    // still sees the local cache. Also reconcile watched/ratings —
+    // bidirectional, additive, so episodes you marked on another device
+    // show up here and items you watched locally before signing in get
+    // pushed up.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (ref.read(tmdbSessionProvider) != null) {
         ref.read(favoritesProvider.notifier).syncFromTmdb();
         ref.read(watchlistProvider.notifier).syncFromTmdb();
+        reconcileWatchedWithTmdb(ref);
       }
     });
   }

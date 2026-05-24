@@ -221,9 +221,10 @@ class _WatchScreenState extends ConsumerState<WatchScreen> {
     // Clean up watch progress entries for files that no longer exist
     // (watched-only entries are preserved so the user keeps history).
     await ref.read(watchProgressProvider.notifier).cleanupStaleEntries();
-    // Pull TMDB rated episodes/movies/shows and reconcile local watched state.
-    // Additive — never demotes a locally-watched item back to unwatched.
-    await syncWatchedFromTmdb(ref);
+    // Bidirectional reconcile: pull TMDB-rated → local + push local-watched
+    // → TMDB. Additive both ways; doesn't delete server state based on
+    // local absence (other devices may have watched it).
+    await reconcileWatchedWithTmdb(ref);
   }
 
   /// Same as [_handleRefresh] but surfaces a confirmation snackbar — wired

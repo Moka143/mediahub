@@ -99,7 +99,15 @@ class TmdbSessionNotifier extends Notifier<TmdbSession?> {
   /// browser. The UI then waits for the user to come back and click
   /// "I've approved it" before calling [completeSignIn].
   Future<String> beginSignIn() async {
-    final svc = ref.read(tmdbAccountServiceProvider);
+    // Construct the service inline with the read token instead of going
+    // through `tmdbAccountServiceProvider`. That provider watches
+    // `tmdbSessionProvider` — i.e. THIS notifier — and Riverpod 3.x
+    // flags the read-during-method-call as a self-dependency cycle
+    // ("CircularDependencyError: Provider<TmdbAccountService> depends
+    // on itself"). We're pre-sign-in here anyway, so the right Bearer
+    // is always the read token, never a user token.
+    final readToken = ref.read(effectiveTmdbAccessTokenProvider);
+    final svc = TmdbAccountService(accessToken: readToken);
     final token = await svc.createRequestToken();
     final url = Uri.parse(svc.authorizeUrl(token));
     await launchUrl(url, mode: LaunchMode.externalApplication);
@@ -111,10 +119,11 @@ class TmdbSessionNotifier extends Notifier<TmdbSession?> {
   /// account profile (including the v3 integer account id needed for
   /// `/3/account/{id}/...` endpoints), and persists everything.
   Future<void> completeSignIn(String approvedRequestToken) async {
-    // OAuth itself runs with the app/read token (Bearer). The user isn't
-    // signed in yet, so tmdbAccountServiceProvider already has the right
-    // Bearer.
-    final svc = ref.read(tmdbAccountServiceProvider);
+    // Same reason as in beginSignIn: avoid `tmdbAccountServiceProvider`
+    // to dodge the self-dependency cycle. OAuth exchange runs with the
+    // app read token.
+    final readToken = ref.read(effectiveTmdbAccessTokenProvider);
+    final svc = TmdbAccountService(accessToken: readToken);
     final accessToken = await svc.createAccessToken(approvedRequestToken);
 
     // Build a fresh service authenticated as the user to look up their

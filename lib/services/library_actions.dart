@@ -256,11 +256,34 @@ Future<void> markAsNotWatched(
   }
 }
 
-/// Pull TMDB rated items and mark matching local files watched. Additive
-/// only — never demotes a locally-watched item to unwatched. Called on
-/// library refresh so ratings made from other clients (TMDB web, another
-/// device) propagate into the library.
-Future<void> syncWatchedFromTmdb(WidgetRef ref) async {
+/// Bidirectional reconcile between local watched state and TMDB ratings.
+/// Triggered on:
+///   - app launch (`MainNavigationScreen.initState`)
+///   - library refresh
+///   - Settings → TMDB Account → "Refresh from TMDB"
+///   - sign-in completion (after the OAuth flow lands)
+///
+/// Strategy mirrors the favorites/watchlist sync at
+/// [FavoritesNotifier.syncFromTmdb]: **push-first, then TMDB-wins**.
+///
+///   1. PUSH local-completed episodes that aren't yet rated on TMDB →
+///      `POST rating=10`. Guarantees no pre-existing local data is lost.
+///      Best-effort: failed pushes are tracked so step 3 won't clobber
+///      them locally.
+///   2. After push, TMDB has the union of (local-watched ∪ remote-rated).
+///   3. PULL with TMDB as authority: for every visible local file —
+///      - rating present on TMDB → mark watched locally (if not already)
+///      - rating absent on TMDB → unmark watched locally (if was)
+///
+/// The unmark step in (3) is what makes "TMDB wins": if you unwatched
+/// an episode on another device (which DELETEs the rating), this device
+/// follows on the next reconcile. To avoid clobbering on transient
+/// network failure, push failures are treated as "present" so step 3
+/// preserves the local mark until the next successful push.
+Future<void> reconcileWatchedWithTmdb(
+  WidgetRef ref, {
+  bool pushLocalFirst = false,
+}) async {
   if (!ref.read(isTmdbSignedInProvider)) return;
   final session = ref.read(tmdbSessionProvider);
   if (session == null) return;
@@ -270,44 +293,96 @@ Future<void> syncWatchedFromTmdb(WidgetRef ref) async {
     final ratedEpisodes = await accountService.getRatedEpisodes(
       accountId: session.accountId,
     );
-    if (ratedEpisodes.isEmpty) return;
-
-    final files = ref.read(localMediaFilesProvider).value ?? [];
-    final progressNotifier = ref.read(watchProgressProvider.notifier);
-    final currentProgress = ref.read(watchProgressProvider);
-
-    // Build (showId, season, episode) key set for O(1) lookup.
     String keyFor(int s, int se, int ep) => '$s/$se/$ep';
+    // Mutable working set — starts as the truth from TMDB; may be
+    // augmented by [pushLocalFirst] union below.
     final ratedKeys = <String>{
       for (final e in ratedEpisodes)
         keyFor(e.showId, e.seasonNumber, e.episodeNumber),
     };
 
-    for (final file in files) {
-      final season = file.seasonNumber;
-      final episode = file.episodeNumber;
+    final progressMap = ref.read(watchProgressProvider);
+    final progressNotifier = ref.read(watchProgressProvider.notifier);
+
+    // ── 1. (Optional) PUSH local-watched not on TMDB → POST ─────────
+    // Only on sign-in (`pushLocalFirst: true`). Ongoing reconciles
+    // skip this so remote deletes propagate — if we pushed local
+    // every time, an unmark on another device would be reversed.
+    if (pushLocalFirst) {
+      for (final p in progressMap.values) {
+        if (!p.isCompleted) continue;
+        final season = p.seasonNumber;
+        final episode = p.episodeNumber;
+        if (season == null || episode == null) continue;
+        final showId = p.showId ?? await _resolveShowId(ref, p.showName);
+        if (showId == null) continue;
+        final k = keyFor(showId, season, episode);
+        if (ratedKeys.contains(k)) continue;
+        try {
+          await accountService.rateEpisode(
+            seriesId: showId,
+            seasonNumber: season,
+            episodeNumber: episode,
+            value: TmdbAccountService.watchedRatingValue,
+          );
+          ratedKeys.add(k);
+        } catch (e) {
+          debugPrint(
+            '[reconcile] push failed for $showId S${season}E$episode: $e',
+          );
+          // Treat as present so the pull step below doesn't clobber
+          // local on a transient failure. Next reconcile retries.
+          ratedKeys.add(k);
+        }
+      }
+    }
+
+    // ── 2 + 3. TMDB-wins pull ────────────────────────────────────────
+    // Build the union of "things to reconcile": every visible local file
+    // PLUS every watch_progress entry (so orphaned watched marks — files
+    // that have been deleted — still follow remote unmarks).
+    final files = ref.read(localMediaFilesProvider).value ?? [];
+    final filesByPath = {for (final f in files) f.path: f};
+
+    final unionPaths = <String>{
+      ...filesByPath.keys,
+      for (final p in progressMap.values) p.filePath,
+    };
+
+    for (final path in unionPaths) {
+      final file = filesByPath[path];
+      final existing = progressMap[WatchProgress.generateHash(path)];
+
+      // Episode metadata: prefer the local file (parsed from filename
+      // at scan time), fall back to the persisted progress entry.
+      final season = file?.seasonNumber ?? existing?.seasonNumber;
+      final episode = file?.episodeNumber ?? existing?.episodeNumber;
       if (season == null || episode == null) continue;
-      // Files parsed from filenames usually lack a TMDB show id — resolve
-      // by name (cached) so we can match against TMDB's rated list.
+
+      final showName = file?.showName ?? existing?.showName;
       final showId =
-          file.showId ?? await _resolveShowId(ref, file.showName);
+          file?.showId ?? existing?.showId ?? await _resolveShowId(ref, showName);
       if (showId == null) continue;
-      if (!ratedKeys.contains(keyFor(showId, season, episode))) continue;
 
-      // Already marked locally — skip the write.
-      final existing = currentProgress[WatchProgress.generateHash(file.path)];
-      if (existing?.isCompleted == true) continue;
+      final ratedOnTmdb = ratedKeys.contains(keyFor(showId, season, episode));
+      final localWatched = existing?.isCompleted == true;
 
-      await progressNotifier.markCompleted(
-        file.path,
-        showName: file.showName,
-        showId: showId,
-        seasonNumber: season,
-        episodeNumber: episode,
-        posterPath: file.posterPath,
-      );
+      if (ratedOnTmdb && !localWatched) {
+        await progressNotifier.markCompleted(
+          path,
+          showName: showName,
+          showId: showId,
+          seasonNumber: season,
+          episodeNumber: episode,
+          posterPath: file?.posterPath ?? existing?.posterPath,
+        );
+      } else if (!ratedOnTmdb && localWatched) {
+        // TMDB says not watched — another device unwatched it. Follow.
+        await progressNotifier.markNotCompleted(path);
+      }
     }
   } catch (e) {
-    debugPrint('[LibraryActions] TMDB watched-sync pull failed: $e');
+    debugPrint('[LibraryActions] TMDB watched reconcile failed: $e');
   }
 }
+

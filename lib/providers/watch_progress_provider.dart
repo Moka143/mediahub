@@ -6,8 +6,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/watch_progress.dart';
+import '../services/tmdb_account_service.dart';
 import 'local_media_provider.dart';
 import 'settings_provider.dart';
+import 'tmdb_account_provider.dart';
 
 /// Key for storing watch progress in SharedPreferences
 const _watchProgressKey = 'watch_progress';
@@ -339,16 +341,52 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
     }
   }
 
-  /// Update or create progress for a file
+  /// Update or create progress for a file.
+  ///
+  /// When the entry crosses the 90% threshold for the first time we flip
+  /// `isCompleted = true` AND fire a best-effort TMDB rating POST so the
+  /// "watched" mark propagates across devices. Without this, finishing
+  /// an episode only updates local state — only the manual
+  /// "Mark as watched" menu used to hit TMDB.
   Future<void> updateProgress(WatchProgress progress) async {
-    // Check if should mark as completed
-    final updatedProgress =
-        progress.shouldMarkCompleted && !progress.isCompleted
+    final justCompleted =
+        progress.shouldMarkCompleted && !progress.isCompleted;
+    final updatedProgress = justCompleted
         ? progress.copyWith(isCompleted: true)
         : progress;
 
     state = {...state, updatedProgress.fileHash: updatedProgress};
     await _saveProgress();
+
+    if (justCompleted) {
+      // Fire-and-forget — local state is already saved, network errors
+      // are reconciled on the next `reconcileWatchedWithTmdb` pass.
+      _pushWatchedToTmdb(updatedProgress);
+    }
+  }
+
+  Future<void> _pushWatchedToTmdb(WatchProgress p) async {
+    if (!ref.read(isTmdbSignedInProvider)) return;
+    final showId = p.showId;
+    final season = p.seasonNumber;
+    final episode = p.episodeNumber;
+    if (showId == null || season == null || episode == null) {
+      // Movies / un-parsed files: no structured key to push. The next
+      // reconcile pass picks this up after a show-name → id lookup.
+      return;
+    }
+    try {
+      await ref
+          .read(tmdbAccountServiceProvider)
+          .rateEpisode(
+            seriesId: showId,
+            seasonNumber: season,
+            episodeNumber: episode,
+            value: TmdbAccountService.watchedRatingValue,
+          );
+    } catch (e) {
+      debugPrint('[WatchProgress] auto-push to TMDB failed: $e');
+    }
   }
 
   /// Update position only (for frequent updates during playback)

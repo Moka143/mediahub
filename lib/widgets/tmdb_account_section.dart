@@ -5,6 +5,7 @@ import '../providers/favorites_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/tmdb_account_provider.dart';
 import '../providers/watchlist_provider.dart';
+import '../services/library_actions.dart';
 
 /// Two-step TMDB sign-in:
 ///   1. Press "Connect" → opens browser with the request token to approve
@@ -52,6 +53,11 @@ class _TmdbAccountSectionState extends ConsumerState<TmdbAccountSection> {
       await ref
           .read(watchlistProvider.notifier)
           .syncFromTmdb(pushLocalFirst: true);
+      // Reconcile watched/ratings too — push-first so locally-watched
+      // items marked before sign-in propagate up, then pull TMDB as
+      // truth. Ongoing reconciles use the default (pull-only) so
+      // remote unmarks from other devices flow back correctly.
+      await reconcileWatchedWithTmdb(ref, pushLocalFirst: true);
       if (mounted) setState(() => _pendingToken = null);
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
@@ -74,6 +80,9 @@ class _TmdbAccountSectionState extends ConsumerState<TmdbAccountSection> {
     try {
       await ref.read(favoritesProvider.notifier).syncFromTmdb();
       await ref.read(watchlistProvider.notifier).syncFromTmdb();
+      // Bidirectional watched/rating reconcile — push local-watched up
+      // and pull TMDB-rated down.
+      await reconcileWatchedWithTmdb(ref);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
