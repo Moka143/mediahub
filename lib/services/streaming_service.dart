@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:collection/collection.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/local_media_file.dart';
@@ -41,6 +42,50 @@ enum StreamingState {
   cancelled,
 }
 
+/// What to do about a session that hasn't reached its buffer threshold yet.
+enum BufferOutcome {
+  /// Enough bytes are down — start playing.
+  ready,
+
+  /// Progressing at a workable rate; keep waiting.
+  waiting,
+
+  /// No bytes arriving at all. A peer problem, not a speed problem.
+  stalled,
+
+  /// Moving, but so slowly that reaching the threshold isn't worth waiting
+  /// for. Better to say so than to spin and fail later.
+  tooSlow,
+}
+
+/// Download-rate telemetry for one session's buffering phase.
+///
+/// Exists so [StreamingService.assessBuffering] can tell "slow but viable"
+/// from "not happening" — a distinction a wall-clock deadline cannot make.
+class _BufferWatch {
+  _BufferWatch(this.startedAt) : lastProgressAt = startedAt;
+
+  final DateTime startedAt;
+  int lastBytes = 0;
+  DateTime lastProgressAt;
+  double bytesPerSecond = 0;
+
+  /// Fold in a new observation. Rate is exponentially smoothed so one slow
+  /// poll doesn't condemn a torrent and one fast poll doesn't rescue it.
+  void observe(int bytes, DateTime now) {
+    if (bytes <= lastBytes) return;
+    final seconds = now.difference(lastProgressAt).inMilliseconds / 1000.0;
+    if (seconds > 0) {
+      final sample = (bytes - lastBytes) / seconds;
+      bytesPerSecond = bytesPerSecond == 0
+          ? sample
+          : bytesPerSecond * 0.7 + sample * 0.3;
+    }
+    lastBytes = bytes;
+    lastProgressAt = now;
+  }
+}
+
 /// Represents a streaming session for a single video
 class StreamingSession {
   final String id;
@@ -56,8 +101,8 @@ class StreamingSession {
   final int? episode;
   final String? episodeCode;
 
-  /// When this session was first created. Drives the [metadataTimeout] and
-  /// [bufferTimeout] checks in the monitoring loop.
+  /// When this session was first created. Drives the [metadataTimeout] check
+  /// in the monitoring loop and seeds the buffering rate window.
   ///
   /// **Must be threaded through [copyWith].** `_updateSession` copies the
   /// session on every 2 s poll tick as a heartbeat; if `copyWith` let the
@@ -173,6 +218,11 @@ class StreamingService {
       {};
   final Set<String> _checkingProgress =
       {}; // prevents concurrent checks per session
+
+  /// Buffering telemetry per session — see [_BufferWatch]. Cleared when the
+  /// session ends or gives up.
+  final Map<String, _BufferWatch> _bufferWatch = {};
+
   /// Local HTTP proxy keyed by session id. Started when a session reaches
   /// [StreamingState.ready] and torn down on cancel/dispose. mpv reads from
   /// the proxy URL instead of the on-disk file so it doesn't choke on the
@@ -213,8 +263,70 @@ class StreamingService {
   /// Maximum time to wait for metadata
   static const Duration metadataTimeout = Duration(minutes: 2);
 
-  /// Maximum time to wait for initial buffer
-  static const Duration bufferTimeout = Duration(minutes: 5);
+  // ── Buffer patience ────────────────────────────────────────────────────
+  //
+  // This used to be a flat 5-minute deadline, which silently guaranteed
+  // failure for a whole class of torrents: the pre-play floor is 80 MB, so
+  // anything slower than 80 MB / 300 s ≈ 273 KB/s could never reach the
+  // threshold before the clock ran out. A 200 KB/s torrent spun for five
+  // minutes and then reported "Timeout waiting for buffer" — despite being
+  // perfectly capable of streaming, it just needed seven.
+  //
+  // Season-pack episodes hit this disproportionately. Restricting a large
+  // pack to a single wanted file narrows the piece range, so fewer peers
+  // hold what we need at any moment and effective throughput drops.
+  //
+  // The replacement judges whether the download is *going anywhere* rather
+  // than how long it has been running.
+
+  /// Upper bound on patience for a torrent that IS making progress. A
+  /// backstop against pathological cases, not the normal exit.
+  static const Duration bufferHardCeiling = Duration(minutes: 20);
+
+  /// No new bytes at all for this long ⇒ nothing is coming. Distinct from
+  /// "slow": this is a torrent with no usable peers.
+  static const Duration bufferStallWindow = Duration(seconds: 90);
+
+  /// Projected time-to-ready above this ⇒ not worth streaming, say so now
+  /// instead of making the user watch a spinner earn the same answer.
+  static const Duration maxProjectedWait = Duration(minutes: 10);
+
+  /// Ignore the rate estimate until it has had time to mean something —
+  /// the first seconds of a torrent are all handshakes and no payload.
+  static const Duration rateWarmup = Duration(seconds: 30);
+
+  /// What the buffer situation warrants doing right now.
+  ///
+  /// Split out as a pure function because the old flat deadline hid a
+  /// arithmetic contradiction that no amount of manual testing on a fast
+  /// connection would surface.
+  @visibleForTesting
+  static BufferOutcome assessBuffering({
+    required int bufferedBytes,
+    required int minBytes,
+    required double bytesPerSecond,
+    required Duration sinceLastProgress,
+    required Duration sinceStart,
+  }) {
+    if (bufferedBytes >= minBytes) return BufferOutcome.ready;
+    if (sinceStart >= bufferHardCeiling) return BufferOutcome.tooSlow;
+
+    // Nothing arriving at all — a peer problem, not a speed problem.
+    if (sinceLastProgress >= bufferStallWindow) return BufferOutcome.stalled;
+
+    // Slow but moving: is it moving fast enough to be worth the wait?
+    // Only once the rate estimate has had time to settle, so a slow start
+    // doesn't condemn a torrent that is about to pick up.
+    if (sinceStart >= rateWarmup && bytesPerSecond > 0) {
+      final remaining = minBytes - bufferedBytes;
+      final projectedSeconds = remaining / bytesPerSecond;
+      if (projectedSeconds > maxProjectedWait.inSeconds) {
+        return BufferOutcome.tooSlow;
+      }
+    }
+
+    return BufferOutcome.waiting;
+  }
 
   /// Returns the minimum bytes needed before a file is ready to stream.
   static int minBufferBytesFor(int fileSizeBytes) {
@@ -394,6 +506,7 @@ class StreamingService {
     // Stop monitoring
     _monitoringTimers[sessionId]?.cancel();
     _monitoringTimers.remove(sessionId);
+    _bufferWatch.remove(sessionId);
 
     // Tear down the local HTTP proxy if one was started for this session.
     final server = _streamingServers.remove(sessionId);
@@ -781,31 +894,77 @@ class StreamingService {
 
     _updateSession(sessionId, bufferProgress: fileProgress);
 
-    // Byte threshold: enough absolute data for the player to start.
-    final bytesOk = bufferedBytes >= minBytes;
+    final now = DateTime.now();
+    final watch = _bufferWatch.putIfAbsent(
+      sessionId,
+      () => _BufferWatch(session.createdAt),
+    )..observe(bufferedBytes, now);
 
     // Completion short-circuit: if qBit reports the torrent fully done,
     // promote immediately even if our local byte threshold isn't met
     // (small files can be done at <50 MB).
     final torrentDone = torrent.isCompleted || torrent.progress >= 0.99;
-    final readyNow = bytesOk || (torrentDone && fileProgress >= 0.95);
-
-    if (readyNow) {
+    if (torrentDone && fileProgress >= 0.95) {
       AppLog.d(
-        '[StreamingService] Buffer ready (bytesOk=$bytesOk torrentDone=$torrentDone)! '
+        '[StreamingService] Buffer ready (torrent complete)! '
         '${Formatters.formatBytesCompact(bufferedBytes)} buffered.',
       );
       await _promoteToReady(sessionId, torrent);
-    } else {
-      if (DateTime.now().difference(session.createdAt) > bufferTimeout) {
-        _updateSession(
-          sessionId,
-          state: StreamingState.error,
-          errorMessage: 'Timeout waiting for buffer',
-        );
-        _monitoringTimers[sessionId]?.cancel();
-      }
+      return;
     }
+
+    final outcome = assessBuffering(
+      bufferedBytes: bufferedBytes,
+      minBytes: minBytes,
+      bytesPerSecond: watch.bytesPerSecond,
+      sinceLastProgress: now.difference(watch.lastProgressAt),
+      sinceStart: now.difference(watch.startedAt),
+    );
+
+    switch (outcome) {
+      case BufferOutcome.ready:
+        AppLog.d(
+          '[StreamingService] Buffer ready! '
+          '${Formatters.formatBytesCompact(bufferedBytes)} buffered.',
+        );
+        await _promoteToReady(sessionId, torrent);
+
+      case BufferOutcome.waiting:
+        break;
+
+      case BufferOutcome.stalled:
+        AppLog.w(
+          '[StreamingService] Giving up — no bytes for '
+          '${bufferStallWindow.inSeconds}s at '
+          '${Formatters.formatBytesCompact(bufferedBytes)}',
+        );
+        _failBuffering(
+          sessionId,
+          'No peers for this source — nothing is downloading. Try another.',
+        );
+
+      case BufferOutcome.tooSlow:
+        final rate = Formatters.formatSpeed(watch.bytesPerSecond.round());
+        AppLog.w(
+          '[StreamingService] Giving up — $rate is too slow to reach '
+          '${Formatters.formatBytesCompact(minBytes)}',
+        );
+        _failBuffering(
+          sessionId,
+          'Too slow to stream ($rate). Download it instead, or pick another '
+          'source.',
+        );
+    }
+  }
+
+  void _failBuffering(String sessionId, String message) {
+    _updateSession(
+      sessionId,
+      state: StreamingState.error,
+      errorMessage: message,
+    );
+    _monitoringTimers[sessionId]?.cancel();
+    _bufferWatch.remove(sessionId);
   }
 
   /// Find the video file on disk once buffering is complete
@@ -943,6 +1102,7 @@ class StreamingService {
       timer.cancel();
     }
     _monitoringTimers.clear();
+    _bufferWatch.clear();
 
     for (final server in _streamingServers.values) {
       // Fire-and-forget — dispose is sync and the server cleans up its own
