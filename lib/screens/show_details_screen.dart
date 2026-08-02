@@ -22,6 +22,7 @@ import '../providers/watchlist_provider.dart';
 import '../providers/torrentio_provider.dart';
 import '../providers/eztv_provider.dart';
 import '../providers/streaming_provider.dart';
+import '../services/library_actions.dart';
 import '../services/streaming_service.dart';
 import '../utils/feedback_utils.dart';
 import '../utils/formatters.dart';
@@ -124,10 +125,13 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
   }
 
   Future<void> _onEpisodeTap(Episode episode, Show showDetails) async {
-    // Already on disk? Play it. The drawer labels these rows OPEN / REWATCH
-    // rather than GET, and sending them to the source picker instead — which
-    // is what used to happen — contradicts the button the user just pressed
-    // and makes an episode they already have look un-downloaded.
+    // Fully downloaded? Play it. The drawer labels these rows OPEN / REWATCH
+    // rather than GET, and sending them to the source picker instead
+    // contradicts the button the user just pressed.
+    //
+    // "Fully downloaded" is the operative word — see [isFileCompleteOnDisk].
+    // A mere existence check matches qBittorrent's pre-allocated shells, and
+    // playing one of those hands mpv a file of zeros.
     final localFile = ref.read(
       episodeLocalFileProvider((
         showName: showDetails.name,
@@ -135,7 +139,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
         episode: episode.episodeNumber,
       )),
     );
-    if (localFile != null && File(localFile.path).existsSync()) {
+    if (localFile != null && await isFileCompleteOnDisk(ref, localFile)) {
       rootNavigatorKey.currentState?.push(
         MaterialPageRoute(
           builder: (_) => VideoPlayerScreen(
@@ -147,6 +151,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
       return;
     }
 
+    if (!mounted) return;
     if (showDetails.imdbId == null) {
       AppSnackBar.showError(
         context,
@@ -237,7 +242,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
             episode: episode.episodeNumber,
           )),
         );
-        if (localFile != null && File(localFile.path).existsSync()) {
+        if (localFile != null && await isFileCompleteOnDisk(ref, localFile)) {
           rootNavigatorKey.currentState?.push(
             MaterialPageRoute(
               builder: (_) =>

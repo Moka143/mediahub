@@ -1,9 +1,11 @@
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 
 import '../models/local_media_file.dart';
 import '../models/watch_progress.dart';
+import '../providers/connection_provider.dart';
 import '../providers/local_media_provider.dart';
 import '../providers/tmdb_account_provider.dart';
 import '../providers/torrent_provider.dart';
@@ -115,6 +117,74 @@ String? _findTorrentHashForFile(WidgetRef ref, LocalMediaFile file) {
     }
   }
   return null;
+}
+
+/// Whether a local file is genuinely finished, rather than a qBittorrent
+/// shell.
+///
+/// **`File.existsSync()` cannot answer this.** qBittorrent pre-allocates the
+/// full size up front and pads the un-downloaded remainder with zeros, so a
+/// file that is 0.6% downloaded is present on disk *at its full length* and
+/// looks identical to a finished one. Every "already have it locally, just
+/// play it" shortcut that checked only for existence would hand mpv several
+/// hundred MB of zeros — which fails as `Failed to recognize file format`
+/// and leaves the player spinning with no explanation.
+///
+/// So we ask qBittorrent for the file's actual progress:
+///   * no torrent covers this path → nothing is writing to it; trust the
+///     disk (an imported or long-finished file);
+///   * a torrent covers it → require the matching entry to be complete;
+///   * the lookup failed → answer no. Being sent to the source picker for a
+///     file you already have is a minor annoyance; being handed a file of
+///     zeros is a broken player with no error.
+Future<bool> isFileCompleteOnDisk(WidgetRef ref, LocalMediaFile file) async {
+  final name = p.basename(file.path);
+  final onDisk = File(file.path);
+  if (!onDisk.existsSync()) {
+    AppLog.d('[Completeness] "$name" — not on disk');
+    return false;
+  }
+
+  // Size first, because percentages lie about empty files: a 0-byte entry is
+  // "100% downloaded" by every measure qBittorrent reports, having 0 of 0
+  // bytes. Several public packs ship zero-byte placeholders, and trusting the
+  // percentage on one sends an empty file straight to the player.
+  if (onDisk.lengthSync() < minPlayableBytes) {
+    AppLog.d(
+      '[Completeness] "$name" — only ${onDisk.lengthSync()} bytes on disk, '
+      'not real media',
+    );
+    return false;
+  }
+
+  final hash = _findTorrentHashForFile(ref, file);
+  if (hash == null) {
+    AppLog.d('[Completeness] "$name" — no torrent covers it, trusting disk');
+    return true;
+  }
+
+  try {
+    final files = await ref.read(qbApiServiceProvider).getTorrentFiles(hash);
+    final target = name.toLowerCase();
+    for (final f in files) {
+      final entry = p.basename(f.name.replaceAll(r'\', '/')).toLowerCase();
+      if (entry == target) {
+        final complete = f.progress >= 0.999;
+        AppLog.d(
+          '[Completeness] "$name" — torrent says '
+          '${(f.progress * 100).toStringAsFixed(1)}% → '
+          '${complete ? "playable" : "INCOMPLETE, must stream"}',
+        );
+        return complete;
+      }
+    }
+    // The torrent doesn't list this file — it isn't the one writing to it.
+    AppLog.d('[Completeness] "$name" — not in torrent $hash, trusting disk');
+    return true;
+  } catch (e) {
+    AppLog.w('[Completeness] "$name" — check failed for $hash: $e');
+    return false;
+  }
 }
 
 /// Delete a library item end-to-end.

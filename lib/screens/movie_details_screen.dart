@@ -19,6 +19,7 @@ import '../providers/navigation_provider.dart';
 import '../providers/streaming_provider.dart';
 import '../providers/torrentio_provider.dart';
 import '../providers/watch_progress_provider.dart';
+import '../services/library_actions.dart';
 import '../services/streaming_service.dart';
 import '../utils/feedback_utils.dart';
 import '../utils/formatters.dart';
@@ -151,7 +152,7 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
         // re-hash-check — and the "Preparing" modal would hang waiting
         // for the buffer threshold either way.
         final localFile = ref.read(movieLocalFileProvider(movie.title));
-        if (localFile != null && File(localFile.path).existsSync()) {
+        if (localFile != null && await isFileCompleteOnDisk(ref, localFile)) {
           rootNavigatorKey.currentState?.push(
             MaterialPageRoute(
               builder: (_) =>

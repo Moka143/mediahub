@@ -19,6 +19,17 @@ const videoExtensions = [
   '3gp',
 ];
 
+/// Smallest file the scanner will treat as real media.
+///
+/// Deliberately low — 1 MB is far below any watchable episode but comfortably
+/// above the two things this exists to exclude: zero-byte placeholders (which
+/// several public packs ship, and which qBittorrent also creates for files it
+/// hasn't started) and tiny "sample" clips. The zero-byte case is the harmful
+/// one: 0 of 0 bytes satisfies every percentage check as 100%, so such a file
+/// looks complete to the library, to the completeness check, and to the
+/// player — right up until mpv reports "Failed to recognize file format".
+const int minPlayableBytes = 1024 * 1024;
+
 /// Represents a local media file scanned from the download folder
 class LocalMediaFile {
   final String path; // Full file path
@@ -88,6 +99,17 @@ class LocalMediaFile {
           : '';
 
       if (!videoExtensions.contains(ext)) {
+        return null;
+      }
+
+      // Reject stubs. Torrents routinely carry zero-byte placeholder files
+      // and tiny sample clips alongside the real episodes, and qBittorrent
+      // creates a 0-byte entry for any file it hasn't started. A 0-byte .mkv
+      // reports "100% complete" to every progress check (0 of 0 bytes is
+      // 100%), so it passes as playable, reaches the library, and hands mpv
+      // an empty file — which surfaces only as "Failed to recognize file
+      // format" with a spinner and no explanation.
+      if (stat.size < minPlayableBytes) {
         return null;
       }
 

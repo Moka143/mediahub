@@ -6,6 +6,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../models/local_media_file.dart';
+import '../services/app_logger.dart';
 import '../utils/constants.dart';
 import '../utils/formatters.dart';
 import 'watch_progress_provider.dart';
@@ -28,9 +29,30 @@ final currentPlayingFileProvider =
 Player? _globalPlayer;
 VideoController? _globalVideoController;
 
-/// Provider for the media_kit Player instance
+/// Provider for the media_kit Player instance.
+///
+/// libmpv's own log output is routed into [AppLog]. Without it, a stream
+/// that opens but never renders leaves nothing to go on — the HTTP proxy
+/// logs a perfectly well-formed exchange, the file on disk is valid, and
+/// the only way to reason about mpv's decision is to guess from the
+/// outside. mpv knows exactly why it gave up; this makes it say so.
+///
+/// `warn` rather than `debug`: enough to catch demuxer and stream failures
+/// without flooding a long playback session (mpv at debug emits per-frame
+/// chatter). Raise it here when a specific bug needs it.
 final playerProvider = Provider<Player>((ref) {
-  _globalPlayer ??= Player();
+  if (_globalPlayer == null) {
+    final player = Player(
+      configuration: const PlayerConfiguration(logLevel: MPVLogLevel.warn),
+    );
+    player.stream.log.listen((log) {
+      AppLog.w('[mpv:${log.prefix}/${log.level}] ${log.text.trim()}');
+    });
+    player.stream.error.listen((error) {
+      AppLog.e('[mpv] $error');
+    });
+    _globalPlayer = player;
+  }
   return _globalPlayer!;
 });
 
@@ -209,14 +231,17 @@ class PlayerService {
         );
         // libavformat (used for MP4/WebM/etc.) has a similar tail-probe
         // pass — keep it bounded so initial open isn't dominated by tail
-        // reads against an undownloaded region. Note: analyzeduration is
-        // in *microseconds*. Setting it to 1 (the previous value) meant
-        // 1 µs of analysis, which is far too short for libavformat to
-        // identify the codec and stream layout — mpv would silently fail
-        // to open the file. 5 seconds is a sane minimum.
+        // reads against an undownloaded region.
+        //
+        // Units: mpv takes analyzeduration in SECONDS, unlike raw ffmpeg
+        // where it is microseconds. The previous value of 5000000 was the
+        // microsecond figure, which mpv rejected outright —
+        // "The demuxer-lavf-analyzeduration option is out of range" — so
+        // this tuning silently did nothing at all. It only surfaced once
+        // libmpv's own log was wired into AppLog.
         await nativePlayer.setProperty(
           'demuxer-lavf-analyzeduration',
-          '5000000', // 5 seconds (microseconds)
+          '5', // seconds
         );
         await nativePlayer.setProperty(
           'demuxer-lavf-probesize',
@@ -243,7 +268,12 @@ class PlayerService {
       try {
         await nativePlayer.setProperty('demuxer-max-bytes', '150000000');
         await nativePlayer.setProperty('demuxer-readahead-secs', '20');
-        await nativePlayer.setProperty('force-seekable', 'auto');
+        // force-seekable is a flag, so its off state is 'no', not 'auto'.
+        // mpv rejected 'auto' at fatal level ("Invalid parameter for
+        // force-seekable flag"), meaning the streaming session's
+        // force-seekable=yes stayed latched on the global player for every
+        // subsequent local file. ('cache' below does accept auto.)
+        await nativePlayer.setProperty('force-seekable', 'no');
         await nativePlayer.setProperty('cache', 'auto');
       } catch (_) {
         // Older libmpv may reject some of these — non-fatal.
