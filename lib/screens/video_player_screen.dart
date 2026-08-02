@@ -21,6 +21,7 @@ import '../providers/watch_progress_provider.dart';
 import '../providers/streaming_provider.dart';
 import '../services/auto_download_service.dart';
 import '../services/local_streaming_server.dart';
+import '../services/next_episode_planner.dart';
 import '../services/playback_health_monitor.dart';
 import '../services/streaming_service.dart';
 import '../utils/formatters.dart';
@@ -108,9 +109,13 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   bool _showSkipBackward = false;
   Timer? _skipIndicatorTimer;
 
-  // Binge watching / Next episode state
-  bool _showNextEpisodeOverlay = false;
-  bool _nextEpisodeOverlayDismissed = false;
+  // Binge watching / Next episode state.
+  //
+  // The *when* — trigger window, overlay-vs-autoplay, and the one-shot
+  // guards that used to be four loose booleans here — lives in
+  // [NextEpisodePlanner]. This screen keeps the *what*: the resolved
+  // episode, the TMDB lookup, and the navigation.
+  late final NextEpisodePlanner _planner;
   LocalMediaFile? _nextEpisode;
   Episode? _nextEpisodeFromTmdb; // Next episode from TMDB (not downloaded yet)
   NextEpisodeResult? _nextEpisodeResult; // Full result with availability info
@@ -119,14 +124,6 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   StreamSubscription<Duration>? _positionSubscription;
   StreamSubscription<bool>? _completedSubscription;
 
-  // Auto-download tracking
-  bool _autoDownloadTriggered = false;
-
-  /// One-shot guard for the "Continue Watching ON → seamless auto-play"
-  /// path. When the user explicitly opted in for this show we skip the
-  /// next-episode overlay and just hand off to `_onPlayNextEpisode` once
-  /// playback enters the trigger window AND the next episode is ready.
-  bool _autoNextEpisodeFired = false;
   bool _nextEpisodeDownloadStarted =
       false; // Track if we started downloading next ep
   Episode? _downloadingEpisode; // The episode we're downloading
@@ -172,6 +169,9 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   @override
   void initState() {
     super.initState();
+    _planner = NextEpisodePlanner(
+      bingeEnabled: ref.read(bingeWatchingEnabledProvider),
+    );
     // Seed the buffered-ratio from whatever the streaming session knew at
     // navigation time so the seek-bar's buffered track is populated on the
     // first frame instead of going dark for ~2 s until the first health
@@ -411,9 +411,11 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
 
   void _setupNextEpisodeWatcher() async {
     final player = ref.read(playerProvider);
-    final bingeWatchingEnabled = ref.read(bingeWatchingEnabledProvider);
 
-    if (!bingeWatchingEnabled) return;
+    // Skip the whole flow — subscription, TMDB lookup and library rescan —
+    // when binge watching is off. The planner would refuse every action
+    // anyway, but there's no reason to pay for the round trips.
+    if (!_planner.bingeEnabled) return;
 
     // Attach the position listener UP FRONT — even before we know whether
     // there's a next episode. If we wait until TMDB / local scan resolves
@@ -423,60 +425,36 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     // (after buffering completes), and we want the overlay to fire then
     // too. So: always-attach, lazy-check `_hasNextEpisode()` on each tick.
     _positionSubscription = player.stream.position.listen((position) {
-      if (!mounted || _showResumePrompt) return;
+      if (!mounted) return;
 
-      final duration = player.state.duration;
-      if (duration.inSeconds <= 0) return;
-
-      final countdownSeconds = ref.read(nextEpisodeCountdownSecondsProvider);
-      final remaining = duration - position;
-
-      // Trigger when EITHER:
-      //   • playback is in the final 10% of the episode (scales with
-      //     duration — ~4 min on a 45-min ep, ~6 min on an hour-long ep,
-      //     covers the credits window where users want the prompt), OR
-      //   • there's less than `countdownSeconds` left (fallback for very
-      //     short content where 10% is only seconds)
-      // Whichever is reached first. `remaining > 0` excludes content that
-      // has already ended — the playback-completion watcher handles that.
-      final positionRatio = position.inMilliseconds / duration.inMilliseconds;
-      final inFinalTenth = positionRatio >= 0.90;
-      final withinCountdown = remaining.inSeconds <= countdownSeconds;
-      final inTriggerWindow =
-          (inFinalTenth || withinCountdown) && remaining.inSeconds > 0;
-
-      if (!inTriggerWindow) return;
-
-      // When the user explicitly opted into Continue Watching for this
-      // show, skip the countdown overlay entirely and just hand off to
-      // the next episode the moment its proxy is ready. Mirrors how
-      // streaming services play the next ep without asking — the
-      // explicit toggle IS the consent.
       final cwOverride = _currentShowId == null
           ? null
           : ref
                 .read(autoDownloadProvider)
                 .showAutoDownloadOverrides[_currentShowId];
-      final continueWatchingOn = cwOverride == true;
-      if (continueWatchingOn) {
-        if (!_autoNextEpisodeFired && _nextEpisode != null) {
-          _autoNextEpisodeFired = true;
+
+      final action = _planner.evaluatePosition(
+        position: position,
+        duration: player.state.duration,
+        countdownSeconds: ref.read(nextEpisodeCountdownSecondsProvider),
+        resumePromptVisible: _showResumePrompt,
+        continueWatchingOn: cwOverride == true,
+        hasPlayableNextEpisode: _nextEpisode != null,
+        hasAnyNextEpisode: _hasNextEpisode(),
+      );
+
+      switch (action) {
+        case NextEpisodeAction.autoPlay:
           AppLog.d(
             '[ContinueWatching] auto-playing next episode '
             '(showId=$_currentShowId, position=${position.inSeconds}s)',
           );
           _onPlayNextEpisode();
-        }
-        return;
+        case NextEpisodeAction.showOverlay:
+          setState(() {});
+        case NextEpisodeAction.none:
+          break;
       }
-
-      // Default flow: show the overlay if a next episode is known.
-      if (_nextEpisodeOverlayDismissed || _showNextEpisodeOverlay) return;
-      if (!_hasNextEpisode()) return;
-
-      setState(() {
-        _showNextEpisodeOverlay = true;
-      });
     });
 
     // Resolve next-episode info in the background — TMDB is authoritative
@@ -611,10 +589,10 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   /// Called when the user flips Continue Watching to explicit-On for this
   /// show. Kicks the next-episode auto-download off **immediately** instead
   /// of waiting for the progress threshold. Idempotent: the existing
-  /// `_autoDownloadTriggered` one-shot guard means a no-op if a download
-  /// is already in flight.
+  /// planner's auto-download one-shot means a no-op if a download is already
+  /// in flight.
   void _onContinueWatchingActivated() {
-    if (_autoDownloadTriggered) {
+    if (!_planner.claimAutoDownloadNow()) {
       AppLog.d(
         '[ContinueWatching] activated — auto-download already in flight, '
         'no kickstart needed',
@@ -624,7 +602,6 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     AppLog.d(
       '[ContinueWatching] activated — kicking off auto-download immediately',
     );
-    _autoDownloadTriggered = true;
     _triggerAutoDownload();
   }
 
@@ -648,44 +625,43 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     var lastDecisionLogAt = DateTime.fromMillisecondsSinceEpoch(0);
 
     _autoDownloadSubscription = player.stream.position.listen((position) {
-      if (!mounted || _autoDownloadTriggered) return;
+      if (!mounted) return;
 
       // Re-resolve every tick so toggling the per-show pill (or the global
       // setting) takes effect without restarting playback.
       final state = ref.read(autoDownloadProvider);
       final notifier = ref.read(autoDownloadProvider.notifier);
       final active = notifier.isAutoDownloadActiveForShow(_currentShowId);
-
       final duration = player.state.duration;
-      if (duration.inSeconds <= 0) return;
 
-      final progress = position.inMilliseconds / duration.inMilliseconds;
-      final threshold = state.progressThreshold;
-
-      if (!active) {
-        if (progress >= threshold) {
-          final now = DateTime.now();
-          if (now.difference(lastDecisionLogAt).inSeconds >= 5) {
-            lastDecisionLogAt = now;
-            AppLog.d(
-              '[AutoDownload] At ${(progress * 100).toStringAsFixed(1)}% '
-              'but gate is closed: enabled=${state.enabled} '
-              'overrideForShow=${_currentShowId == null ? "<no-show>" : state.showAutoDownloadOverrides[_currentShowId]} '
-              'downloadOnProgress=${state.downloadOnProgress}',
-            );
-          }
-        }
+      if (_planner.claimAutoDownloadAtThreshold(
+        gateOpen: active,
+        position: position,
+        duration: duration,
+        threshold: state.progressThreshold,
+      )) {
+        AppLog.d(
+          '[AutoDownload] Crossed threshold (${state.progressThreshold}) — '
+          'triggering download',
+        );
+        _triggerAutoDownload();
         return;
       }
 
-      if (progress >= threshold) {
-        AppLog.d(
-          '[AutoDownload] Crossed threshold ($threshold) at '
-          '${(progress * 100).toStringAsFixed(1)}% — triggering download',
-        );
-        _autoDownloadTriggered = true;
-        _triggerAutoDownload();
-      }
+      // Diagnostic only: we're past the threshold but the gate is shut.
+      // Throttled so a closed gate doesn't log on every position event.
+      if (active || duration.inMilliseconds <= 0) return;
+      final progress = position.inMilliseconds / duration.inMilliseconds;
+      if (progress < state.progressThreshold) return;
+      final now = DateTime.now();
+      if (now.difference(lastDecisionLogAt).inSeconds < 5) return;
+      lastDecisionLogAt = now;
+      AppLog.d(
+        '[AutoDownload] At ${(progress * 100).toStringAsFixed(1)}% '
+        'but gate is closed: enabled=${state.enabled} '
+        'overrideForShow=${_currentShowId == null ? "<no-show>" : state.showAutoDownloadOverrides[_currentShowId]} '
+        'downloadOnProgress=${state.downloadOnProgress}',
+      );
     });
   }
 
@@ -946,8 +922,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
 
   void _onCancelNextEpisode() {
     setState(() {
-      _showNextEpisodeOverlay = false;
-      _nextEpisodeOverlayDismissed = true;
+      _planner.dismissOverlay();
     });
   }
 
@@ -1195,15 +1170,15 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
             children: [
               // Main video area with gesture detection
               GestureDetector(
-                onTap: _showNextEpisodeOverlay ? null : _onUserInteraction,
-                onDoubleTap: _showNextEpisodeOverlay ? null : _onDoubleTap,
-                onHorizontalDragStart: _showNextEpisodeOverlay
+                onTap: _planner.overlayVisible ? null : _onUserInteraction,
+                onDoubleTap: _planner.overlayVisible ? null : _onDoubleTap,
+                onHorizontalDragStart: _planner.overlayVisible
                     ? null
                     : _onHorizontalDragStart,
-                onHorizontalDragUpdate: _showNextEpisodeOverlay
+                onHorizontalDragUpdate: _planner.overlayVisible
                     ? null
                     : _onHorizontalDragUpdate,
-                onHorizontalDragEnd: _showNextEpisodeOverlay
+                onHorizontalDragEnd: _planner.overlayVisible
                     ? null
                     : _onHorizontalDragEnd,
                 child: Stack(
@@ -1281,7 +1256,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
               ),
 
               // Next episode overlay (OUTSIDE of GestureDetector so buttons work)
-              if (_showNextEpisodeOverlay &&
+              if (_planner.overlayVisible &&
                   (_nextEpisode != null || _nextEpisodeFromTmdb != null))
                 Positioned.fill(
                   child: Container(
