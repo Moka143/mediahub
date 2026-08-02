@@ -42,6 +42,28 @@ class WatchProgress {
     return md5.convert(utf8.encode(filePath)).toString();
   }
 
+  /// Path prefixes used for entries that carry a watched mark but do not
+  /// refer to a real file on disk.
+  ///
+  /// `tmdb:rated:` / `tmdb:rated-movie:` are written by the TMDB reconcile
+  /// for things watched on another device and never downloaded here;
+  /// `manual:watched:` by the legacy manual-watched migration. Both exist
+  /// so the watched mark has somewhere to live — they are never playable
+  /// and must be excluded from Continue Watching and the library.
+  static const syntheticPathPrefixes = [
+    'tmdb:rated:',
+    'tmdb:rated-movie:',
+    'manual:watched:',
+  ];
+
+  /// Whether [filePath] is one of the synthetic, non-playable paths above.
+  static bool isSyntheticPath(String filePath) =>
+      syntheticPathPrefixes.any(filePath.startsWith);
+
+  /// Whether this entry refers to a real file rather than a watched-only
+  /// placeholder.
+  bool get isRealFile => !isSyntheticPath(filePath);
+
   /// Get progress as a value between 0.0 and 1.0
   double get progress {
     if (duration.inMilliseconds == 0) return 0.0;

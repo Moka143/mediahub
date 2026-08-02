@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -130,8 +129,13 @@ final localMediaStreamProvider = StreamProvider<List<LocalMediaFile>>((ref) {
   final scanner = ref.watch(localMediaScannerProvider);
   final progressMap = ref.watch(watchProgressProvider);
 
+  // No existence filter here: every emission from watchDirectory() is a
+  // fresh `directory.list(recursive: true)`, so these files were enumerated
+  // from the filesystem microseconds ago. Re-stat'ing each one was an O(n)
+  // syscall pass over the whole library on every watcher event, guarding a
+  // race window that the next watcher event corrects anyway.
   return scanner.watchDirectory().map((files) {
-    return files.where((f) => File(f.path).existsSync()).map((file) {
+    return files.map((file) {
       final hash = WatchProgress.generateHash(file.path);
       final progress = progressMap[hash];
       return progress != null ? file.copyWith(progress: progress) : file;

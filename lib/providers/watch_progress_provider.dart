@@ -149,17 +149,45 @@ List<({int showId, int season, int episode})> parseLegacyEpisodeMarks(
   return out;
 }
 
-/// Provider for "Continue Watching" items (in progress, not completed)
-/// Filters out items where the file no longer exists
+/// Paths currently present in the scanned library, for O(1) "is this still
+/// on disk?" checks.
+///
+/// Null while the first scan is in flight — callers treat that as "don't
+/// know yet" and stay optimistic rather than filtering everything out,
+/// which would flash an empty Continue Watching row on cold start.
+///
+/// This replaces a per-entry `File(...).existsSync()` in the providers
+/// below. Those rebuild on *every* watch-progress write — which happens on
+/// every position update during playback — so the old form stat'd the whole
+/// progress map several times a second while a video was playing.
+final libraryPathsProvider = Provider<Set<String>?>((ref) {
+  final files = ref.watch(localMediaFilesProvider).value;
+  if (files == null) return null;
+  return {for (final f in files) f.path};
+});
+
+/// Whether a watch-progress entry still points at something playable.
+///
+/// Membership in the scanned library, not a raw stat: an entry outside the
+/// configured library folder is not something the app can offer to play, and
+/// synthetic watched-only entries never are.
+@visibleForTesting
+bool isProgressPlayable(String filePath, Set<String>? libraryPaths) {
+  if (WatchProgress.isSyntheticPath(filePath)) return false;
+  // First scan hasn't landed — assume present rather than hiding real rows.
+  if (libraryPaths == null) return true;
+  return libraryPaths.contains(filePath);
+}
+
+/// Provider for "Continue Watching" items (in progress, not completed).
+/// Filters out items whose file is no longer in the library.
 final continueWatchingProvider = Provider<List<WatchProgress>>((ref) {
   final progress = ref.watch(watchProgressProvider);
-  // Watch media files so we recompute when the file list changes (e.g. torrent deleted)
-  ref.watch(localMediaFilesProvider);
+  final libraryPaths = ref.watch(libraryPathsProvider);
 
-  // Filter: in progress, not completed, and file still exists
   final validProgress = progress.values.where((p) {
     if (p.isCompleted || p.progress <= 0.05) return false;
-    return File(p.filePath).existsSync();
+    return isProgressPlayable(p.filePath, libraryPaths);
   }).toList();
 
   // Sort by last watched (most recent first)
@@ -167,13 +195,18 @@ final continueWatchingProvider = Provider<List<WatchProgress>>((ref) {
   return validProgress;
 });
 
-/// Provider for completed (watched) items — only if file still exists
+/// Provider for completed (watched) items that are still in the library.
+///
+/// Note this is deliberately NOT the source of truth for "is this watched?" —
+/// see [watchedIndexProvider], which keeps the mark even after the file is
+/// deleted. This provider is for surfaces that need something playable.
 final watchedItemsProvider = Provider<List<WatchProgress>>((ref) {
   final progress = ref.watch(watchProgressProvider);
-  // Watch media files so we recompute when the file list changes (e.g. torrent deleted)
-  ref.watch(localMediaFilesProvider);
+  final libraryPaths = ref.watch(libraryPathsProvider);
   return progress.values
-      .where((p) => p.isCompleted && File(p.filePath).existsSync())
+      .where(
+        (p) => p.isCompleted && isProgressPlayable(p.filePath, libraryPaths),
+      )
       .toList()
     ..sort((a, b) => b.lastWatched.compareTo(a.lastWatched));
 });

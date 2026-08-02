@@ -538,8 +538,8 @@ Future<void> reconcileWatchedWithTmdb(
           (file?.seasonNumber ?? existing?.seasonNumber) != null ||
           (file?.episodeNumber ?? existing?.episodeNumber) != null;
       if (isEpisode) continue;
-      // Skip TMDB-episode synthetics (they live under tmdb:rated:…).
-      if (path.startsWith('tmdb:rated:')) continue;
+      // Skip watched-only synthetics — they have no file and no movie.
+      if (WatchProgress.isSyntheticPath(path)) continue;
 
       var movieId = existing?.movieId;
       if (movieId == null) {
