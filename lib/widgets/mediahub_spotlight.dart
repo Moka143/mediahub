@@ -55,45 +55,59 @@ class MediaHubSpotlight extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 220 is a *minimum*, not a fixed height. The title allows two lines
+    // (56px at 0.95 line-height ≈ 106px on its own), and with the badges,
+    // meta row, CTAs and 32px of vertical padding a two-line title needs
+    // ~234px. As a fixed SizedBox this overflowed by ~11px on any title
+    // long enough to wrap — "Spider-Man: Brand New Day" on the Movies tab,
+    // where it clipped the CTA row silently in release builds.
+    //
+    // The body is the only non-positioned child, so it sizes the Stack;
+    // every decorative layer is Positioned.fill behind it. One-line titles
+    // are unchanged — the card still settles at exactly 220.
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppRadius.lg),
-      child: SizedBox(
-        height: 220,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 220),
         child: Stack(
-          fit: StackFit.expand,
+          alignment: Alignment.centerLeft,
           children: [
             // Backdrop image when available; otherwise a hue-tinted
             // gradient. The image is intentionally rendered "behind"
             // the gradient + poster overlays — it provides texture and
             // mood, not detail (which would compete with the title).
             if (backdropUrl != null)
-              Image.network(
-                backdropUrl!,
-                fit: BoxFit.cover,
-                alignment: Alignment.center,
-                loadingBuilder: (_, child, p) =>
-                    p == null ? child : _hueGradient(),
-                errorBuilder: (_, _, _) => _hueGradient(),
+              Positioned.fill(
+                child: Image.network(
+                  backdropUrl!,
+                  fit: BoxFit.cover,
+                  alignment: Alignment.center,
+                  loadingBuilder: (_, child, p) =>
+                      p == null ? child : _hueGradient(),
+                  errorBuilder: (_, _, _) => _hueGradient(),
+                ),
               )
             else
-              _hueGradient(),
+              Positioned.fill(child: _hueGradient()),
             // Light hue tint over the photo so it harmonises with the
             // page palette. Lower opacity than the procedural fallback
             // so the actual artwork still reads.
-            DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  center: const Alignment(0.7, 0),
-                  radius: 0.9,
-                  colors: [
-                    HSLColor.fromAHSL(
-                      backdropUrl == null ? 0.65 : 0.25,
-                      (hue + 40) % 360,
-                      0.6,
-                      0.3,
-                    ).toColor(),
-                    Colors.transparent,
-                  ],
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    center: const Alignment(0.7, 0),
+                    radius: 0.9,
+                    colors: [
+                      HSLColor.fromAHSL(
+                        backdropUrl == null ? 0.65 : 0.25,
+                        (hue + 40) % 360,
+                        0.6,
+                        0.3,
+                      ).toColor(),
+                      Colors.transparent,
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -122,96 +136,109 @@ class MediaHubSpotlight extends StatelessWidget {
             // Strong fade from left for text legibility — slightly
             // heavier when a real backdrop is in play so the title
             // doesn't fight bright artwork.
-            DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
-                  stops: const [0.0, 0.45, 0.75],
-                  colors: [
-                    AppColors.bgPage.withAlpha(backdropUrl == null ? 243 : 235),
-                    AppColors.bgPage.withAlpha(backdropUrl == null ? 128 : 168),
-                    Colors.transparent,
-                  ],
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                    stops: const [0.0, 0.45, 0.75],
+                    colors: [
+                      AppColors.bgPage.withAlpha(
+                        backdropUrl == null ? 243 : 235,
+                      ),
+                      AppColors.bgPage.withAlpha(
+                        backdropUrl == null ? 128 : 168,
+                      ),
+                      Colors.transparent,
+                    ],
+                  ),
                 ),
               ),
             ),
-            // Body — pills, title, meta, CTAs
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.xxl,
-                vertical: AppSpacing.lg,
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Wrap(
-                    spacing: AppSpacing.xs,
-                    runSpacing: AppSpacing.xs,
-                    children: [
-                      if (trending)
-                        const EditorialBadge(
-                          '▲ Trending',
-                          compact: true,
-                          tone: AppColors.accentAmber,
-                        ),
-                      if (quality != null)
-                        EditorialBadge(
-                          quality!,
-                          compact: true,
-                          tone: quality!.qualityColor,
-                        ),
-                      if (rating > 0)
-                        EditorialBadge(
-                          '★ ${rating.toStringAsFixed(1)}',
-                          compact: true,
-                          tone: AppColors.warning,
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 540),
-                    child: SerifTitle(
-                      title,
-                      size: 56,
-                      height: 0.95,
-                      letterSpacing: -0.02,
-                      color: AppColors.fg,
-                      maxLines: 2,
+            // Body — pills, title, meta, CTAs. The only non-positioned
+            // child, so this is what gives the Stack its height. Full
+            // width so the Stack's centerLeft alignment only affects the
+            // vertical axis.
+            SizedBox(
+              width: double.infinity,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.xxl,
+                  vertical: AppSpacing.lg,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      spacing: AppSpacing.xs,
+                      runSpacing: AppSpacing.xs,
+                      children: [
+                        if (trending)
+                          const EditorialBadge(
+                            '▲ Trending',
+                            compact: true,
+                            tone: AppColors.accentAmber,
+                          ),
+                        if (quality != null)
+                          EditorialBadge(
+                            quality!,
+                            compact: true,
+                            tone: quality!.qualityColor,
+                          ),
+                        if (rating > 0)
+                          EditorialBadge(
+                            '★ ${rating.toStringAsFixed(1)}',
+                            compact: true,
+                            tone: AppColors.warning,
+                          ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  MonoLabel(
-                    [
-                      if (year != null) year,
-                      if (genre != null) genre!.toUpperCase(),
-                      metaSuffix,
-                    ].whereType<String>().join(' · '),
-                    color: AppColors.fg2,
-                    letterSpacing: 0.06,
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _CtaButton(
-                        label: 'Get torrent',
-                        icon: Icons.download_rounded,
-                        onTap: onPrimaryTap,
-                        primary: true,
+                    const SizedBox(height: AppSpacing.sm),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 540),
+                      child: SerifTitle(
+                        title,
+                        size: 56,
+                        height: 0.95,
+                        letterSpacing: -0.02,
+                        color: AppColors.fg,
+                        maxLines: 2,
                       ),
-                      const SizedBox(width: AppSpacing.sm),
-                      _CtaButton(
-                        label: 'Details',
-                        icon: null,
-                        onTap: onSecondaryTap,
-                        primary: false,
-                      ),
-                    ],
-                  ),
-                ],
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    MonoLabel(
+                      [
+                        if (year != null) year,
+                        if (genre != null) genre!.toUpperCase(),
+                        metaSuffix,
+                      ].whereType<String>().join(' · '),
+                      color: AppColors.fg2,
+                      letterSpacing: 0.06,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _CtaButton(
+                          label: 'Get torrent',
+                          icon: Icons.download_rounded,
+                          onTap: onPrimaryTap,
+                          primary: true,
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        _CtaButton(
+                          label: 'Details',
+                          icon: null,
+                          onTap: onSecondaryTap,
+                          primary: false,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
