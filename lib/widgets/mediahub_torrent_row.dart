@@ -323,7 +323,10 @@ class _MediaHubTorrentRowState extends State<MediaHubTorrentRow>
                           SizedBox(
                             width: 36,
                             child: Text(
-                              '${(t.progress * 100).toStringAsFixed(0)}%',
+                              Formatters.formatProgress(
+                                t.progress,
+                                decimals: 0,
+                              ),
                               textAlign: TextAlign.right,
                               style: AppType.mono(
                                 size: 11,

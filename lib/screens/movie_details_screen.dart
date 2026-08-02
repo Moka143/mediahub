@@ -33,6 +33,7 @@ import '../widgets/mediahub_torrent_drawer.dart';
 import '../widgets/streaming_progress_overlay.dart';
 import 'settings_screen.dart';
 import 'video_player_screen.dart';
+import '../services/app_logger.dart';
 
 /// Screen for displaying movie details
 class MovieDetailsScreen extends ConsumerStatefulWidget {
@@ -106,9 +107,7 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to load streams: $e')));
+        AppSnackBar.showError(context, message: 'Failed to load streams: $e');
       }
     } finally {
       if (mounted) {
@@ -130,11 +129,10 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
 
     try {
       if (!connectionState.isConnected) {
-        messenger.showSnackBar(
-          const SnackBar(
-            content: Text('Not connected to qBittorrent'),
-            duration: Duration(seconds: 3),
-          ),
+        AppSnackBar.showOn(
+          messenger,
+          message: 'Not connected to qBittorrent',
+          kind: AppSnackBarKind.warning,
         );
         return;
       }
@@ -173,40 +171,30 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
           firstLastPiecePrio: false,
         );
         if (!success) {
-          messenger.showSnackBar(
-            const SnackBar(
-              content: Text('Failed to start download'),
-              duration: Duration(seconds: 3),
-            ),
+          AppSnackBar.showOn(
+            messenger,
+            message: 'Failed to start download',
+            kind: AppSnackBarKind.error,
           );
           return;
         }
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text('Started downloading "${movie.title}"'),
-            backgroundColor: AppColors.success,
-            duration: const Duration(seconds: 5),
-            action: SnackBarAction(
-              label: 'View Downloads',
-              textColor: Colors.white,
-              onPressed: () {
-                messenger.hideCurrentSnackBar();
-                containerRef.read(currentTabIndexProvider.notifier).set(1);
-                rootNavigatorKey.currentState?.popUntil(
-                  (route) => route.isFirst,
-                );
-              },
-            ),
-          ),
+        AppSnackBar.showOn(
+          messenger,
+          message: 'Started downloading "${movie.title}"',
+          kind: AppSnackBarKind.success,
+          actionLabel: 'View Downloads',
+          onAction: () {
+            messenger.hideCurrentSnackBar();
+            containerRef.read(currentTabIndexProvider.notifier).set(1);
+            rootNavigatorKey.currentState?.popUntil((route) => route.isFirst);
+          },
         );
       }
     } catch (e) {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Failed to start download: $e'),
-          backgroundColor: AppColors.error,
-          duration: const Duration(seconds: 4),
-        ),
+      AppSnackBar.showOn(
+        messenger,
+        message: 'Failed to start download: $e',
+        kind: AppSnackBarKind.error,
       );
     }
   }
@@ -257,11 +245,10 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
       streamingOverlayData?.dispose();
       streamingOverlayData = null;
       if (mounted) setState(() => _isStreaming = false);
-      rootScaffoldMessengerKey.currentState?.showSnackBar(
-        const SnackBar(
-          content: Text('Failed to start streaming session'),
-          backgroundColor: AppColors.error,
-        ),
+      AppSnackBar.showOn(
+        rootScaffoldMessengerKey.currentState,
+        message: 'Failed to start streaming session',
+        kind: AppSnackBarKind.error,
       );
       return;
     }
@@ -347,14 +334,11 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
         streamingOverlayData?.dispose();
         streamingOverlayData = null;
         if (mounted) setState(() => _isStreaming = false);
-        rootScaffoldMessengerKey.currentState?.showSnackBar(
-          SnackBar(
-            content: Text(
+        AppSnackBar.showOn(
+          rootScaffoldMessengerKey.currentState,
+          message:
               'Streaming error: ${session.errorMessage ?? "Failed to stream"}',
-            ),
-            backgroundColor: AppColors.error,
-            behavior: SnackBarBehavior.floating,
-          ),
+          kind: AppSnackBarKind.error,
         );
 
       case StreamingState.cancelled:
@@ -374,11 +358,10 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
     final videoFile = await _findVideoFile(contentPath);
 
     if (videoFile == null) {
-      rootScaffoldMessengerKey.currentState?.showSnackBar(
-        SnackBar(
-          content: Text('Could not find video file in: $contentPath'),
-          backgroundColor: AppColors.error,
-        ),
+      AppSnackBar.showOn(
+        rootScaffoldMessengerKey.currentState,
+        message: 'Could not find video file in: $contentPath',
+        kind: AppSnackBarKind.error,
       );
       return;
     }
@@ -433,7 +416,7 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
         extension: largestFile.path.split('.').last.toLowerCase(),
       );
     } catch (e) {
-      debugPrint('Error finding video file: $e');
+      AppLog.e('[MovieDetails] Error finding video file: $e');
       return null;
     }
   }
@@ -609,128 +592,131 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
 
             // Movie info — content below the cinematic hero
             SliverToBoxAdapter(
-          child: Padding(
-            padding: EdgeInsets.all(AppSpacing.screenPadding),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // (Hero already provides Resume/Get primary actions.)
-                SizedBox(height: AppSpacing.lg),
+              child: Padding(
+                padding: EdgeInsets.all(AppSpacing.screenPadding),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // (Hero already provides Resume/Get primary actions.)
+                    SizedBox(height: AppSpacing.lg),
 
-                // Overview
-                if (movie.overview != null && movie.overview!.isNotEmpty) ...[
-                  Text(
-                    'Overview',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  SizedBox(height: AppSpacing.sm),
-                  Text(
-                    movie.overview!,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                      height: 1.5,
-                    ),
-                  ),
-                  SizedBox(height: AppSpacing.xl),
-                ],
-              ],
-            ),
-          ),
-        ),
-
-        // Trailers + Cast — separate slivers so the horizontal scrollers
-        // can extend edge-to-edge instead of being inset by the
-        // screen-padding wrapper above.
-        if (movie.videos.isNotEmpty)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
-              child: TrailersRow(videos: movie.videos),
-            ),
-          ),
-        if (movie.cast.isNotEmpty)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
-              child: CastRow(cast: movie.cast),
-            ),
-          ),
-
-        // Similar movies — back inside its own padded sliver.
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: AppSpacing.screenPadding),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // (Hero already provides Resume/Get primary actions.)
-                similarMovies.when(
-                  data: (movies) => movies.isNotEmpty
-                      ? Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Similar Movies',
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            SizedBox(height: AppSpacing.md),
-                            SizedBox(
-                              height: 210,
-                              child: ListView.builder(
-                                scrollDirection: Axis.horizontal,
-                                itemCount: movies.length,
-                                itemBuilder: (context, index) {
-                                  final similar = movies[index];
-                                  return Padding(
-                                    padding: EdgeInsets.only(
-                                      right: AppSpacing.md,
-                                    ),
-                                    child: MediaPosterCard(
-                                      title: similar.title,
-                                      width: 140,
-                                      posterAsync: AsyncValue.data(
-                                        similar.posterUrl,
-                                      ),
-                                      titleStyle: CardTitleStyle.overlay,
-                                      overlayYear: similar.year,
-                                      overlayRating: similar.voteAverage > 0
-                                          ? '★ ${similar.voteAverage.toStringAsFixed(1)}'
-                                          : null,
-                                      overlayRatingTone:
-                                          similar.voteAverage >= 8
-                                          ? AppColors.accent
-                                          : null,
-                                      onTap: () {
-                                        Navigator.of(context).push(
-                                          MaterialPageRoute(
-                                            builder: (context) =>
-                                                MovieDetailsScreen(
-                                                  movie: similar,
-                                                ),
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                          ],
-                        )
-                      : const SizedBox.shrink(),
-                  loading: () => const SizedBox.shrink(),
-                  error: (_, _) => const SizedBox.shrink(),
+                    // Overview
+                    if (movie.overview != null &&
+                        movie.overview!.isNotEmpty) ...[
+                      Text(
+                        'Overview',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      SizedBox(height: AppSpacing.sm),
+                      Text(
+                        movie.overview!,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          height: 1.5,
+                        ),
+                      ),
+                      SizedBox(height: AppSpacing.xl),
+                    ],
+                  ],
                 ),
-
-                SizedBox(height: AppSpacing.xl),
-              ],
+              ),
             ),
-          ),
-        ),
+
+            // Trailers + Cast — separate slivers so the horizontal scrollers
+            // can extend edge-to-edge instead of being inset by the
+            // screen-padding wrapper above.
+            if (movie.videos.isNotEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
+                  child: TrailersRow(videos: movie.videos),
+                ),
+              ),
+            if (movie.cast.isNotEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
+                  child: CastRow(cast: movie.cast),
+                ),
+              ),
+
+            // Similar movies — back inside its own padded sliver.
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: AppSpacing.screenPadding,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // (Hero already provides Resume/Get primary actions.)
+                    similarMovies.when(
+                      data: (movies) => movies.isNotEmpty
+                          ? Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Similar Movies',
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                SizedBox(height: AppSpacing.md),
+                                SizedBox(
+                                  height: 210,
+                                  child: ListView.builder(
+                                    scrollDirection: Axis.horizontal,
+                                    itemCount: movies.length,
+                                    itemBuilder: (context, index) {
+                                      final similar = movies[index];
+                                      return Padding(
+                                        padding: EdgeInsets.only(
+                                          right: AppSpacing.md,
+                                        ),
+                                        child: MediaPosterCard(
+                                          title: similar.title,
+                                          width: 140,
+                                          posterAsync: AsyncValue.data(
+                                            similar.posterUrl,
+                                          ),
+                                          titleStyle: CardTitleStyle.overlay,
+                                          overlayYear: similar.year,
+                                          overlayRating: similar.voteAverage > 0
+                                              ? '★ ${similar.voteAverage.toStringAsFixed(1)}'
+                                              : null,
+                                          overlayRatingTone:
+                                              similar.voteAverage >= 8
+                                              ? AppColors.accent
+                                              : null,
+                                          onTap: () {
+                                            Navigator.of(context).push(
+                                              MaterialPageRoute(
+                                                builder: (context) =>
+                                                    MovieDetailsScreen(
+                                                      movie: similar,
+                                                    ),
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ],
+                            )
+                          : const SizedBox.shrink(),
+                      loading: () => const SizedBox.shrink(),
+                      error: (_, _) => const SizedBox.shrink(),
+                    ),
+
+                    SizedBox(height: AppSpacing.xl),
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
         // Floating back button — overlaid in the top-left.
@@ -756,9 +742,7 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
               children: [
                 Consumer(
                   builder: (context, ref, _) {
-                    final fav = ref.watch(
-                      isMovieFavoriteProvider(movie.id),
-                    );
+                    final fav = ref.watch(isMovieFavoriteProvider(movie.id));
                     return FloatingHeaderAction(
                       icon: fav
                           ? Icons.favorite_rounded
@@ -776,9 +760,7 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
                 const SizedBox(width: AppSpacing.xs),
                 Consumer(
                   builder: (context, ref, _) {
-                    final wl = ref.watch(
-                      isMovieOnWatchlistProvider(movie.id),
-                    );
+                    final wl = ref.watch(isMovieOnWatchlistProvider(movie.id));
                     return FloatingHeaderAction(
                       icon: wl
                           ? Icons.bookmark_rounded
@@ -798,9 +780,7 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
                   icon: Icons.settings_outlined,
                   tooltip: 'Settings',
                   onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const SettingsScreen(),
-                    ),
+                    MaterialPageRoute(builder: (_) => const SettingsScreen()),
                   ),
                 ),
               ],

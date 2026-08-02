@@ -1,3 +1,5 @@
+import '../utils/formatters.dart';
+
 /// Represents a torrent from EZTV API or converted from Torrentio
 class EztvTorrent {
   final int id;
@@ -90,16 +92,7 @@ class EztvTorrent {
   }
 
   /// Get formatted file size
-  String get sizeFormatted {
-    if (sizeBytes < 1024) return '$sizeBytes B';
-    if (sizeBytes < 1024 * 1024) {
-      return '${(sizeBytes / 1024).toStringAsFixed(1)} KB';
-    }
-    if (sizeBytes < 1024 * 1024 * 1024) {
-      return '${(sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-    }
-    return '${(sizeBytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
-  }
+  String get sizeFormatted => Formatters.formatBytesCompact(sizeBytes);
 
   /// Extract quality from filename (1080p, 720p, 480p, etc.)
   String get quality {
@@ -120,10 +113,7 @@ class EztvTorrent {
 
   /// Get episode code (S01E01)
   String? get episodeCode {
-    if (season == null || episode == null) return null;
-    final s = season.toString().padLeft(2, '0');
-    final e = episode.toString().padLeft(2, '0');
-    return 'S${s}E$e';
+    return Formatters.episodeCodeOrNull(season, episode);
   }
 
   /// Health score based on seeds (0-100)

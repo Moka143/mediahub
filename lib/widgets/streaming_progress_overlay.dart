@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../design/app_tokens.dart';
+import '../utils/formatters.dart';
 
 /// Data that can change while the overlay stays on screen.
 class StreamingOverlayData {
@@ -248,7 +249,7 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
                 Padding(
                   padding: const EdgeInsets.only(top: AppSpacing.sm),
                   child: Text(
-                    '${(progress * 100).toStringAsFixed(1)}%',
+                    Formatters.formatProgress(progress),
                     style: theme.textTheme.labelMedium?.copyWith(
                       color: accentColor,
                       fontWeight: FontWeight.w600,

@@ -1,11 +1,11 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/tmdb_account_service.dart';
 import 'settings_provider.dart';
+import '../services/app_logger.dart';
 
 // New v4 storage keys.
 const _accessTokenKey = 'tmdb_v4_access_token';
@@ -69,7 +69,7 @@ class TmdbSessionNotifier extends Notifier<TmdbSession?> {
     // sign in again.
     if (prefs.containsKey(_legacySessionKey) ||
         prefs.containsKey(_legacyAccountKey)) {
-      debugPrint(
+      AppLog.d(
         '[TmdbSession] Dropping legacy v3 session — please re-sign-in '
         'via v4 OAuth.',
       );

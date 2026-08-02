@@ -1,4 +1,6 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
+
 import '../models/eztv_torrent.dart';
 
 /// Service for interacting with EZTV API to get torrent links
@@ -86,7 +88,8 @@ class EztvApiService {
   }
 
   /// Parse season and episode from filename using SXXEXX pattern
-  static (int?, int?) _parseSeasonEpisodeFromFilename(String filename) {
+  @visibleForTesting
+  static (int?, int?) parseSeasonEpisodeFromFilename(String filename) {
     // Pattern: S01E02, s01e02, S1E2, etc.
     final regex = RegExp(r'[Ss](\d{1,2})[Ee](\d{1,2})');
     final match = regex.firstMatch(filename);
@@ -118,7 +121,7 @@ class EztvApiService {
 
       // If API fields are missing, parse from filename using SXXEXX pattern
       if (torrentSeason == null || torrentEpisode == null) {
-        final (parsedSeason, parsedEpisode) = _parseSeasonEpisodeFromFilename(
+        final (parsedSeason, parsedEpisode) = parseSeasonEpisodeFromFilename(
           torrent.filename,
         );
         torrentSeason ??= parsedSeason;

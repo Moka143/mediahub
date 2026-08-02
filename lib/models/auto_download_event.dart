@@ -1,3 +1,5 @@
+import '../utils/formatters.dart';
+
 /// Types of auto-download events for the activity log
 enum AutoDownloadEventType {
   downloadStarted,
@@ -30,11 +32,7 @@ class AutoDownloadEvent {
     this.message,
   });
 
-  String get episodeCode {
-    final s = season.toString().padLeft(2, '0');
-    final e = episode.toString().padLeft(2, '0');
-    return 'S${s}E$e';
-  }
+  String get episodeCode => Formatters.episodeCode(season, episode);
 
   Map<String, dynamic> toJson() => {
     'timestamp': timestamp.toIso8601String(),

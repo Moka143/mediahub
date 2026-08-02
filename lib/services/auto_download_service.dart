@@ -1,13 +1,14 @@
-import 'package:flutter/foundation.dart';
 import 'dart:async';
 
 import '../models/episode.dart';
 import '../models/eztv_torrent.dart';
 import '../models/local_media_file.dart';
+import '../utils/formatters.dart';
 import 'eztv_api_service.dart';
 import 'qbittorrent_api_service.dart';
 import 'tmdb_api_service.dart';
 import 'torrentio_api_service.dart';
+import 'app_logger.dart';
 
 /// Represents the status of an episode for auto-download tracking
 enum EpisodeDownloadStatus {
@@ -56,11 +57,7 @@ class EpisodeTrackingInfo {
     this.magnetLink,
   });
 
-  String get episodeCode {
-    final s = season.toString().padLeft(2, '0');
-    final e = episode.toString().padLeft(2, '0');
-    return 'S${s}E$e';
-  }
+  String get episodeCode => Formatters.episodeCode(season, episode);
 
   EpisodeTrackingInfo copyWith({
     int? showId,
@@ -266,8 +263,7 @@ class AutoDownloadService {
     required int season,
     required int episode,
   }) {
-    final targetCode =
-        'S${season.toString().padLeft(2, '0')}E${episode.toString().padLeft(2, '0')}';
+    final targetCode = Formatters.episodeCode(season, episode);
 
     return downloadedFiles.any((file) {
       // Match by show name (case-insensitive) and episode code
@@ -307,9 +303,8 @@ class AutoDownloadService {
     bool forStreaming = true,
   }) async {
     final maxSize = forStreaming ? maxStreamingSizeBytes : null;
-    final episodeCode =
-        'S${season.toString().padLeft(2, '0')}E${episode.toString().padLeft(2, '0')}';
-    debugPrint(
+    final episodeCode = Formatters.episodeCode(season, episode);
+    AppLog.d(
       '[AutoDownload] Looking for $episodeCode (IMDB: $imdbId, quality: $preferredQuality, streaming: $forStreaming)',
     );
 
@@ -320,7 +315,7 @@ class AutoDownloadService {
         season: season,
         episode: episode,
       );
-      debugPrint(
+      AppLog.d(
         '[AutoDownload] EZTV returned ${allEztvTorrents.length} torrents for $episodeCode',
       );
 
@@ -338,18 +333,18 @@ class AutoDownloadService {
               .where((t) => t.sizeBytes == 0)
               .toList();
           if (unknownSize.isNotEmpty) {
-            debugPrint(
+            AppLog.d(
               '[AutoDownload] EZTV: No torrents under ${maxSize ~/ (1024 * 1024)}MB, using ${unknownSize.length} with unknown size',
             );
             eztvTorrents = unknownSize;
           } else {
-            debugPrint(
+            AppLog.d(
               '[AutoDownload] EZTV: All ${allEztvTorrents.length} torrents exceed ${maxSize ~/ (1024 * 1024)}MB limit',
             );
             eztvTorrents = [];
           }
         } else {
-          debugPrint(
+          AppLog.d(
             '[AutoDownload] EZTV: ${underLimit.length}/${allEztvTorrents.length} under ${maxSize ~/ (1024 * 1024)}MB',
           );
           eztvTorrents = underLimit;
@@ -374,17 +369,17 @@ class AutoDownloadService {
         });
 
         final result = eztvTorrents.first;
-        debugPrint(
+        AppLog.d(
           '[AutoDownload] Found torrent via EZTV: ${result.title} (${result.sizeBytes ~/ (1024 * 1024)}MB)',
         );
         return result;
       }
     } catch (e) {
-      debugPrint('[AutoDownload] EZTV lookup failed: $e');
+      AppLog.e('[AutoDownload] EZTV lookup failed: $e');
     }
 
     // Fall back to Torrentio (only if EZTV found nothing)
-    debugPrint(
+    AppLog.d(
       '[AutoDownload] EZTV found no suitable torrents, trying Torrentio for $episodeCode...',
     );
     try {
@@ -393,7 +388,7 @@ class AutoDownloadService {
         season: season,
         episode: episode,
       );
-      debugPrint(
+      AppLog.d(
         '[AutoDownload] Torrentio returned ${response.streams.length} streams',
       );
 
@@ -406,7 +401,7 @@ class AutoDownloadService {
             .toList();
 
         if (underLimit.isNotEmpty) {
-          debugPrint(
+          AppLog.d(
             '[AutoDownload] Torrentio: ${underLimit.length}/${streams.length} under ${maxSize ~/ (1024 * 1024)}MB',
           );
           streams = underLimit;
@@ -414,12 +409,12 @@ class AutoDownloadService {
           // Fallback: use streams with unknown size (sizeBytes == 0)
           final unknownSize = streams.where((s) => s.sizeBytes == 0).toList();
           if (unknownSize.isNotEmpty) {
-            debugPrint(
+            AppLog.d(
               '[AutoDownload] Torrentio: No streams under limit, using ${unknownSize.length} with unknown size',
             );
             streams = unknownSize;
           } else {
-            debugPrint(
+            AppLog.d(
               '[AutoDownload] Torrentio: All ${streams.length} streams exceed ${maxSize ~/ (1024 * 1024)}MB limit',
             );
             // Don't filter - use smallest available
@@ -428,7 +423,7 @@ class AutoDownloadService {
       }
 
       if (streams.isEmpty) {
-        debugPrint('[AutoDownload] No Torrentio streams found');
+        AppLog.d('[AutoDownload] No Torrentio streams found');
         return null;
       }
 
@@ -440,7 +435,7 @@ class AutoDownloadService {
           .toList();
       final seasonPacks = streams.where((s) => s.isSeasonPack).toList();
 
-      debugPrint(
+      AppLog.d(
         '[AutoDownload] Torrentio: ${singleEpisodeTorrents.length} single-episode releases, ${seasonPacks.length} season packs',
       );
 
@@ -467,20 +462,20 @@ class AutoDownloadService {
       final isSeasonPack = torrentioStream.isSeasonPack;
 
       if (torrentioStream.magnetUri.isNotEmpty) {
-        debugPrint(
+        AppLog.d(
           '[AutoDownload] Found torrent via Torrentio${isSeasonPack ? ' (SEASON PACK - will select file)' : ' (single episode)'}:',
         );
-        debugPrint('[AutoDownload]   Title: ${torrentioStream.title}');
-        debugPrint(
+        AppLog.d('[AutoDownload]   Title: ${torrentioStream.title}');
+        AppLog.d(
           '[AutoDownload]   Size: ${(torrentioStream.sizeBytes) ~/ (1024 * 1024)}MB',
         );
-        debugPrint('[AutoDownload]   Hash: ${torrentioStream.infoHash}');
-        debugPrint('[AutoDownload]   FileIdx: ${torrentioStream.fileIdx}');
-        debugPrint('[AutoDownload]   Filename: ${torrentioStream.filename}');
-        debugPrint(
+        AppLog.d('[AutoDownload]   Hash: ${torrentioStream.infoHash}');
+        AppLog.d('[AutoDownload]   FileIdx: ${torrentioStream.fileIdx}');
+        AppLog.d('[AutoDownload]   Filename: ${torrentioStream.filename}');
+        AppLog.d(
           '[AutoDownload]   Is single file: ${torrentioStream.isSingleFile}',
         );
-        debugPrint(
+        AppLog.d(
           '[AutoDownload]   Streaming score: ${torrentioStream.streamingScore}',
         );
 
@@ -502,12 +497,10 @@ class AutoDownloadService {
         );
       }
     } catch (e) {
-      debugPrint('[AutoDownload] Torrentio lookup failed: $e');
+      AppLog.e('[AutoDownload] Torrentio lookup failed: $e');
     }
 
-    debugPrint(
-      '[AutoDownload] No torrent found for $imdbId S${season}E$episode',
-    );
+    AppLog.d('[AutoDownload] No torrent found for $imdbId S${season}E$episode');
     return null;
   }
 
@@ -520,7 +513,7 @@ class AutoDownloadService {
     int? fileIdx,
   }) async {
     try {
-      debugPrint(
+      AppLog.d(
         '[AutoDownload] downloadNextEpisode called - infoHash: $infoHash, fileIdx: $fileIdx',
       );
 
@@ -531,14 +524,14 @@ class AutoDownloadService {
         firstLastPiecePrio: true,
       );
 
-      debugPrint('[AutoDownload] Torrent added: $success');
+      AppLog.d('[AutoDownload] Torrent added: $success');
 
       // If this is a multi-file torrent (season pack), select only the specific file
       if (success &&
           fileIdx != null &&
           infoHash != null &&
           infoHash.isNotEmpty) {
-        debugPrint(
+        AppLog.d(
           '[AutoDownload] Season pack detected, selecting only file index $fileIdx (hash: $infoHash)',
         );
         // Wait a moment for torrent to be added and files to be parsed
@@ -547,53 +540,53 @@ class AutoDownloadService {
         try {
           // Get the file list to find total files
           final files = await _qbtService.getTorrentFiles(infoHash);
-          debugPrint('[AutoDownload] Torrent has ${files.length} files');
+          AppLog.d('[AutoDownload] Torrent has ${files.length} files');
 
           if (files.isNotEmpty) {
             // Log all files for debugging
             for (int i = 0; i < files.length; i++) {
-              debugPrint('[AutoDownload] File $i: ${files[i].name}');
+              AppLog.d('[AutoDownload] File $i: ${files[i].name}');
             }
 
             // Set all files to "do not download" (priority 0)
             final allFileIds = List.generate(files.length, (i) => i);
             await _qbtService.setFilePriority(infoHash, allFileIds, 0);
-            debugPrint(
+            AppLog.d(
               '[AutoDownload] Set all ${files.length} files to priority 0 (skip)',
             );
 
             // Set the specific file to normal priority (1) or high (6)
             if (fileIdx >= 0 && fileIdx < files.length) {
               await _qbtService.setFilePriority(infoHash, [fileIdx], 6);
-              debugPrint(
+              AppLog.d(
                 '[AutoDownload] Selected file $fileIdx: ${files[fileIdx].name} (priority 6)',
               );
             } else {
-              debugPrint(
+              AppLog.d(
                 '[AutoDownload] WARNING: fileIdx $fileIdx is out of range (0-${files.length - 1})',
               );
             }
           } else {
-            debugPrint('[AutoDownload] WARNING: No files found in torrent yet');
+            AppLog.d('[AutoDownload] WARNING: No files found in torrent yet');
           }
         } catch (e) {
-          debugPrint('[AutoDownload] Failed to select specific file: $e');
+          AppLog.e('[AutoDownload] Failed to select specific file: $e');
           // Continue anyway - torrent was added successfully
         }
       } else {
         if (fileIdx == null) {
-          debugPrint(
+          AppLog.d(
             '[AutoDownload] No fileIdx provided - downloading all files',
           );
         }
         if (infoHash == null || infoHash.isEmpty) {
-          debugPrint('[AutoDownload] No infoHash provided');
+          AppLog.d('[AutoDownload] No infoHash provided');
         }
       }
 
       return success;
     } catch (e) {
-      debugPrint('Error downloading next episode: $e');
+      AppLog.e('[AutoDownload] Error downloading next episode: $e');
       return false;
     }
   }
@@ -643,9 +636,7 @@ class AutoDownloadService {
   }) async {
     try {
       final torrents = await _qbtService.getTorrents();
-      final episodeCode =
-          'S${season.toString().padLeft(2, '0')}E${episode.toString().padLeft(2, '0')}'
-              .toLowerCase();
+      final episodeCode = Formatters.episodeCode(season, episode).toLowerCase();
 
       return torrents.any((torrent) {
         final name = torrent.name.toLowerCase();

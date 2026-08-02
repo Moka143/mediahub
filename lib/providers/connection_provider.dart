@@ -1,12 +1,12 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../services/qbittorrent_api_service.dart';
 import '../services/qbittorrent_process_service.dart';
 import 'settings_provider.dart';
+import '../services/app_logger.dart';
 
 /// Connection status enum
 enum ConnectionStatus { disconnected, connecting, connected, error }
@@ -51,7 +51,9 @@ final qbProcessServiceProvider = Provider<QBittorrentProcessService>((ref) {
   return QBittorrentProcessService(
     qbittorrentPath: settings.qbittorrentPath,
     port: settings.port,
-    onLog: (message) => debugPrint('[ProcessService] $message'),
+    // The service already writes tagged lines to AppLog; this callback only
+    // feeds the in-app connection log, so it must not log again.
+    onLog: (_) {},
   );
 });
 
@@ -64,7 +66,7 @@ final qbApiServiceProvider = Provider<QBittorrentApiService>((ref) {
     port: settings.port,
     username: settings.username,
     password: settings.password,
-    onLog: (message) => debugPrint('[APIService] $message'),
+    onLog: (_) {},
   );
 
   ref.onDispose(() => service.dispose());
@@ -217,19 +219,19 @@ class ConnectionNotifier extends Notifier<ConnectionState> {
       // Only sync if limits are set (non-zero)
       if (settings.downloadSpeedLimit > 0) {
         await _apiService.setDownloadLimit(settings.downloadSpeedLimit);
-        debugPrint(
+        AppLog.d(
           '[Connection] Synced download limit: ${settings.downloadSpeedLimit ~/ 1024} KB/s',
         );
       }
 
       if (settings.uploadSpeedLimit > 0) {
         await _apiService.setUploadLimit(settings.uploadSpeedLimit);
-        debugPrint(
+        AppLog.d(
           '[Connection] Synced upload limit: ${settings.uploadSpeedLimit ~/ 1024} KB/s',
         );
       }
     } catch (e) {
-      debugPrint('[Connection] Failed to sync speed limits: $e');
+      AppLog.e('[Connection] Failed to sync speed limits: $e');
     }
   }
 

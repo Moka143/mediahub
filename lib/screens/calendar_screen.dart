@@ -10,6 +10,7 @@ import '../widgets/editorial/editorial.dart';
 import '../models/auto_download_event.dart';
 import '../providers/auto_download_events_provider.dart';
 import '../providers/auto_download_provider.dart';
+import '../utils/formatters.dart';
 import '../providers/favorites_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/shows_provider.dart';
@@ -41,8 +42,7 @@ class CalendarEpisode {
     this.overview,
   });
 
-  String get episodeCode =>
-      'S${seasonNumber.toString().padLeft(2, '0')}E${episodeNumber.toString().padLeft(2, '0')}';
+  String get episodeCode => Formatters.episodeCode(seasonNumber, episodeNumber);
 
   String get displayTitle => episodeName ?? 'Episode $episodeNumber';
 
@@ -191,7 +191,8 @@ final calendarEpisodeDownloadStatusProvider =
       }
       // Check download queue
       final queueKey =
-          '${params.showId}_S${params.season.toString().padLeft(2, '0')}E${params.episode.toString().padLeft(2, '0')}';
+          '${params.showId}_'
+          '${Formatters.episodeCode(params.season, params.episode)}';
       if (autoState.downloadQueue.contains(queueKey)) {
         return EpisodeDownloadStatus.downloading;
       }

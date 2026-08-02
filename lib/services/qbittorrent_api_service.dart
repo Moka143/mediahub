@@ -10,6 +10,7 @@ import '../models/peer.dart';
 import '../models/torrent.dart';
 import '../models/torrent_file.dart';
 import '../models/tracker.dart';
+import 'app_logger.dart';
 import '../utils/constants.dart';
 
 /// Exception for qBittorrent API errors
@@ -40,7 +41,8 @@ class QBittorrentApiService {
   /// qBittorrent 5.2.0 changed empty-body responses from 200 to 204, so a
   /// strict `== 200` check rejects valid successes on the latest qBit. Use
   /// this everywhere we treat the response as a success/failure boolean.
-  static bool _isSuccessStatus(int? code) =>
+  @visibleForTesting
+  static bool isSuccessStatus(int? code) =>
       code != null && code >= 200 && code < 300;
 
   /// Callback for logging
@@ -158,7 +160,7 @@ class QBittorrentApiService {
         options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
 
-      if (_isSuccessStatus(response.statusCode)) {
+      if (isSuccessStatus(response.statusCode)) {
         final cookies = response.headers['set-cookie'];
         if (cookies != null) {
           for (final cookie in cookies) {
@@ -268,7 +270,7 @@ class QBittorrentApiService {
         data: 'json=${Uri.encodeComponent(prefsJson)}',
         options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
-      return _isSuccessStatus(response.statusCode);
+      return isSuccessStatus(response.statusCode);
     } catch (e) {
       _log('Set preferences error: $e');
       return false;
@@ -464,7 +466,7 @@ class QBittorrentApiService {
       // "Fails." on failure. qBittorrent 5.2+ returns 204 with empty body on
       // success and 4xx on failure. Treat any 2xx + non-failure body as
       // success rather than relying on the exact "Ok." literal.
-      if (!_isSuccessStatus(response.statusCode)) return false;
+      if (!isSuccessStatus(response.statusCode)) return false;
       final body = response.data?.toString().trim().toLowerCase() ?? '';
       return body != 'fails.';
     } catch (e) {
@@ -494,7 +496,7 @@ class QBittorrentApiService {
         );
       }
 
-      return _isSuccessStatus(response.statusCode);
+      return isSuccessStatus(response.statusCode);
     } catch (e) {
       _log('Pause torrents error: $e');
       return false;
@@ -522,7 +524,7 @@ class QBittorrentApiService {
         );
       }
 
-      return _isSuccessStatus(response.statusCode);
+      return isSuccessStatus(response.statusCode);
     } catch (e) {
       _log('Resume torrents error: $e');
       return false;
@@ -542,7 +544,7 @@ class QBittorrentApiService {
         data: 'hashes=${hashes.join('|')}&deleteFiles=$deleteFiles',
         options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
-      final ok = _isSuccessStatus(response.statusCode);
+      final ok = isSuccessStatus(response.statusCode);
       if (ok) {
         // Force a full snapshot on the next sync — the maindata RID can
         // miss the deletion delta if the call lands between polls.
@@ -565,7 +567,7 @@ class QBittorrentApiService {
         data: 'hashes=${hashes.join('|')}',
         options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
-      return _isSuccessStatus(response.statusCode);
+      return isSuccessStatus(response.statusCode);
     } catch (e) {
       _log('Recheck torrents error: $e');
       return false;
@@ -582,7 +584,7 @@ class QBittorrentApiService {
         data: 'hashes=${hashes.join('|')}',
         options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
-      return _isSuccessStatus(response.statusCode);
+      return isSuccessStatus(response.statusCode);
     } catch (e) {
       _log('Reannounce torrents error: $e');
       return false;
@@ -617,7 +619,7 @@ class QBittorrentApiService {
         data: 'hashes=${hashes.join('|')}',
         options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
-      return _isSuccessStatus(response.statusCode);
+      return isSuccessStatus(response.statusCode);
     } catch (e) {
       _log('Set torrent priority error: $e');
       return false;
@@ -638,7 +640,7 @@ class QBittorrentApiService {
         data: 'hash=$hash&id=${fileIds.join('|')}&priority=$priority',
         options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
-      return _isSuccessStatus(response.statusCode);
+      return isSuccessStatus(response.statusCode);
     } catch (e) {
       _log('Set file priority error: $e');
       return false;
@@ -670,7 +672,7 @@ class QBittorrentApiService {
         data: 'limit=$limit',
         options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
-      return _isSuccessStatus(response.statusCode);
+      return isSuccessStatus(response.statusCode);
     } catch (e) {
       _log('Set download limit error: $e');
       return false;
@@ -687,7 +689,7 @@ class QBittorrentApiService {
         data: 'limit=$limit',
         options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
-      return _isSuccessStatus(response.statusCode);
+      return isSuccessStatus(response.statusCode);
     } catch (e) {
       _log('Set upload limit error: $e');
       return false;
@@ -721,11 +723,10 @@ class QBittorrentApiService {
     }
   }
 
-  /// Log a message
+  /// Log a message. The tag is applied here rather than at the [onLog]
+  /// adapter, so a line is tagged exactly once.
   void _log(String message) {
-    if (kDebugMode) {
-      print('[QBittorrentAPI] $message');
-    }
+    AppLog.d('[QBittorrentAPI] $message');
     onLog?.call(message);
   }
 
@@ -746,7 +747,7 @@ class QBittorrentApiService {
         data: 'hashes=$hash',
         options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
-      return _isSuccessStatus(response.statusCode);
+      return isSuccessStatus(response.statusCode);
     } catch (e) {
       _log('Toggle sequential download error: $e');
       return false;
@@ -764,7 +765,7 @@ class QBittorrentApiService {
         data: 'hashes=$hash',
         options: Options(contentType: 'application/x-www-form-urlencoded'),
       );
-      return _isSuccessStatus(response.statusCode);
+      return isSuccessStatus(response.statusCode);
     } catch (e) {
       _log('Toggle first/last piece priority error: $e');
       return false;
@@ -809,7 +810,7 @@ class QBittorrentApiService {
         queryParameters: {'hash': hash},
       );
 
-      if (_isSuccessStatus(response.statusCode) && response.data is List) {
+      if (isSuccessStatus(response.statusCode) && response.data is List) {
         return (response.data as List).cast<int>();
       }
       return null;
@@ -934,7 +935,7 @@ class QBittorrentApiService {
   Future<bool> testConnection() async {
     try {
       final response = await _dio.get('/api/v2/app/version');
-      return _isSuccessStatus(response.statusCode);
+      return isSuccessStatus(response.statusCode);
     } catch (e) {
       return false;
     }

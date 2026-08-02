@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -7,9 +6,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/watch_progress.dart';
 import '../services/tmdb_account_service.dart';
+import '../utils/formatters.dart';
 import 'local_media_provider.dart';
 import 'settings_provider.dart';
 import 'tmdb_account_provider.dart';
+import '../services/app_logger.dart';
 
 /// Key for storing watch progress in SharedPreferences
 const _watchProgressKey = 'watch_progress';
@@ -57,8 +58,7 @@ class ManualWatchedState {
   }
 
   bool isEpisodeWatched(int showId, int season, int episode) {
-    final episodeCode =
-        'S${season.toString().padLeft(2, '0')}E${episode.toString().padLeft(2, '0')}';
+    final episodeCode = Formatters.episodeCode(season, episode);
     return watchedEpisodes[showId]?.contains(episodeCode) ?? false;
   }
 
@@ -121,7 +121,7 @@ class ManualWatchedNotifier extends Notifier<ManualWatchedState> {
       final json = jsonDecode(jsonString) as Map<String, dynamic>;
       return ManualWatchedState.fromJson(json);
     } catch (e) {
-      debugPrint('Error loading manual watched state: $e');
+      AppLog.e('[WatchProgress] Error loading manual watched state: $e');
       return const ManualWatchedState();
     }
   }
@@ -131,14 +131,13 @@ class ManualWatchedNotifier extends Notifier<ManualWatchedState> {
       final prefs = ref.read(sharedPreferencesProvider);
       await prefs.setString(_manualWatchedKey, jsonEncode(state.toJson()));
     } catch (e) {
-      debugPrint('Error saving manual watched state: $e');
+      AppLog.e('[WatchProgress] Error saving manual watched state: $e');
     }
   }
 
   /// Mark a specific episode as watched
   Future<void> markEpisodeWatched(int showId, int season, int episode) async {
-    final episodeCode =
-        'S${season.toString().padLeft(2, '0')}E${episode.toString().padLeft(2, '0')}';
+    final episodeCode = Formatters.episodeCode(season, episode);
     final newEpisodes = Map<int, Set<String>>.from(state.watchedEpisodes);
     newEpisodes.putIfAbsent(showId, () => {});
     newEpisodes[showId] = Set<String>.from(newEpisodes[showId]!)
@@ -150,8 +149,7 @@ class ManualWatchedNotifier extends Notifier<ManualWatchedState> {
 
   /// Mark a specific episode as unwatched
   Future<void> markEpisodeUnwatched(int showId, int season, int episode) async {
-    final episodeCode =
-        'S${season.toString().padLeft(2, '0')}E${episode.toString().padLeft(2, '0')}';
+    final episodeCode = Formatters.episodeCode(season, episode);
     final newEpisodes = Map<int, Set<String>>.from(state.watchedEpisodes);
     if (newEpisodes.containsKey(showId)) {
       newEpisodes[showId] = Set<String>.from(newEpisodes[showId]!)
@@ -325,7 +323,7 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
 
       return map;
     } catch (e) {
-      debugPrint('Error loading watch progress: $e');
+      AppLog.e('[WatchProgress] Error loading watch progress: $e');
       return {};
     }
   }
@@ -337,7 +335,7 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
       final jsonList = state.values.map((p) => p.toJson()).toList();
       await prefs.setString(_watchProgressKey, jsonEncode(jsonList));
     } catch (e) {
-      debugPrint('Error saving watch progress: $e');
+      AppLog.e('[WatchProgress] Error saving watch progress: $e');
     }
   }
 
@@ -349,8 +347,7 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
   /// an episode only updates local state — only the manual
   /// "Mark as watched" menu used to hit TMDB.
   Future<void> updateProgress(WatchProgress progress) async {
-    final justCompleted =
-        progress.shouldMarkCompleted && !progress.isCompleted;
+    final justCompleted = progress.shouldMarkCompleted && !progress.isCompleted;
     final updatedProgress = justCompleted
         ? progress.copyWith(isCompleted: true)
         : progress;
@@ -392,7 +389,7 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
       // reconcileWatchedWithTmdb pass once the filename → TMDB id
       // lookup resolves.
     } catch (e) {
-      debugPrint('[WatchProgress] auto-push to TMDB failed: $e');
+      AppLog.e('[WatchProgress] auto-push to TMDB failed: $e');
     }
   }
 
@@ -436,9 +433,7 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
       showId: showId,
       seasonNumber: seasonNumber,
       episodeNumber: episodeNumber,
-      episodeCode: seasonNumber != null && episodeNumber != null
-          ? 'S${seasonNumber.toString().padLeft(2, '0')}E${episodeNumber.toString().padLeft(2, '0')}'
-          : null,
+      episodeCode: Formatters.episodeCodeOrNull(seasonNumber, episodeNumber),
       episodeTitle: episodeTitle,
       posterPath: posterPath,
       position: position,
@@ -493,10 +488,7 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
         showId: showId,
         seasonNumber: seasonNumber,
         episodeNumber: episodeNumber,
-        episodeCode: (seasonNumber != null && episodeNumber != null)
-            ? 'S${seasonNumber.toString().padLeft(2, '0')}'
-                  'E${episodeNumber.toString().padLeft(2, '0')}'
-            : null,
+        episodeCode: Formatters.episodeCodeOrNull(seasonNumber, episodeNumber),
         movieId: movieId,
         posterPath: posterPath,
         position: Duration.zero,

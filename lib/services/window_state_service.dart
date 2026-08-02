@@ -39,7 +39,7 @@ class WindowStateService with WindowListener {
           (map['width'] as num).toDouble(),
           (map['height'] as num).toDouble(),
         );
-        if (_isSane(candidate)) bounds = candidate;
+        if (isSane(candidate)) bounds = candidate;
       } catch (_) {
         bounds = null;
       }
@@ -51,7 +51,8 @@ class WindowStateService with WindowListener {
   // dimensions, NaN/infinite coordinates, or values too small to host a usable
   // window. (A post-BSOD prefs file recovered as all-zero bytes deserializes
   // to Rect(0,0,0,0), which previously got applied verbatim.)
-  static bool _isSane(Rect r) {
+  @visibleForTesting
+  static bool isSane(Rect r) {
     if (!r.left.isFinite ||
         !r.top.isFinite ||
         !r.width.isFinite ||

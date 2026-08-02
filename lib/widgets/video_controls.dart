@@ -11,8 +11,10 @@ import '../providers/player_provider.dart';
 import '../providers/subtitle_provider.dart';
 import '../services/opensubtitles_service.dart';
 import '../utils/feedback_utils.dart';
+import '../utils/formatters.dart';
 import 'common/mediahub_picker_sheet.dart';
 import 'editorial/editorial.dart';
+import '../services/app_logger.dart';
 
 /// Custom video controls overlay
 class VideoControlsOverlay extends ConsumerWidget {
@@ -86,8 +88,11 @@ class VideoControlsOverlay extends ConsumerWidget {
             // Top bar
             _buildTopBar(context, ref),
 
-            // Middle spacer with center play button
-            Expanded(child: Center(child: _buildCenterControls(context))),
+            // Deliberately empty. Transport controls live in the bottom bar;
+            // keeping the centre of the frame clear means the controls
+            // overlay never covers the picture. Double-click anywhere
+            // toggles playback (see VideoPlayerScreen).
+            const Expanded(child: SizedBox.shrink()),
 
             // Bottom controls
             _buildBottomControls(
@@ -173,78 +178,65 @@ class VideoControlsOverlay extends ConsumerWidget {
     );
   }
 
-  Widget _buildCenterControls(BuildContext context) {
+  /// Transport cluster for the bottom bar: rewind, play/pause, forward.
+  ///
+  /// These used to sit as a large floating cluster in the middle of the frame,
+  /// directly over the picture. Bottom-left is where every desktop player puts
+  /// them, and it leaves the video unobstructed.
+  Widget _buildTransportControls(BuildContext context) {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        // Seek backward
         Semantics(
           label: 'Rewind 10 seconds',
           button: true,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.1),
-              shape: BoxShape.circle,
+          child: IconButton(
+            icon: const Icon(
+              Icons.replay_10_rounded,
+              size: AppIconSize.md,
+              color: Colors.white,
             ),
-            child: IconButton(
-              icon: Icon(
-                Icons.replay_10_rounded,
-                size: AppIconSize.xl,
-                color: Colors.white,
-              ),
-              onPressed: onSeekBackward,
-              tooltip: 'Rewind 10s',
-            ),
+            onPressed: onSeekBackward,
+            tooltip: 'Rewind 10s (←)',
           ),
         ),
-        SizedBox(width: AppSpacing.xl),
 
-        // Play/Pause
+        // Play/Pause — the primary action, so it carries a soft fill to lift
+        // it above the flanking seek buttons without introducing a new hue.
         Semantics(
           label: isPlaying ? 'Pause video' : 'Play video',
           button: true,
           child: Container(
-            width: 72,
-            height: 72,
+            width: 40,
+            height: 40,
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.2),
+              color: Colors.white.withValues(alpha: 0.14),
               shape: BoxShape.circle,
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.3),
-                width: 2,
-              ),
             ),
             child: IconButton(
+              padding: EdgeInsets.zero,
               icon: Icon(
                 isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                size: AppIconSize.xxxl,
+                size: AppIconSize.md,
                 color: Colors.white,
               ),
               onPressed: onPlayPause,
-              tooltip: isPlaying ? 'Pause' : 'Play',
+              tooltip: isPlaying ? 'Pause (space)' : 'Play (space)',
             ),
           ),
         ),
-        SizedBox(width: AppSpacing.xl),
 
-        // Seek forward
         Semantics(
           label: 'Fast forward 10 seconds',
           button: true,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.1),
-              shape: BoxShape.circle,
+          child: IconButton(
+            icon: const Icon(
+              Icons.forward_10_rounded,
+              size: AppIconSize.md,
+              color: Colors.white,
             ),
-            child: IconButton(
-              icon: Icon(
-                Icons.forward_10_rounded,
-                size: AppIconSize.xl,
-                color: Colors.white,
-              ),
-              onPressed: onSeekForward,
-              tooltip: 'Forward 10s',
-            ),
+            onPressed: onSeekForward,
+            tooltip: 'Forward 10s (→)',
           ),
         ),
       ],
@@ -286,7 +278,7 @@ class VideoControlsOverlay extends ConsumerWidget {
           Row(
             children: [
               Text(
-                _formatDuration(position),
+                Formatters.formatPlaybackDuration(position),
                 style: const TextStyle(color: Colors.white, fontSize: 12),
               ),
               SizedBox(width: AppSpacing.sm),
@@ -355,7 +347,7 @@ class VideoControlsOverlay extends ConsumerWidget {
               ),
               SizedBox(width: AppSpacing.sm),
               Text(
-                _formatDuration(duration),
+                Formatters.formatPlaybackDuration(duration),
                 style: const TextStyle(color: Colors.white, fontSize: 12),
               ),
             ],
@@ -363,11 +355,15 @@ class VideoControlsOverlay extends ConsumerWidget {
           SizedBox(height: AppSpacing.sm),
 
           // Bottom buttons — three-cluster layout:
-          //   [Volume]  ────  [CC | Audio | Speed | ContinueWatching]  ────  [Fullscreen]
+          //   [⟲ ▶ ⟳ | Volume]  ──  [CC | Audio | Speed | CW]  ──  [Fullscreen]
           // Mirrors modern desktop players (YouTube/Plex). The track-controls
           // cluster is wrapped in a soft-tinted pill so it reads as one unit.
           Row(
             children: [
+              _buildTransportControls(context),
+
+              SizedBox(width: AppSpacing.xs),
+
               _VolumeControl(
                 volume: volume,
                 onVolumeChanged: (v) => playerService.setVolume(v),
@@ -405,17 +401,6 @@ class VideoControlsOverlay extends ConsumerWidget {
         ],
       ),
     );
-  }
-
-  String _formatDuration(Duration d) {
-    final hours = d.inHours;
-    final minutes = d.inMinutes.remainder(60);
-    final seconds = d.inSeconds.remainder(60);
-
-    if (hours > 0) {
-      return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-    }
-    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 }
 
@@ -747,11 +732,11 @@ class _SubtitleButton extends ConsumerWidget {
         }
       }
     } catch (e) {
-      debugPrint('Failed to load subtitle: $e');
+      AppLog.e('[Subtitles] Failed to load subtitle: $e');
       if (context.mounted) {
         AppSnackBar.showError(
           context,
-          message: 'Failed to load subtitle: ${e.toString()}',
+          message: '[Subtitles] Failed to load subtitle: ${e.toString()}',
         );
       }
     }
@@ -1142,7 +1127,7 @@ class _ContinueWatchingToggle extends ConsumerWidget {
               : override == true
               ? false
               : null;
-          debugPrint(
+          AppLog.d(
             '[ContinueWatching] tapped: showId=$showId override=$override → ${next ?? "auto"}',
           );
           ref

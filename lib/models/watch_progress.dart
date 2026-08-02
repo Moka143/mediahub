@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
+import '../utils/formatters.dart';
+
 /// Represents watch progress for a video file
 class WatchProgress {
   final String fileHash; // MD5 hash of file path for unique ID
@@ -62,21 +64,10 @@ class WatchProgress {
   }
 
   /// Get position formatted (HH:MM:SS or MM:SS)
-  String get positionFormatted => _formatDuration(position);
+  String get positionFormatted => Formatters.formatPlaybackDuration(position);
 
   /// Get duration formatted
-  String get durationFormatted => _formatDuration(duration);
-
-  String _formatDuration(Duration d) {
-    final hours = d.inHours;
-    final minutes = d.inMinutes.remainder(60);
-    final seconds = d.inSeconds.remainder(60);
-
-    if (hours > 0) {
-      return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-    }
-    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-  }
+  String get durationFormatted => Formatters.formatPlaybackDuration(duration);
 
   /// Check if should mark as completed (> 90% watched)
   bool get shouldMarkCompleted => progress >= 0.90;

@@ -7,6 +7,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../models/local_media_file.dart';
 import '../utils/constants.dart';
+import '../utils/formatters.dart';
 import 'watch_progress_provider.dart';
 
 /// Notifier for current playing file
@@ -484,9 +485,11 @@ class PlayerService {
     if (file.showName != null &&
         file.seasonNumber != null &&
         file.episodeNumber != null) {
-      final s = file.seasonNumber!.toString().padLeft(2, '0');
-      final e = file.episodeNumber!.toString().padLeft(2, '0');
-      primary = '${file.showName} — S${s}E$e';
+      final code = Formatters.episodeCode(
+        file.seasonNumber!,
+        file.episodeNumber!,
+      );
+      primary = '${file.showName} — $code';
     } else if (file.showName != null) {
       primary = file.showName!;
     } else {

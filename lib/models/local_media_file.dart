@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import '../utils/formatters.dart';
 import 'watch_progress.dart';
 
 /// Video file extensions supported
@@ -54,24 +55,11 @@ class LocalMediaFile {
   bool get isVideo => videoExtensions.contains(extension.toLowerCase());
 
   /// Get episode code (S01E05 format)
-  String? get episodeCode {
-    if (seasonNumber == null || episodeNumber == null) return null;
-    final s = seasonNumber.toString().padLeft(2, '0');
-    final e = episodeNumber.toString().padLeft(2, '0');
-    return 'S${s}E$e';
-  }
+  String? get episodeCode =>
+      Formatters.episodeCodeOrNull(seasonNumber, episodeNumber);
 
   /// Get formatted file size
-  String get formattedSize {
-    if (sizeBytes < 1024) return '$sizeBytes B';
-    if (sizeBytes < 1024 * 1024) {
-      return '${(sizeBytes / 1024).toStringAsFixed(1)} KB';
-    }
-    if (sizeBytes < 1024 * 1024 * 1024) {
-      return '${(sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-    }
-    return '${(sizeBytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
-  }
+  String get formattedSize => Formatters.formatBytesCompact(sizeBytes);
 
   /// Get display title
   String get displayTitle {

@@ -1180,7 +1180,7 @@ class _MiniTorrentRow extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               MonoText(
-                '${(t.progress * 100).toStringAsFixed(0)}%',
+                Formatters.formatProgress(t.progress, decimals: 0),
                 size: 11,
                 color: AppColors.fg2,
               ),

@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/eztv_torrent.dart';
 import '../services/eztv_api_service.dart';
+import '../utils/formatters.dart';
 
 /// Provider for EZTV API service
 final eztvApiServiceProvider = Provider<EztvApiService>((ref) {
@@ -268,8 +269,7 @@ final checkTorrentAvailabilityProvider =
       final availability = <String, bool>{};
       for (final torrent in torrents) {
         if (torrent.season != null && torrent.episode != null) {
-          final key =
-              'S${torrent.season.toString().padLeft(2, '0')}E${torrent.episode.toString().padLeft(2, '0')}';
+          final key = Formatters.episodeCode(torrent.season!, torrent.episode!);
           availability[key] = true;
         }
       }

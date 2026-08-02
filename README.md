@@ -27,7 +27,8 @@ Browse the TMDB catalog, pick a torrent, and stream it directly in the built-in 
 - Subtitles via OpenSubtitles plus sidecar `.srt` files
 - Continue Watching row with resume-where-you-left-off
 - Binge mode with "Up Next" countdown overlay between episodes
-- Skip-intro / skip-credit gestures with animated ripple
+- Uncluttered picture — no overlay on the video itself; double-click anywhere to play/pause, transport controls live in the bottom bar
+- ±10s seek from the ← / → keys or the bottom bar, with an animated ripple
 
 ### Torrent management
 - Add torrents via magnet link or `.torrent` file

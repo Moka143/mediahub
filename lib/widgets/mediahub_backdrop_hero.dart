@@ -4,6 +4,7 @@ import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
 import '../design/app_typography.dart';
 import 'editorial/editorial.dart';
+import '../services/app_logger.dart';
 
 /// Cinematic backdrop hero for the Show / Movie detail screens.
 ///
@@ -63,7 +64,7 @@ class MediaHubBackdropHero extends StatelessWidget {
               loadingBuilder: (_, child, progress) =>
                   progress == null ? child : _backdropFallback(),
               errorBuilder: (_, e, _) {
-                debugPrint(
+                AppLog.e(
                   '[Hero] backdrop load failed for "$title": $backdropUrl ($e)',
                 );
                 return _backdropFallback();
@@ -72,7 +73,7 @@ class MediaHubBackdropHero extends StatelessWidget {
           else ...[
             Builder(
               builder: (_) {
-                debugPrint(
+                AppLog.d(
                   '[Hero] no backdrop URL for "$title" (TMDB had no backdrop_path)',
                 );
                 return _backdropFallback();
@@ -129,7 +130,7 @@ class MediaHubBackdropHero extends StatelessWidget {
                       loadingBuilder: (_, child, progress) =>
                           progress == null ? child : _posterFallback(),
                       errorBuilder: (_, e, _) {
-                        debugPrint(
+                        AppLog.e(
                           '[Hero] poster load failed for "$title": $posterUrl ($e)',
                         );
                         return _posterFallback();
@@ -139,7 +140,7 @@ class MediaHubBackdropHero extends StatelessWidget {
                 else ...[
                   Builder(
                     builder: (_) {
-                      debugPrint(
+                      AppLog.d(
                         '[Hero] no poster URL for "$title" (TMDB had no poster_path)',
                       );
                       return _posterFallback();

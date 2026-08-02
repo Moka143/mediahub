@@ -25,11 +25,14 @@ import '../providers/watch_progress_provider.dart';
 import '../providers/streaming_provider.dart';
 import '../services/auto_download_service.dart';
 import '../services/local_streaming_server.dart';
+import '../services/playback_health_monitor.dart';
 import '../services/streaming_service.dart';
+import '../utils/formatters.dart';
 import '../widgets/next_episode_overlay.dart';
 import '../widgets/shortcuts_help_dialog.dart';
 import '../widgets/streaming_status_indicator.dart';
 import '../widgets/video_controls.dart';
+import '../services/app_logger.dart';
 
 /// Full-screen video player screen with gesture controls
 class VideoPlayerScreen extends ConsumerStatefulWidget {
@@ -156,50 +159,15 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   Timer? _bufferingDebounceTimer;
   StreamSubscription<bool>? _bufferingSubscription;
 
-  // Playback health monitor — only active during streaming.
-  // Watches the player position vs. download edge and intervenes:
-  //   • Pre-emptively pauses when playback approaches the download edge
-  //     (so mpv doesn't read into sparse/zero regions and freeze).
-  //   • Detects stalls (position frozen while supposedly playing) and
-  //     recovers via pause + back-seek + resume to flush mpv's demuxer.
-  Timer? _healthMonitorTimer;
-  StreamSubscription<Duration>? _healthPositionSub;
-  Duration _lastObservedPosition = Duration.zero;
-  DateTime _lastPositionAdvanceAt = DateTime.now();
-  bool _autoBufferPaused = false;
-  bool _recoveryInFlight = false;
-  bool _healthCheckInFlight = false;
+  /// Watches the player position vs. the torrent's download edge and
+  /// pauses/resumes/recovers accordingly. Only created while streaming; owns
+  /// all of its own timers and subscriptions. See [PlaybackHealthMonitor].
+  PlaybackHealthMonitor? _healthMonitor;
 
-  /// Set true the first time mpv's position actually advances past zero.
-  /// Gates stall detection so we don't trigger the recovery seek during
-  /// the initial open window where position is legitimately frozen at 0
-  /// while mpv loads the file over the HTTP proxy.
-  bool _hasStartedPlayback = false;
-
-  /// Last time the recovery seek ran — rate-limits subsequent recoveries
-  /// so mpv has time to actually settle before we intervene again.
-  DateTime _lastRecoveryAt = DateTime.fromMillisecondsSinceEpoch(0);
   // Latest 0.0–1.0 download progress for the streaming target file.
-  // Drives the seek-bar's buffered-track in streaming mode.
+  // Drives the seek-bar's buffered-track in streaming mode. Fed by the
+  // monitor's onDownloadedRatio callback; read by build().
   double? _streamingDownloadedRatio;
-
-  /// True while the proxy-mode seek-past-head indicator is on screen, so we
-  /// know to dismiss it once the buffer catches up.
-  bool _seekPastHeadActive = false;
-
-  /// We disable qBittorrent's sequential-download mode the first time the
-  /// user seeks past the download edge — sequential mode means "always pull
-  /// pieces from the front", which would force the user to wait for the
-  /// entire intermediate region to download before the seek target arrives.
-  /// With sequential off, qBittorrent's piece picker can pull pieces around
-  /// the seek target from any peer; combined with the piece-aware proxy,
-  /// playback resumes from the new position once those pieces land.
-  ///
-  /// One-shot per session: once flipped off, we leave it off for the rest
-  /// of the player screen's lifetime. The next episode starts on its own
-  /// torrent with fresh sequential=true (set by StreamingService.addTorrent),
-  /// and a fresh VideoPlayerScreen with this flag back at false.
-  bool _sequentialDisabledForSeek = false;
 
   @override
   void initState() {
@@ -207,7 +175,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     // Seed the buffered-ratio from whatever the streaming session knew at
     // navigation time so the seek-bar's buffered track is populated on the
     // first frame instead of going dark for ~2 s until the first health
-    // poll lands. Updated continuously thereafter by _runHealthCheck.
+    // poll lands. Updated continuously thereafter by [PlaybackHealthMonitor].
     if (widget.isStreaming && widget.initialBufferedRatio != null) {
       _streamingDownloadedRatio = widget.initialBufferedRatio!.clamp(0.0, 1.0);
     }
@@ -228,7 +196,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       ref
           .read(subtitleContextProvider.notifier)
           .setMovieContext(widget.movieImdbId!);
-      debugPrint('[Subtitles] Set movie context: ${widget.movieImdbId}');
+      AppLog.d('[Subtitles] Set movie context: ${widget.movieImdbId}');
     }
 
     // Set up subtitle context if show IMDB ID is provided with episode info
@@ -242,7 +210,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
             season: widget.file.seasonNumber!,
             episode: widget.file.episodeNumber!,
           );
-      debugPrint(
+      AppLog.d(
         '[Subtitles] Set series context from widget: ${widget.showImdbId} S${widget.file.seasonNumber}E${widget.file.episodeNumber}',
       );
     }
@@ -265,7 +233,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       });
     } else {
       if (widget.isStreaming) {
-        debugPrint(
+        AppLog.d(
           '[VideoPlayerScreen] opening streaming hash=${widget.streamingTorrentHash} '
           'fileIdx=${widget.streamingFileIndex} '
           'proxyUrl=${widget.streamingProxyUrl} '
@@ -325,7 +293,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
           chosen = byLang;
         }
         await playerService.loadExternalSubtitle(chosen);
-        debugPrint('[Subtitles] Auto-loaded sidecar: $chosen');
+        AppLog.d('[Subtitles] Auto-loaded sidecar: $chosen');
         return;
       }
 
@@ -340,13 +308,13 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       if (saved != null && saved.url.isNotEmpty) {
         await playerService.loadExternalSubtitle(saved.url);
         ref.read(currentExternalSubtitleProvider.notifier).set(saved);
-        debugPrint(
+        AppLog.d(
           '[Subtitles] Auto-loaded persisted choice for $cacheKey '
           '(${saved.lang})',
         );
       }
     } catch (e) {
-      debugPrint('[Subtitles] Auto-load failed: $e');
+      AppLog.e('[Subtitles] Auto-load failed: $e');
     }
   }
 
@@ -357,415 +325,41 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   static const _firstPlayTimeout = Duration(seconds: 7);
   static const _postPlayGrace = Duration(milliseconds: 500);
 
-  // PlaybackHealthMonitor tunables.
-  static const _healthPollInterval = Duration(seconds: 2);
-  // Pause when fewer than this many seconds of *download* are buffered ahead
-  // of the player position.
-  static const _pauseBelowSecondsAhead = 8.0;
-  // Resume only after the buffer ahead has grown to this much — prevents
-  // immediate re-pause flapping at the boundary.
-  static const _resumeAboveSecondsAhead = 25.0;
-  // Stall detector: position frozen for at least this long while playing
-  // triggers the pause+back-seek+resume recovery. We were originally at 4s
-  // but bumped to 15s after observing two real cases where the recovery
-  // kept firing every cycle and prevented mpv from finishing what it was
-  // already doing:
-  //   • initial open of HEVC 1080p over the HTTP proxy can take 5–10s
-  //     while mpv probes + primes the decoder;
-  //   • a forward seek to a buffered position similarly needs several
-  //     seconds for mpv to re-key the decoder.
-  // 15s is well past both legitimate cases but still catches a real freeze.
-  static const _stallThreshold = Duration(seconds: 15);
-  // Minimum gap between successive stall recoveries. Without this we'd
-  // re-trigger every poll interval after the previous recovery completed,
-  // hammering mpv with seeks. mpv may need multiple seconds to settle
-  // after a recovery seek before its position starts advancing again.
-  static const _minRecoveryGap = Duration(seconds: 12);
-  // How far back to seek when recovering from a stall — far enough that mpv
-  // re-reads from a region that's definitely already on disk.
-  static const _stallBackSeek = Duration(seconds: 3);
-
-  /// Start monitoring the player vs. the torrent's download edge.
+  /// Build and start the playback health monitor for this streaming session.
   ///
-  /// Two jobs:
-  /// 1. **Edge tracking** — pause player when close to download edge so mpv
-  ///    doesn't read into sparse/zero regions. Resume when buffer recovers.
-  /// 2. **Stall recovery** — if the player position stops advancing while
-  ///    supposedly playing (mpv hit zeros and froze its video decoder),
-  ///    pause + small back-seek + resume to flush the demuxer.
+  /// Called from both `_initializePlayer` and `_handleResume`; safe to call
+  /// twice because the previous instance is disposed first and the monitor
+  /// resets all of its counters in `start()`.
   void _startPlaybackHealthMonitor() {
-    if (widget.streamingTorrentHash == null) {
+    final hash = widget.streamingTorrentHash;
+    if (hash == null) {
       // Without a hash we can't query torrent state — only the stall detector
-      // is useful, but it'd fire on legitimate user pauses too. Skip.
+      // would be useful, and it'd fire on legitimate user pauses too. Skip.
       return;
     }
 
-    _healthMonitorTimer?.cancel();
-    _healthPositionSub?.cancel();
-
-    _lastObservedPosition = Duration.zero;
-    _lastPositionAdvanceAt = DateTime.now();
-    _hasStartedPlayback = false;
-    _lastRecoveryAt = DateTime.fromMillisecondsSinceEpoch(0);
-
-    final player = ref.read(playerProvider);
-
-    // Track when the player position last moved (stall detection input).
-    _healthPositionSub = player.stream.position.listen((pos) {
-      final delta = (pos - _lastObservedPosition).inMilliseconds.abs();
-      if (delta > 250) {
-        _lastObservedPosition = pos;
-        _lastPositionAdvanceAt = DateTime.now();
-        // First real frame delivered — from now on, a frozen position is
-        // a real stall worth recovering from. Before this, position is at
-        // 0 because mpv is still loading; recovering would just hammer it.
-        if (pos > Duration.zero) {
-          _hasStartedPlayback = true;
+    _healthMonitor?.dispose();
+    _healthMonitor = PlaybackHealthMonitor(
+      player: ref.read(playerProvider),
+      qbt: ref.read(qbApiServiceProvider),
+      torrentHash: hash,
+      fileIndex: widget.streamingFileIndex,
+      usingProxy: widget.streamingProxyUrl != null,
+      isActive: () => mounted,
+      onDownloadedRatio: (ratio) {
+        if (!mounted) return;
+        if (_streamingDownloadedRatio == null ||
+            (ratio - _streamingDownloadedRatio!).abs() > 0.001) {
+          setState(() => _streamingDownloadedRatio = ratio);
         }
-      }
-    });
-
-    _healthMonitorTimer = Timer.periodic(_healthPollInterval, (_) {
-      _runHealthCheck();
-    });
-    // Fire once immediately so the seek-bar's buffered region populates
-    // without waiting for the first poll interval.
-    _runHealthCheck();
-  }
-
-  Future<void> _runHealthCheck() async {
-    if (!mounted || _recoveryInFlight || _healthCheckInFlight) return;
-    _healthCheckInFlight = true;
-    try {
-      await _runHealthCheckInner();
-    } finally {
-      _healthCheckInFlight = false;
-    }
-  }
-
-  Future<void> _runHealthCheckInner() async {
-    final hash = widget.streamingTorrentHash;
-    final fileIdx = widget.streamingFileIndex;
-    if (hash == null) return;
-
-    final player = ref.read(playerProvider);
-    final isPlaying = player.state.playing;
-    final position = player.state.position;
-    final duration = player.state.duration;
-    if (duration.inMilliseconds <= 0) return;
-
-    // 1) Stall detection — only meaningful while we believe we're playing
-    // and we haven't already paused the player ourselves for buffering.
-    //
-    // The recovery seek (pause + back-seek + play) was designed for the
-    // old direct-disk path, where mpv could get its decoder wedged on
-    // sparse zero data and needed an external nudge to flush its demuxer.
-    // With the LocalStreamingServer proxy that scenario can't happen any
-    // more: mpv only ever reads bytes the proxy actually hands it, the
-    // network cache pauses-for-cache cleanly when we throttle the
-    // response, and resumes the moment data flows. Triggering a recovery
-    // seek during a normal cache pause actively breaks playback (the
-    // seek invalidates mpv's decode pipeline mid-prime, the next stall
-    // fires 15s later, ad infinitum — the loop you saw in logs).
-    //
-    // So: skip stall recovery entirely in proxy mode. Keep the
-    // diagnostic so we can see if something else gets wedged, but don't
-    // act on it.
-    final usingProxyForStall = widget.streamingProxyUrl != null;
-    if (_hasStartedPlayback &&
-        isPlaying &&
-        !_autoBufferPaused &&
-        !usingProxyForStall) {
-      final now = DateTime.now();
-      final timeSinceAdvance = now.difference(_lastPositionAdvanceAt);
-      final timeSinceRecovery = now.difference(_lastRecoveryAt);
-      if (timeSinceAdvance >= _stallThreshold &&
-          timeSinceRecovery >= _minRecoveryGap) {
-        debugPrint(
-          '[HealthMonitor] Stall detected — position frozen for '
-          '${timeSinceAdvance.inSeconds}s. Recovering.',
-        );
-        _lastRecoveryAt = now;
-        await _recoverFromStall();
-        return;
-      }
-    }
-
-    // 2) Edge tracking — pause/resume based on how far ahead we have data.
-    try {
-      final qbt = ref.read(qbApiServiceProvider);
-      final files = await qbt.getTorrentFiles(hash);
-      if (fileIdx == null || fileIdx < 0 || fileIdx >= files.length) {
-        return;
-      }
-
-      final file = files[fileIdx];
-      final fileSize = file.size;
-      final fileProgress = file.progress;
-      if (fileSize <= 0) return;
-
-      // Push the latest download progress into the seek-bar's buffered track.
-      if (mounted &&
-          (_streamingDownloadedRatio == null ||
-              (fileProgress - _streamingDownloadedRatio!).abs() > 0.001)) {
-        setState(() => _streamingDownloadedRatio = fileProgress);
-      }
-
-      // Special case: file fully (or nearly) downloaded — disable edge
-      // tracking entirely. Nothing useful to pause for.
-      if (fileProgress >= 0.995) {
-        if (_autoBufferPaused) {
-          _autoBufferPaused = false;
-          await player.play();
-        }
-        if (_seekPastHeadActive) {
-          _seekPastHeadActive = false;
-          _dismissStreamingStatus();
-        }
-        return;
-      }
-
-      // When streaming via the LocalStreamingServer proxy, we still need to
-      // actively pause/resume — earlier rounds delegated entirely to mpv's
-      // network cache, which works for short stalls but leaves the player
-      // stuck in `paused-for-cache` once the cache drains and the proxy is
-      // simultaneously waiting on missing pieces. The user-visible symptom
-      // was "doesn't resume until the whole torrent is done."
-      //
-      // We can't use seconds-ahead here because the MKV tail probe is
-      // disabled in proxy mode and `duration` is unreliable until mpv has
-      // settled (~30 s of media decoded). Use file-fraction units instead:
-      // positionRatio vs fileProgress. Same gate as the seek-past-head
-      // detector below.
-      final usingProxy = widget.streamingProxyUrl != null;
-      if (usingProxy) {
-        _updateSeekPastHeadIndicator(
-          position: position,
-          duration: duration,
-          fileProgress: fileProgress,
-        );
-
-        if (duration.inSeconds < 30) return;
-        final positionRatio = position.inMilliseconds / duration.inMilliseconds;
-        final headroomRatio = fileProgress - positionRatio;
-
-        // Ratio band, file-fraction units. For a 4 GB / 45-min episode:
-        // pauseBelow ≈ 20 MB / 13 s headroom; resumeAbove ≈ 80 MB / 54 s.
-        // Wide enough that mpv doesn't flap; tight enough that we don't
-        // pause when there's still plenty downloaded.
-        const pauseBelow = 0.005;
-        const resumeAbove = 0.020;
-
-        if (!_autoBufferPaused &&
-            isPlaying &&
-            headroomRatio > 0 &&
-            headroomRatio < pauseBelow) {
-          debugPrint(
-            '[HealthMonitor] proxy pause — headroom '
-            '${(headroomRatio * 100).toStringAsFixed(2)}% '
-            '< ${(pauseBelow * 100).toStringAsFixed(1)}%',
-          );
-          _autoBufferPaused = true;
-          await player.pause();
-          _showStreamingStatus(
-            status: StreamingStatus.buffering,
-            message: 'Buffering — waiting for download…',
-            progress: fileProgress,
-          );
-        } else if (_autoBufferPaused && headroomRatio >= resumeAbove) {
-          debugPrint(
-            '[HealthMonitor] proxy resume — headroom '
-            '${(headroomRatio * 100).toStringAsFixed(2)}% '
-            '>= ${(resumeAbove * 100).toStringAsFixed(1)}%',
-          );
-          _autoBufferPaused = false;
-          _dismissStreamingStatus();
-          _lastPositionAdvanceAt = DateTime.now();
-          await player.play();
-        } else if (_autoBufferPaused && !_seekPastHeadActive) {
-          // Live progress while paused so the overlay doesn't look frozen.
-          // Suppressed when the seek-past-head indicator owns the overlay.
-          final pct = (headroomRatio.clamp(0.0, resumeAbove) * 100)
-              .toStringAsFixed(1);
-          final target = (resumeAbove * 100).toStringAsFixed(1);
-          _showStreamingStatus(
-            status: StreamingStatus.buffering,
-            message: 'Buffering — $pct% / $target% ahead',
-            progress: fileProgress,
-          );
-        }
-        return;
-      }
-
-      // Non-proxy fallback (old direct-disk path). Approximate where playback
-      // is in bytes — uniform-bitrate assumption is good enough for the
-      // 8s/25s hysteresis band.
-      final ratio = position.inMilliseconds / duration.inMilliseconds;
-      final bytesAtPosition = (fileSize * ratio).round();
-      final bytesAvailable = (fileSize * fileProgress).round();
-      final bytesAhead = bytesAvailable - bytesAtPosition;
-
-      final avgBytesPerSecond = fileSize / duration.inSeconds;
-      final secondsAhead = avgBytesPerSecond > 0
-          ? bytesAhead / avgBytesPerSecond
-          : 0.0;
-
-      if (!_autoBufferPaused &&
-          isPlaying &&
-          secondsAhead < _pauseBelowSecondsAhead) {
-        debugPrint(
-          '[HealthMonitor] Pre-empt pause — only '
-          '${secondsAhead.toStringAsFixed(1)}s buffered ahead.',
-        );
-        _autoBufferPaused = true;
-        await player.pause();
-        _showStreamingStatus(
-          status: StreamingStatus.buffering,
-          message: 'Buffering — waiting for download…',
-          progress: fileProgress,
-        );
-      } else if (_autoBufferPaused &&
-          secondsAhead >= _resumeAboveSecondsAhead) {
-        debugPrint(
-          '[HealthMonitor] Resume — '
-          '${secondsAhead.toStringAsFixed(1)}s buffered ahead.',
-        );
-        _autoBufferPaused = false;
-        _dismissStreamingStatus();
-        // Reset the stall timer so the position-advance check doesn't fire
-        // immediately after resume (it takes mpv a moment to start ticking).
-        _lastPositionAdvanceAt = DateTime.now();
-        await player.play();
-      } else if (_autoBufferPaused) {
-        // While paused, keep the indicator updated with progress so the user
-        // sees movement instead of a stuck "Buffering" forever.
-        final secs = secondsAhead.clamp(0.0, _resumeAboveSecondsAhead).round();
-        _showStreamingStatus(
-          status: StreamingStatus.buffering,
-          message:
-              'Buffering — $secs/${_resumeAboveSecondsAhead.round()}s ahead',
-          progress: fileProgress,
-        );
-      }
-    } catch (e) {
-      debugPrint('[HealthMonitor] Health check error: $e');
-    }
-  }
-
-  /// In proxy mode, detect when playback position is past the download edge
-  /// (typically caused by a user seek into the unbuffered region) and:
-  ///
-  ///   1. Disable sequential download on the torrent the first time it
-  ///      happens, so qBittorrent's piece picker can fetch pieces around
-  ///      the seek target instead of grinding sequentially from the head.
-  ///   2. Surface an overlay so the user knows what's happening — the
-  ///      proxy will serve bytes as qBittorrent writes them, but without
-  ///      this signal it just looks like a generic spinner.
-  ///
-  /// The overlay is dismissed when the buffer catches up past the playback
-  /// position. The sequential-mode toggle is one-shot per screen lifetime.
-  void _updateSeekPastHeadIndicator({
-    required Duration position,
-    required Duration duration,
-    required double fileProgress,
-  }) {
-    // Need a plausible duration to compare ratios. mpv occasionally reports
-    // a near-zero duration during initial open before the demuxer settles —
-    // skip until that lands. Same guard kept the non-proxy `secondsAhead`
-    // calc out of the wildly-negative regime in earlier rounds.
-    if (duration.inSeconds < 30) return;
-
-    final positionRatio = position.inMilliseconds / duration.inMilliseconds;
-    // 1% slack absorbs VBR jitter so a few seconds of play near the edge
-    // doesn't toggle the indicator on and off.
-    const slack = 0.01;
-    final pastHead = positionRatio > fileProgress + slack;
-
-    if (pastHead) {
-      _seekPastHeadActive = true;
-      if (!_sequentialDisabledForSeek) {
-        _sequentialDisabledForSeek = true;
-        unawaited(_disableSequentialForSeek());
-      }
-      _showStreamingStatus(
+      },
+      onBuffering: (message, progress) => _showStreamingStatus(
         status: StreamingStatus.buffering,
-        message: 'Fetching pieces around new position…',
-        progress: fileProgress,
-      );
-    } else if (_seekPastHeadActive) {
-      _seekPastHeadActive = false;
-      _dismissStreamingStatus();
-    }
-  }
-
-  /// Flip sequential-download off for the streaming torrent so qBittorrent
-  /// can pull pieces around the seek target instead of grinding from the
-  /// head. Idempotent at the API level — we check the current state before
-  /// toggling so back-to-back calls don't oscillate it.
-  Future<void> _disableSequentialForSeek() async {
-    final hash = widget.streamingTorrentHash;
-    if (hash == null) return;
-    try {
-      final qbt = ref.read(qbApiServiceProvider);
-      final torrents = await qbt.getTorrents(hashes: [hash]);
-      if (torrents.isEmpty) return;
-      if (!torrents.first.sequentialDownload) {
-        debugPrint(
-          '[HealthMonitor] sequential already off for $hash — leaving alone',
-        );
-        return;
-      }
-      final ok = await qbt.toggleSequentialDownload(hash);
-      debugPrint(
-        '[HealthMonitor] sequential download toggled off for seek '
-        '(hash=$hash, success=$ok)',
-      );
-    } catch (e) {
-      debugPrint('[HealthMonitor] failed to toggle sequential off: $e');
-    }
-  }
-
-  Future<void> _recoverFromStall() async {
-    _recoveryInFlight = true;
-    try {
-      final player = ref.read(playerProvider);
-      final pos = player.state.position;
-
-      // Pause first so mpv stops trying to decode garbage.
-      await player.pause();
-
-      // Force mpv to flush its demuxer cache and re-read fresh data. When
-      // we're already a few seconds in, a back-seek into known-good
-      // (already played) territory works. Near the start of the file
-      // (the typical "opens but never plays" case) seeking *back* to 0
-      // when we're already at 0 is a no-op for mpv — instead probe
-      // forward by 1 s, then return to the original position. Either
-      // path forces a demuxer flush and clears `paused-for-cache`.
-      Duration resumeFrom;
-      if (pos < _stallBackSeek) {
-        await player.seek(pos + const Duration(seconds: 1));
-        await Future.delayed(const Duration(milliseconds: 300));
-        await player.seek(pos);
-        resumeFrom = pos;
-      } else {
-        final target = pos - _stallBackSeek;
-        final clamped = target.isNegative ? Duration.zero : target;
-        await player.seek(clamped);
-        resumeFrom = clamped;
-      }
-
-      // Give mpv a moment to re-prime the demuxer before resuming.
-      await Future.delayed(const Duration(milliseconds: 800));
-      if (!mounted) return;
-
-      _lastObservedPosition = resumeFrom;
-      _lastPositionAdvanceAt = DateTime.now();
-      await player.play();
-    } catch (e) {
-      debugPrint('[HealthMonitor] Stall recovery failed: $e');
-    } finally {
-      _recoveryInFlight = false;
-    }
+        message: message,
+        progress: progress,
+      ),
+      onBufferingResolved: _dismissStreamingStatus,
+    )..start();
   }
 
   /// Smooth out mpv's rapid buffering signal during streaming.
@@ -867,7 +461,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       if (continueWatchingOn) {
         if (!_autoNextEpisodeFired && _nextEpisode != null) {
           _autoNextEpisodeFired = true;
-          debugPrint(
+          AppLog.d(
             '[ContinueWatching] auto-playing next episode '
             '(showId=$_currentShowId, position=${position.inSeconds}s)',
           );
@@ -904,7 +498,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         );
 
         if (downloadedNextEp != null) {
-          debugPrint(
+          AppLog.d(
             '[NextEpisode] Found downloaded next episode: ${downloadedNextEp.fileName}',
           );
           if (mounted) {
@@ -914,7 +508,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
             });
           }
         } else {
-          debugPrint(
+          AppLog.d(
             '[NextEpisode] Next episode S${_nextEpisodeFromTmdb!.seasonNumber}E${_nextEpisodeFromTmdb!.episodeNumber} not downloaded - will offer download',
           );
         }
@@ -939,12 +533,12 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     final season = file.seasonNumber;
     final episode = file.episodeNumber;
 
-    debugPrint(
+    AppLog.d(
       '[AutoDownload] Checking TMDB for next episode: $showName S${season}E$episode',
     );
 
     if (showName == null || season == null || episode == null) {
-      debugPrint('[AutoDownload] Missing show info, skipping TMDB check');
+      AppLog.w('[AutoDownload] Missing show info, skipping TMDB check');
       return;
     }
 
@@ -952,7 +546,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       final tmdbService = ref.read(tmdbServiceProvider);
       final shows = await tmdbService.searchShows(showName);
 
-      debugPrint(
+      AppLog.d(
         '[AutoDownload] TMDB search results: ${shows.length} shows found',
       );
 
@@ -973,7 +567,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       final showDetails = await tmdbService.getShowDetailsWithImdb(show.id);
       _currentImdbId = showDetails.imdbId;
 
-      debugPrint(
+      AppLog.d(
         '[AutoDownload] Show: ${show.name}, TMDB ID: ${show.id}, IMDB ID: $_currentImdbId',
       );
 
@@ -986,7 +580,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
               season: season,
               episode: episode,
             );
-        debugPrint(
+        AppLog.d(
           '[Subtitles] Set series context: $_currentImdbId S${season}E$episode',
         );
       }
@@ -999,7 +593,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         currentEpisode: episode,
       );
 
-      debugPrint(
+      AppLog.d(
         '[AutoDownload] Next episode result: ${result.nextEpisode?.episodeCode ?? "none"}, hasNext: ${result.hasNextEpisode}',
       );
 
@@ -1010,7 +604,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         });
       }
     } catch (e) {
-      debugPrint('[AutoDownload] Failed to check TMDB for next episode: $e');
+      AppLog.e('[AutoDownload] Failed to check TMDB for next episode: $e');
     }
   }
 
@@ -1021,13 +615,13 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   /// is already in flight.
   void _onContinueWatchingActivated() {
     if (_autoDownloadTriggered) {
-      debugPrint(
+      AppLog.d(
         '[ContinueWatching] activated — auto-download already in flight, '
         'no kickstart needed',
       );
       return;
     }
-    debugPrint(
+    AppLog.d(
       '[ContinueWatching] activated — kicking off auto-download immediately',
     );
     _autoDownloadTriggered = true;
@@ -1039,7 +633,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     final state = ref.read(autoDownloadProvider);
     final notifier = ref.read(autoDownloadProvider.notifier);
 
-    debugPrint(
+    AppLog.d(
       '[AutoDownload] Attached watcher: '
       'global.enabled=${state.enabled} '
       'global.downloadOnProgress=${state.downloadOnProgress} '
@@ -1073,7 +667,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
           final now = DateTime.now();
           if (now.difference(lastDecisionLogAt).inSeconds >= 5) {
             lastDecisionLogAt = now;
-            debugPrint(
+            AppLog.d(
               '[AutoDownload] At ${(progress * 100).toStringAsFixed(1)}% '
               'but gate is closed: enabled=${state.enabled} '
               'overrideForShow=${_currentShowId == null ? "<no-show>" : state.showAutoDownloadOverrides[_currentShowId]} '
@@ -1085,7 +679,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       }
 
       if (progress >= threshold) {
-        debugPrint(
+        AppLog.d(
           '[AutoDownload] Crossed threshold ($threshold) at '
           '${(progress * 100).toStringAsFixed(1)}% — triggering download',
         );
@@ -1119,7 +713,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         final tmdbService = ref.read(tmdbServiceProvider);
         final shows = await tmdbService.searchShows(showName);
         if (shows.isEmpty) {
-          debugPrint(
+          AppLog.d(
             '[AutoDownload] _triggerAutoDownload: TMDB returned no shows for $showName',
           );
           return;
@@ -1148,7 +742,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       final state = ref.read(autoDownloadProvider);
       final cwOverride = state.showAutoDownloadOverrides[showId];
       if (cwOverride == true && _nextEpisodeFromTmdb != null) {
-        debugPrint(
+        AppLog.d(
           '[AutoDownload] _triggerAutoDownload → _onStreamNextEpisode '
           '(CW on for show $showId)',
         );
@@ -1156,7 +750,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         return;
       }
 
-      debugPrint(
+      AppLog.d(
         '[AutoDownload] _triggerAutoDownload → onWatchProgress '
         'showId=$showId imdbId=$imdbId',
       );
@@ -1173,7 +767,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
             currentQuality: quality,
           );
     } catch (e) {
-      debugPrint('[AutoDownload] _triggerAutoDownload failed: $e');
+      AppLog.e('[AutoDownload] _triggerAutoDownload failed: $e');
     }
   }
 
@@ -1184,13 +778,13 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     _completedSubscription = player.stream.completed.listen((completed) async {
       if (!completed || !mounted) return;
 
-      debugPrint(
+      AppLog.d(
         '[AutoDownload] Playback completed, checking for next episode...',
       );
 
       // If we started downloading the next episode, check if it's ready
       if (_nextEpisodeDownloadStarted && _downloadingEpisode != null) {
-        debugPrint(
+        AppLog.d(
           '[AutoDownload] Next episode download was started, checking if ready...',
         );
         await _tryPlayDownloadedNextEpisode();
@@ -1210,7 +804,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     final showName = widget.file.showName;
     if (showName == null) return;
 
-    debugPrint(
+    AppLog.d(
       '[AutoDownload] Looking for downloaded file: $showName S${episode.seasonNumber}E${episode.episodeNumber}',
     );
 
@@ -1233,7 +827,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     );
 
     if (nextFile != null && mounted) {
-      debugPrint(
+      AppLog.d(
         '[AutoDownload] Found downloaded episode! Playing: ${nextFile.fileName}',
       );
 
@@ -1249,7 +843,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         MaterialPageRoute(builder: (_) => VideoPlayerScreen(file: fileToPlay)),
       );
     } else {
-      debugPrint(
+      AppLog.w(
         '[AutoDownload] Downloaded file not found yet - may still be downloading',
       );
       // Show message that file is still downloading
@@ -1276,7 +870,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     // Calculate next episode number
     final nextEpisodeNum = currentEpisode + 1;
 
-    debugPrint(
+    AppLog.d(
       '[AutoDownload] Checking for next episode: $showName S${currentSeason}E$nextEpisodeNum',
     );
 
@@ -1301,7 +895,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     );
 
     if (nextFile != null && mounted) {
-      debugPrint(
+      AppLog.d(
         '[AutoDownload] Found next episode! Playing: ${nextFile.fileName}',
       );
 
@@ -1329,7 +923,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
 
     if (mounted) {
       final streamingHash = _nextEpisodeStreamingTorrentHash;
-      debugPrint(
+      AppLog.d(
         '[NextEpisodeProxy] handing off to player streaming=${streamingHash != null} '
         'hash=$streamingHash '
         'fileIdx=$_nextEpisodeStreamingFileIndex '
@@ -1504,23 +1098,27 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     });
   }
 
-  // Handle double tap to skip
-  void _onDoubleTapDown(TapDownDetails details) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final tapX = details.globalPosition.dx;
+  /// Double-click anywhere on the picture toggles playback.
+  ///
+  /// This replaced a zoned gesture where the outer thirds skipped ±10 s and
+  /// only the middle toggled — the zones were invisible, so which of three
+  /// things a double-click did depended on where the pointer happened to be.
+  /// Skipping stays on the ← / → keys and the bottom transport buttons, both
+  /// of which still show the ripple.
+  void _onDoubleTap() {
+    ref.read(playerServiceProvider).playOrPause();
+    _onUserInteraction();
+  }
 
-    if (tapX < screenWidth / 3) {
-      // Left third - skip backward 10s
-      _showSkipIndicator(forward: false);
-      ref.read(playerServiceProvider).seekBackward(seconds: 10);
-    } else if (tapX > screenWidth * 2 / 3) {
-      // Right third - skip forward 10s
-      _showSkipIndicator(forward: true);
-      ref.read(playerServiceProvider).seekForward(seconds: 10);
-    } else {
-      // Center - toggle play/pause
-      ref.read(playerServiceProvider).playOrPause();
-    }
+  void _seekBackward() {
+    _showSkipIndicator(forward: false);
+    ref.read(playerServiceProvider).seekBackward(seconds: 10);
+    _onUserInteraction();
+  }
+
+  void _seekForward() {
+    _showSkipIndicator(forward: true);
+    ref.read(playerServiceProvider).seekForward(seconds: 10);
     _onUserInteraction();
   }
 
@@ -1549,8 +1147,9 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     _autoDownloadSubscription?.cancel();
     _bufferingDebounceTimer?.cancel();
     _bufferingSubscription?.cancel();
-    _healthMonitorTimer?.cancel();
-    _healthPositionSub?.cancel();
+    // Synchronous and ref-free — the monitor owns its own timer and stream
+    // subscription and needs no providers to shut down.
+    _healthMonitor?.dispose();
     // Note: Don't use ref.read() in dispose - providers will clean up themselves.
     // Only call setFullScreen / setTitleBarStyle when we're actually in
     // fullscreen — otherwise the framework's own resize logic gets
@@ -1596,9 +1195,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
               // Main video area with gesture detection
               GestureDetector(
                 onTap: _showNextEpisodeOverlay ? null : _onUserInteraction,
-                onDoubleTapDown: _showNextEpisodeOverlay
-                    ? null
-                    : _onDoubleTapDown,
+                onDoubleTap: _showNextEpisodeOverlay ? null : _onDoubleTap,
                 onHorizontalDragStart: _showNextEpisodeOverlay
                     ? null
                     : _onHorizontalDragStart,
@@ -1664,10 +1261,8 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
                             isFullscreen: _isFullscreen,
                             onPlayPause: () =>
                                 ref.read(playerServiceProvider).playOrPause(),
-                            onSeekForward: () =>
-                                ref.read(playerServiceProvider).seekForward(),
-                            onSeekBackward: () =>
-                                ref.read(playerServiceProvider).seekBackward(),
+                            onSeekForward: _seekForward,
+                            onSeekBackward: _seekBackward,
                             onToggleFullscreen: _toggleFullscreen,
                             onClose: _exitPlayer,
                             onShowShortcuts: _showShortcutsDialog,
@@ -1804,7 +1399,9 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            _formatDuration(targetTime.isNegative ? Duration.zero : targetTime),
+            Formatters.formatPlaybackDuration(
+              targetTime.isNegative ? Duration.zero : targetTime,
+            ),
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.7),
               fontSize: 16,
@@ -1862,7 +1459,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
                     borderRadius: BorderRadius.circular(AppRadius.full),
                   ),
                   child: Text(
-                    'Last position: ${_formatDuration(_resumePosition ?? Duration.zero)}',
+                    'Last position: ${Formatters.formatPlaybackDuration(_resumePosition ?? Duration.zero)}',
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
@@ -1891,17 +1488,6 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         ),
       ),
     );
-  }
-
-  String _formatDuration(Duration d) {
-    final hours = d.inHours;
-    final minutes = d.inMinutes.remainder(60);
-    final seconds = d.inSeconds.remainder(60);
-
-    if (hours > 0) {
-      return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-    }
-    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
   /// Build overlay for next episode that isn't downloaded yet (from TMDB)
@@ -2069,14 +1655,14 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
 
   /// Stream the next episode from TMDB/EZTV
   Future<void> _onStreamNextEpisode() async {
-    debugPrint('[Streaming] Stream button pressed');
+    AppLog.d('[StreamingService] Stream button pressed');
     final episode = _nextEpisodeFromTmdb;
-    debugPrint(
-      '[Streaming] Episode: ${episode?.episodeCode}, IMDB: $_currentImdbId',
+    AppLog.d(
+      '[StreamingService] Episode: ${episode?.episodeCode}, IMDB: $_currentImdbId',
     );
 
     if (episode == null || _currentImdbId == null) {
-      debugPrint('[Streaming] Missing episode or IMDB ID, canceling');
+      AppLog.w('[StreamingService] Missing episode or IMDB ID, canceling');
       _onCancelNextEpisode();
       return;
     }
@@ -2086,8 +1672,8 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     final quality =
         widget.file.quality ?? ref.read(autoDownloadProvider).defaultQuality;
 
-    debugPrint(
-      '[Streaming] Searching for torrent: S${episode.seasonNumber}E${episode.episodeNumber} quality: $quality',
+    AppLog.d(
+      '[StreamingService] Searching for torrent: S${episode.seasonNumber}E${episode.episodeNumber} quality: $quality',
     );
 
     // Dismiss overlay immediately so user sees progress
@@ -2110,7 +1696,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
 
     if (!mounted) return;
 
-    debugPrint('[Streaming] Torrent found: ${torrent?.title ?? "null"}');
+    AppLog.d('[StreamingService] Torrent found: ${torrent?.title ?? "null"}');
 
     if (torrent == null) {
       _showStreamingStatus(
@@ -2121,12 +1707,12 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       return;
     }
 
-    debugPrint(
-      '[Streaming] Starting stream download: ${torrent.magnetUrl.substring(0, 50)}...',
+    AppLog.d(
+      '[StreamingService] Starting stream download: ${torrent.magnetUrl.substring(0, 50)}...',
     );
     if (torrent.fileIdx != null) {
-      debugPrint(
-        '[Streaming] Season pack detected - will select file index: ${torrent.fileIdx}',
+      AppLog.d(
+        '[StreamingService] Season pack detected - will select file index: ${torrent.fileIdx}',
       );
     }
 
@@ -2140,7 +1726,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
 
     if (!mounted) return;
 
-    debugPrint('[Streaming] Stream started: $success');
+    AppLog.d('[StreamingService] Stream started: $success');
 
     if (success) {
       // Track the show for future auto-downloads
@@ -2266,14 +1852,14 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
                   server,
                 );
             proxyUrl = server.url;
-            debugPrint(
+            AppLog.d(
               '[NextEpisodeProxy] ready hash=${torrent.hash} '
               'fileIdx=${selectedFile.index} '
               'path=${videoFile.path} '
               'url=$proxyUrl',
             );
           } catch (e) {
-            debugPrint('[NextEpisodeProxy] failed to start: $e');
+            AppLog.e('[NextEpisodeProxy] failed to start: $e');
           }
 
           setState(() {
@@ -2383,7 +1969,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         episodeNumber: episode?.episodeNumber,
       );
     } catch (e) {
-      debugPrint('Error finding video file: $e');
+      AppLog.e('[VideoPlayerScreen] Error finding video file: $e');
       return null;
     }
   }
@@ -2404,12 +1990,10 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         _onUserInteraction();
         break;
       case LogicalKeyboardKey.arrowLeft:
-        playerService.seekBackward(seconds: 10);
-        _onUserInteraction();
+        _seekBackward();
         break;
       case LogicalKeyboardKey.arrowRight:
-        playerService.seekForward(seconds: 10);
-        _onUserInteraction();
+        _seekForward();
         break;
       case LogicalKeyboardKey.arrowUp:
         final player = ref.read(playerProvider);

@@ -15,6 +15,7 @@ class ShortcutsHelpDialog extends StatelessWidget {
 
   static const _shortcuts = <_ShortcutEntry>[
     _ShortcutEntry(keys: ['Space'], label: 'Play / Pause'),
+    _ShortcutEntry(keys: ['Double-click'], label: 'Play / Pause'),
     _ShortcutEntry(keys: ['F'], label: 'Toggle fullscreen'),
     _ShortcutEntry(keys: ['M'], label: 'Mute / Unmute'),
     _ShortcutEntry(keys: ['←'], label: 'Seek back 10s'),

@@ -1,12 +1,13 @@
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/local_media_file.dart';
 import '../services/opensubtitles_service.dart';
+import '../utils/formatters.dart';
 import 'settings_provider.dart';
+import '../services/app_logger.dart';
 
 /// Provider for OpenSubtitles service
 final openSubtitlesServiceProvider = Provider<OpenSubtitlesService>((ref) {
@@ -156,9 +157,11 @@ String computeSubtitleCacheKey(
   if (showImdbId != null &&
       file.seasonNumber != null &&
       file.episodeNumber != null) {
-    final s = file.seasonNumber!.toString().padLeft(2, '0');
-    final e = file.episodeNumber!.toString().padLeft(2, '0');
-    return 'series:$showImdbId:s${s}e$e';
+    final code = Formatters.episodeCode(
+      file.seasonNumber!,
+      file.episodeNumber!,
+    ).toLowerCase();
+    return 'series:$showImdbId:$code';
   }
   if (movieImdbId != null) return 'movie:$movieImdbId';
   final hash = sha1.convert(utf8.encode(file.path)).toString();
@@ -173,9 +176,11 @@ String? cacheKeyFromContext(SubtitleContext context) {
   if (context.seasonNumber == null || context.episodeNumber == null) {
     return null;
   }
-  final s = context.seasonNumber!.toString().padLeft(2, '0');
-  final e = context.episodeNumber!.toString().padLeft(2, '0');
-  return 'series:${context.imdbId}:s${s}e$e';
+  final code = Formatters.episodeCode(
+    context.seasonNumber!,
+    context.episodeNumber!,
+  ).toLowerCase();
+  return 'series:${context.imdbId}:$code';
 }
 
 /// Currently selected external subtitle (from OpenSubtitles or sidecar).
@@ -204,7 +209,7 @@ class CurrentExternalSubtitleNotifier extends Notifier<Subtitle?> {
       };
       await prefs.setString('$_prefsKeyPrefix$cacheKey', jsonEncode(payload));
     } catch (e) {
-      debugPrint('[Subtitles] Failed to persist for $cacheKey: $e');
+      AppLog.e('[Subtitles] Failed to persist for $cacheKey: $e');
     }
   }
 
@@ -217,7 +222,7 @@ class CurrentExternalSubtitleNotifier extends Notifier<Subtitle?> {
       final json = jsonDecode(raw) as Map<String, dynamic>;
       return Subtitle.fromJson(json);
     } catch (e) {
-      debugPrint('[Subtitles] Failed to load for $cacheKey: $e');
+      AppLog.e('[Subtitles] Failed to load for $cacheKey: $e');
       return null;
     }
   }

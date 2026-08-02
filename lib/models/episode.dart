@@ -1,3 +1,5 @@
+import '../utils/formatters.dart';
+
 /// Represents a TV show episode from TMDB API
 class Episode {
   final int id;
@@ -59,11 +61,7 @@ class Episode {
       stillPath != null ? 'https://image.tmdb.org/t/p/w300$stillPath' : null;
 
   /// Get formatted episode code (S01E01)
-  String get episodeCode {
-    final s = seasonNumber.toString().padLeft(2, '0');
-    final e = episodeNumber.toString().padLeft(2, '0');
-    return 'S${s}E$e';
-  }
+  String get episodeCode => Formatters.episodeCode(seasonNumber, episodeNumber);
 
   /// Get formatted runtime string
   String? get runtimeFormatted {

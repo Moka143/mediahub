@@ -10,6 +10,7 @@ import '../models/show.dart';
 import '../providers/shows_provider.dart' show tmdbApiServiceProvider;
 import '../providers/torrent_provider.dart';
 import '../providers/watch_progress_provider.dart';
+import '../utils/formatters.dart';
 import 'common/mediahub_drawer_header.dart';
 import 'mediahub_drawer.dart';
 
@@ -100,9 +101,7 @@ class _MediaHubEpisodesDrawerState
   /// + watch progress. Returns a single status — `watched` wins over
   /// `downloaded` wins over `downloading` wins over `none`.
   _EpisodeStatus _statusFor(Episode ep) {
-    final code =
-        'S${ep.seasonNumber.toString().padLeft(2, '0')}'
-        'E${ep.episodeNumber.toString().padLeft(2, '0')}';
+    final code = Formatters.episodeCode(ep.seasonNumber, ep.episodeNumber);
     final showName = widget.show.name.toLowerCase();
 
     // Read the raw WatchProgress map — not `continueWatchingProvider`
@@ -236,9 +235,7 @@ class _MediaHubEpisodesDrawerState
   /// `null` when nothing is recorded. Drives the watched-progress overlay
   /// at the bottom of each episode still.
   double? _watchedRatioFor(Episode ep) {
-    final code =
-        'S${ep.seasonNumber.toString().padLeft(2, '0')}'
-        'E${ep.episodeNumber.toString().padLeft(2, '0')}';
+    final code = Formatters.episodeCode(ep.seasonNumber, ep.episodeNumber);
     final showName = widget.show.name.toLowerCase();
     final progress = ref.read(continueWatchingProvider);
     for (final p in progress) {

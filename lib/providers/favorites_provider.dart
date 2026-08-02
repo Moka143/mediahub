@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -10,6 +9,8 @@ import '../services/tmdb_api_service.dart';
 import 'shows_provider.dart';
 import 'settings_provider.dart';
 import 'tmdb_account_provider.dart';
+import '../services/app_logger.dart';
+import '../services/prefs_recovery.dart';
 
 /// Key for storing favorites in SharedPreferences (TV — kept for back-compat).
 const String _favoritesKey = 'favorite_shows';
@@ -80,18 +81,25 @@ class FavoritesNotifier extends Notifier<FavoritesState> {
   FavoritesState _loadFromPrefs(SharedPreferences prefs) {
     Set<int> tv = const {};
     Set<int> movies = const {};
+    // A decode failure here used to fall through to an empty set silently,
+    // and the next save would then overwrite the only copy. Quarantine the
+    // raw value first so the data survives a bad parse.
+    final tvJson = prefs.getString(_favoritesKey);
     try {
-      final tvJson = prefs.getString(_favoritesKey);
       if (tvJson != null) {
         tv = (jsonDecode(tvJson) as List<dynamic>).cast<int>().toSet();
       }
-    } catch (_) {}
+    } catch (e) {
+      quarantinePrefsValue(_favoritesKey, tvJson, e);
+    }
+    final mvJson = prefs.getString(_favoriteMoviesKey);
     try {
-      final mvJson = prefs.getString(_favoriteMoviesKey);
       if (mvJson != null) {
         movies = (jsonDecode(mvJson) as List<dynamic>).cast<int>().toSet();
       }
-    } catch (_) {}
+    } catch (e) {
+      quarantinePrefsValue(_favoriteMoviesKey, mvJson, e);
+    }
     return FavoritesState(favoriteIds: tv, favoriteMovieIds: movies);
   }
 
@@ -187,7 +195,9 @@ class FavoritesNotifier extends Notifier<FavoritesState> {
           favorite: favorite,
         );
       } catch (e) {
-        debugPrint('TMDB favorite push failed for $type:$id ($favorite): $e');
+        AppLog.e(
+          '[Favorites] TMDB favorite push failed for $type:$id ($favorite): $e',
+        );
       }
     }();
   }

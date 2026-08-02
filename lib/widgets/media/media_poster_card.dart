@@ -191,10 +191,8 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
                               ),
                             ),
                             padding: EdgeInsets.zero,
-                            onOpened: () =>
-                                setState(() => _menuOpen = true),
-                            onCanceled: () =>
-                                setState(() => _menuOpen = false),
+                            onOpened: () => setState(() => _menuOpen = true),
+                            onCanceled: () => setState(() => _menuOpen = false),
                             onSelected: (a) {
                               setState(() => _menuOpen = false);
                               a.onSelected();

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
 import '../../design/app_theme.dart';
+import '../../utils/formatters.dart';
 
 /// Types of progress bars for different contexts
 enum ProgressBarType {
@@ -219,7 +220,7 @@ class AppProgressBar extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppRadius.xs),
       ),
       child: Text(
-        '${(progress * 100).toStringAsFixed(1)}%',
+        Formatters.formatProgress(progress),
         style: theme.textTheme.labelSmall?.copyWith(
           fontWeight: FontWeight.w700,
           color: progressColor,

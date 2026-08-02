@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/movie.dart';
@@ -8,6 +7,8 @@ import '../services/tmdb_account_service.dart';
 import 'shows_provider.dart';
 import 'settings_provider.dart';
 import 'tmdb_account_provider.dart';
+import '../services/app_logger.dart';
+import '../services/prefs_recovery.dart';
 
 const _watchlistTvKey = 'watchlist_tv';
 const _watchlistMoviesKey = 'watchlist_movies';
@@ -51,16 +52,24 @@ class WatchlistNotifier extends Notifier<WatchlistState> {
     final prefs = ref.watch(sharedPreferencesProvider);
     Set<int> tv = const {};
     Set<int> movies = const {};
+    // See favorites_provider: a silent fallback to empty here meant the next
+    // save destroyed the user's watchlist. Quarantine before falling back.
+    final tvJson = prefs.getString(_watchlistTvKey);
     try {
-      final s = prefs.getString(_watchlistTvKey);
-      if (s != null) tv = (jsonDecode(s) as List<dynamic>).cast<int>().toSet();
-    } catch (_) {}
-    try {
-      final s = prefs.getString(_watchlistMoviesKey);
-      if (s != null) {
-        movies = (jsonDecode(s) as List<dynamic>).cast<int>().toSet();
+      if (tvJson != null) {
+        tv = (jsonDecode(tvJson) as List<dynamic>).cast<int>().toSet();
       }
-    } catch (_) {}
+    } catch (e) {
+      quarantinePrefsValue(_watchlistTvKey, tvJson, e);
+    }
+    final mvJson = prefs.getString(_watchlistMoviesKey);
+    try {
+      if (mvJson != null) {
+        movies = (jsonDecode(mvJson) as List<dynamic>).cast<int>().toSet();
+      }
+    } catch (e) {
+      quarantinePrefsValue(_watchlistMoviesKey, mvJson, e);
+    }
     return WatchlistState(showIds: tv, movieIds: movies);
   }
 
@@ -111,7 +120,9 @@ class WatchlistNotifier extends Notifier<WatchlistState> {
           watchlist: on,
         );
       } catch (e) {
-        debugPrint('TMDB watchlist push failed for $type:$id ($on): $e');
+        AppLog.e(
+          '[Watchlist] TMDB watchlist push failed for $type:$id ($on): $e',
+        );
       }
     }();
   }

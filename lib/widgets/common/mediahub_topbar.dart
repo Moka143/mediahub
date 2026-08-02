@@ -58,10 +58,7 @@ class MediaHubTopBar extends StatelessWidget implements PreferredSizeWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          if (leading != null) ...[
-            leading!,
-            const SizedBox(width: 12),
-          ],
+          if (leading != null) ...[leading!, const SizedBox(width: 12)],
           // Title row takes all available space on the left so the
           // trailing actions (Wrap below) get pushed against the right
           // edge. `Flexible` here would split free space with a

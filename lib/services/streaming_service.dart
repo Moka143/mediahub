@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:collection/collection.dart';
 import 'package:path/path.dart' as p;
 
@@ -9,8 +8,10 @@ import '../models/local_media_file.dart';
 import '../models/torrentio_stream.dart';
 import '../models/torrent.dart';
 import '../models/torrent_file.dart';
+import '../utils/formatters.dart';
 import 'local_streaming_server.dart';
 import 'qbittorrent_api_service.dart';
+import 'app_logger.dart';
 
 /// Represents the state of a streaming session
 enum StreamingState {
@@ -49,6 +50,14 @@ class StreamingSession {
   final int? season;
   final int? episode;
   final String? episodeCode;
+
+  /// When this session was first created. Drives the [metadataTimeout] and
+  /// [bufferTimeout] checks in the monitoring loop.
+  ///
+  /// **Must be threaded through [copyWith].** `_updateSession` copies the
+  /// session on every 2 s poll tick as a heartbeat; if `copyWith` let the
+  /// constructor default this back to `DateTime.now()`, session age would
+  /// never exceed one poll interval and both timeouts would be dead code.
   final DateTime createdAt;
 
   StreamingState state;
@@ -91,7 +100,8 @@ class StreamingSession {
     this.videoFile,
     this.streamUrl,
     this.downloadRateBytesPerSec = 0,
-  }) : createdAt = DateTime.now();
+    DateTime? createdAt,
+  }) : createdAt = createdAt ?? DateTime.now();
 
   bool get isActive =>
       state != StreamingState.idle &&
@@ -133,6 +143,8 @@ class StreamingSession {
       streamUrl: streamUrl ?? this.streamUrl,
       downloadRateBytesPerSec:
           downloadRateBytesPerSec ?? this.downloadRateBytesPerSec,
+      // Preserved deliberately — see the field doc.
+      createdAt: createdAt,
     );
   }
 }
@@ -282,11 +294,11 @@ class StreamingService {
         StreamController<StreamingSession>.broadcast();
     _notifySession(sessionId);
 
-    debugPrint('[StreamingService] Starting session $sessionId');
-    debugPrint('[StreamingService] Stream: ${stream.name}');
-    debugPrint('[StreamingService] Is single file: ${stream.isSingleFile}');
-    debugPrint('[StreamingService] FileIdx: ${stream.fileIdx}');
-    debugPrint('[StreamingService] Filename: ${stream.filename}');
+    AppLog.d('[StreamingService] Starting session $sessionId');
+    AppLog.d('[StreamingService] Stream: ${stream.name}');
+    AppLog.d('[StreamingService] Is single file: ${stream.isSingleFile}');
+    AppLog.d('[StreamingService] FileIdx: ${stream.fileIdx}');
+    AppLog.d('[StreamingService] Filename: ${stream.filename}');
 
     try {
       // Add torrent with streaming-optimized settings.
@@ -320,7 +332,7 @@ class StreamingService {
 
       return _sessions[sessionId]!;
     } catch (e) {
-      debugPrint('[StreamingService] Error starting streaming: $e');
+      AppLog.e('[StreamingService] Error starting streaming: $e');
       _updateSession(
         sessionId,
         state: StreamingState.error,
@@ -335,7 +347,7 @@ class StreamingService {
     final session = _sessions[sessionId];
     if (session == null) return;
 
-    debugPrint('[StreamingService] Cancelling session $sessionId');
+    AppLog.d('[StreamingService] Cancelling session $sessionId');
 
     // Stop monitoring
     _monitoringTimers[sessionId]?.cancel();
@@ -431,7 +443,7 @@ class StreamingService {
           break;
       }
     } catch (e) {
-      debugPrint('[StreamingService] Error checking progress: $e');
+      AppLog.e('[StreamingService] Error checking progress: $e');
     } finally {
       _checkingProgress.remove(sessionId);
     }
@@ -447,16 +459,16 @@ class StreamingService {
     try {
       files = await _qbtService.getTorrentFiles(torrent.hash);
     } catch (e) {
-      debugPrint('[StreamingService] Error getting files: $e');
+      AppLog.e('[StreamingService] Error getting files: $e');
       return; // Will retry on next poll
     }
 
     if (files.isEmpty) {
-      debugPrint('[StreamingService] No files yet, waiting for metadata...');
+      AppLog.d('[StreamingService] No files yet, waiting for metadata...');
       return; // Still loading metadata
     }
 
-    debugPrint('[StreamingService] Torrent has ${files.length} files');
+    AppLog.d('[StreamingService] Torrent has ${files.length} files');
 
     // Find the video file to stream
     int? targetFileIndex;
@@ -464,7 +476,7 @@ class StreamingService {
 
     if (session.stream.isSingleFile) {
       // Single file torrent - find the largest video file
-      debugPrint(
+      AppLog.d(
         '[StreamingService] Single-file torrent - selecting largest video',
       );
       final videoFiles = files
@@ -480,7 +492,7 @@ class StreamingService {
       }
     } else {
       // Season pack - use fileIdx if available, or match by filename
-      debugPrint(
+      AppLog.d(
         '[StreamingService] Season pack - using fileIdx: ${session.stream.fileIdx}',
       );
 
@@ -489,7 +501,7 @@ class StreamingService {
         // Use the provided file index
         targetFileIndex = session.stream.fileIdx!;
         targetFilePath = files[targetFileIndex].name;
-        debugPrint(
+        AppLog.d(
           '[StreamingService] Selected file at index $targetFileIndex: $targetFilePath',
         );
       } else if (session.stream.filename != null) {
@@ -508,7 +520,7 @@ class StreamingService {
         if (match != null) {
           targetFileIndex = match.key;
           targetFilePath = match.value.name;
-          debugPrint('[StreamingService] Matched by filename: $targetFilePath');
+          AppLog.d('[StreamingService] Matched by filename: $targetFilePath');
         }
       }
 
@@ -523,7 +535,7 @@ class StreamingService {
         if (match != null) {
           targetFileIndex = match.key;
           targetFilePath = match.value.name;
-          debugPrint(
+          AppLog.d(
             '[StreamingService] Matched by episode pattern: $targetFilePath',
           );
         }
@@ -531,7 +543,7 @@ class StreamingService {
 
       // Last fallback: largest video file
       if (targetFileIndex == null) {
-        debugPrint(
+        AppLog.d(
           '[StreamingService] No match found, falling back to largest video',
         );
         final videoFiles = files
@@ -557,7 +569,7 @@ class StreamingService {
       return;
     }
 
-    debugPrint(
+    AppLog.d(
       '[StreamingService] Selected file index $targetFileIndex: $targetFilePath',
     );
 
@@ -573,9 +585,7 @@ class StreamingService {
     // briefly reports progress=0 on the file, which then never recovers in
     // the sync delta (see Fix 1 in plan).
     if (session.stream.isSeasonPack && files.length > 1 && !isAlreadyComplete) {
-      debugPrint(
-        '[StreamingService] Disabling non-target files in season pack',
-      );
+      AppLog.d('[StreamingService] Disabling non-target files in season pack');
       try {
         // Set all files to skip (priority 0)
         final allFileIds = List.generate(files.length, (i) => i);
@@ -584,9 +594,9 @@ class StreamingService {
         // Set target file to high priority
         await _qbtService.setFilePriority(torrent.hash, [targetFileIndex], 7);
 
-        debugPrint('[StreamingService] File priorities set successfully');
+        AppLog.d('[StreamingService] File priorities set successfully');
       } catch (e) {
-        debugPrint('[StreamingService] Error setting file priorities: $e');
+        AppLog.e('[StreamingService] Error setting file priorities: $e');
         // Continue anyway - might already be set
       }
     }
@@ -602,7 +612,7 @@ class StreamingService {
     );
 
     if (isAlreadyComplete) {
-      debugPrint(
+      AppLog.d(
         '[StreamingService] Torrent already complete (state=${torrent.state}, '
         'progress=${(torrent.progress * 100).toStringAsFixed(1)}%) — '
         'fast-pathing to ready.',
@@ -648,9 +658,9 @@ class StreamingService {
       await _streamingServers[sessionId]?.stop();
       _streamingServers[sessionId] = server;
       streamUrl = server.url;
-      debugPrint('[StreamingService] Local stream URL: $streamUrl');
+      AppLog.d('[StreamingService] Local stream URL: $streamUrl');
     } catch (e) {
-      debugPrint('[StreamingService] Failed to start local proxy: $e');
+      AppLog.e('[StreamingService] Failed to start local proxy: $e');
     }
 
     _updateSession(
@@ -688,16 +698,16 @@ class StreamingService {
         fileSizeBytes = selectedFile.size.round();
       }
     } catch (e) {
-      debugPrint('[StreamingService] Error getting file progress: $e');
+      AppLog.e('[StreamingService] Error getting file progress: $e');
     }
 
     final bufferedBytes = (fileSizeBytes * fileProgress).round();
     final minBytes = minBufferBytesFor(fileSizeBytes);
 
-    debugPrint(
+    AppLog.d(
       '[StreamingService] Buffer progress: ${(fileProgress * 100).toStringAsFixed(1)}% '
-      '(${_formatBytes(bufferedBytes)} / ${_formatBytes(fileSizeBytes)}) '
-      '[need ${_formatBytes(minBytes)}]',
+      '(${Formatters.formatBytesCompact(bufferedBytes)} / ${Formatters.formatBytesCompact(fileSizeBytes)}) '
+      '[need ${Formatters.formatBytesCompact(minBytes)}]',
     );
 
     _updateSession(sessionId, bufferProgress: fileProgress);
@@ -712,9 +722,9 @@ class StreamingService {
     final readyNow = bytesOk || (torrentDone && fileProgress >= 0.95);
 
     if (readyNow) {
-      debugPrint(
+      AppLog.d(
         '[StreamingService] Buffer ready (bytesOk=$bytesOk torrentDone=$torrentDone)! '
-        '${_formatBytes(bufferedBytes)} buffered.',
+        '${Formatters.formatBytesCompact(bufferedBytes)} buffered.',
       );
       await _promoteToReady(sessionId, torrent);
     } else {
@@ -779,7 +789,7 @@ class StreamingService {
         }
       }
 
-      debugPrint('[StreamingService] Video file path: $fullPath');
+      AppLog.d('[StreamingService] Video file path: $fullPath');
 
       final stat = await File(fullPath).stat();
       final fileName = p.basename(fullPath);
@@ -795,7 +805,7 @@ class StreamingService {
         episodeNumber: session.episode,
       );
     } catch (e) {
-      debugPrint('[StreamingService] Error finding video file: $e');
+      AppLog.e('[StreamingService] Error finding video file: $e');
       return null;
     }
   }
@@ -856,16 +866,6 @@ class StreamingService {
       '(?:s0?$season[xe]0?$episode)|(?:[^0-9]0?$season[xe]0?$episode[^0-9])|(?:s${s}e$e)',
       caseSensitive: false,
     );
-  }
-
-  /// Format bytes to human-readable string
-  String _formatBytes(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    if (bytes < 1024 * 1024 * 1024) {
-      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-    }
-    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
   }
 
   /// Dispose all resources

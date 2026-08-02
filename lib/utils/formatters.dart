@@ -20,6 +20,24 @@ class Formatters {
     return '${size.toStringAsFixed(decimals)} ${suffixes[i]}';
   }
 
+  /// Format bytes with per-tier precision: whole bytes, one decimal for
+  /// KB/MB, two for GB, and no TB tier.
+  ///
+  /// Distinct from [formatBytes], which applies one fixed decimal count to
+  /// every tier and rolls over to TB/PB. Kept separate because no `decimals`
+  /// value reproduces this shape, and changing it would visibly alter file
+  /// sizes across the library and episode screens.
+  static String formatBytesCompact(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    }
+    if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+  }
+
   /// Format bytes per second to speed string
   static String formatSpeed(int bytesPerSecond) {
     if (bytesPerSecond <= 0) return '0 B/s';
@@ -46,9 +64,42 @@ class Formatters {
     return parts.isEmpty ? '0s' : parts.join(' ');
   }
 
+  /// Format a playback position as `MM:SS`, or `HH:MM:SS` past the hour.
+  ///
+  /// Distinct from [formatDuration]: that one takes whole seconds and renders
+  /// a coarse `1h 5m 30s` for torrent ETAs. This is the zero-padded clock
+  /// form the player and progress models use — 90 seconds is `01:30` here and
+  /// `1m 30s` there.
+  static String formatPlaybackDuration(Duration d) {
+    final hours = d.inHours;
+    final minutes = d.inMinutes.remainder(60);
+    final seconds = d.inSeconds.remainder(60);
+
+    if (hours > 0) {
+      return '${hours.toString().padLeft(2, '0')}:'
+          '${minutes.toString().padLeft(2, '0')}:'
+          '${seconds.toString().padLeft(2, '0')}';
+    }
+    return '${minutes.toString().padLeft(2, '0')}:'
+        '${seconds.toString().padLeft(2, '0')}';
+  }
+
+  /// Canonical `S01E02` episode code.
+  ///
+  /// Several of these strings are used as persistence keys (watch progress,
+  /// the auto-download queue, calendar lookups), so every producer must agree
+  /// byte for byte — a divergence reads as a cache miss, not a typo.
+  static String episodeCode(int season, int episode) =>
+      'S${season.toString().padLeft(2, '0')}'
+      'E${episode.toString().padLeft(2, '0')}';
+
+  /// [episodeCode] for optional components, null when either is missing.
+  static String? episodeCodeOrNull(int? season, int? episode) =>
+      season == null || episode == null ? null : episodeCode(season, episode);
+
   /// Format progress (0.0 to 1.0) to percentage string
-  static String formatProgress(double progress) {
-    return '${(progress * 100).toStringAsFixed(1)}%';
+  static String formatProgress(double progress, {int decimals = 1}) {
+    return '${(progress * 100).toStringAsFixed(decimals)}%';
   }
 
   /// Format Unix timestamp to date string

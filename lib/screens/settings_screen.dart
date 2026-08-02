@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../design/app_colors.dart';
@@ -16,6 +17,7 @@ import '../providers/connection_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/constants.dart';
 import '../utils/debouncer.dart';
+import '../services/app_logger.dart';
 import '../utils/feedback_utils.dart';
 import '../widgets/common/section_header.dart';
 import '../widgets/tmdb_account_section.dart';
@@ -761,8 +763,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                         url,
                         mode: LaunchMode.externalApplication,
                       )) {
-                        messenger.showSnackBar(
-                          SnackBar(content: Text('Could not open $url')),
+                        AppSnackBar.showOn(
+                          messenger,
+                          message: 'Could not open $url',
+                          kind: AppSnackBarKind.error,
                         );
                       }
                     },
@@ -1212,6 +1216,71 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
             ),
           ),
         ),
+
+        const SizedBox(height: AppSpacing.sectionSpacing),
+
+        // Diagnostics
+        const SettingsSectionHeader(
+          title: 'Diagnostics',
+          icon: Icons.article_outlined,
+        ),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.cardPadding),
+            child: _buildLogFileTile(theme, appColors),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Surfaces the on-disk log so a user can actually find and send it. The
+  /// log is written in release builds too, where there is no console at all.
+  Widget _buildLogFileTile(ThemeData theme, AppColorsExtension appColors) {
+    final path = AppLog.filePath;
+
+    return Row(
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: theme.colorScheme.secondaryContainer,
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+          ),
+          child: Icon(
+            Icons.description_outlined,
+            color: theme.colorScheme.onSecondaryContainer,
+            size: 20,
+          ),
+        ),
+        const SizedBox(width: AppSpacing.md),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Application Log', style: theme.textTheme.titleMedium),
+              Text(
+                path ?? 'Unavailable — the log file could not be opened',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: appColors.mutedText,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+        if (path != null)
+          TextButton.icon(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: path));
+              if (!mounted) return;
+              AppSnackBar.showInfo(context, message: 'Log path copied');
+            },
+            icon: const Icon(Icons.copy_rounded, size: 18),
+            label: const Text('Copy path'),
+          ),
       ],
     );
   }

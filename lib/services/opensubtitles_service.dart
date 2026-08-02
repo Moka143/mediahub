@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'app_logger.dart';
 
 /// Service for fetching subtitles from OpenSubtitles v3 Stremio addon
 class OpenSubtitlesService {
@@ -48,7 +49,7 @@ class OpenSubtitlesService {
       }
       return [];
     } catch (e) {
-      debugPrint('Error fetching subtitles: $e');
+      AppLog.e('[Subtitles] Error fetching subtitles: $e');
       return [];
     }
   }
@@ -114,7 +115,7 @@ class Subtitle {
       id: json['id']?.toString() ?? '',
       url: json['url'] as String? ?? '',
       lang: lang,
-      langName: json['langName'] as String? ?? _getLanguageName(lang),
+      langName: json['langName'] as String? ?? getLanguageName(lang),
     );
   }
 
@@ -126,7 +127,8 @@ class Subtitle {
   };
 
   /// Get human-readable language name from code
-  static String _getLanguageName(String code) {
+  @visibleForTesting
+  static String getLanguageName(String code) {
     final languageNames = {
       'en': 'English',
       'eng': 'English',

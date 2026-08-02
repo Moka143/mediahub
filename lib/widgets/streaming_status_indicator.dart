@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../design/app_tokens.dart';
+import '../utils/formatters.dart';
 
 /// Status types for the streaming indicator
 enum StreamingStatus { searching, found, buffering, ready, error }
@@ -193,7 +194,7 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
                               Padding(
                                 padding: const EdgeInsets.only(top: 4),
                                 child: Text(
-                                  '${(widget.progress! * 100).toStringAsFixed(1)}% buffered',
+                                  '${Formatters.formatProgress(widget.progress!)} buffered',
                                   style: theme.textTheme.labelSmall?.copyWith(
                                     color: scheme.onSurfaceVariant,
                                   ),

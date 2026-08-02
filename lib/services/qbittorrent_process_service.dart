@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:process_run/process_run.dart';
 
 import '../utils/constants.dart';
 import '../utils/platform_utils.dart';
+import 'app_logger.dart';
 
 /// Service for managing the qBittorrent process lifecycle
 class QBittorrentProcessService {
@@ -243,11 +243,10 @@ class QBittorrentProcessService {
     // Note: We don't kill the process on dispose as qBittorrent should keep running
   }
 
-  /// Log a message
+  /// Log a message. The tag is applied here rather than at the [onLog]
+  /// adapter, so a line is tagged exactly once.
   void _log(String message) {
-    if (kDebugMode) {
-      print('[QBittorrentProcess] $message');
-    }
+    AppLog.d('[QBittorrentProcess] $message');
     onLog?.call(message);
   }
 }

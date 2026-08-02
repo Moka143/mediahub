@@ -5,6 +5,31 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import 'qbittorrent_api_service.dart';
+import 'app_logger.dart';
+
+/// Outcome of parsing a `Range:` request header against a known file size.
+///
+/// When [satisfiable] is false the caller must answer 416 and ignore
+/// [start]/[end]. When true, `0 <= start <= end <= size - 1` holds and the
+/// body length is `end - start + 1`.
+@immutable
+class ParsedByteRange {
+  const ParsedByteRange({
+    required this.start,
+    required this.end,
+    required this.partial,
+    required this.satisfiable,
+  });
+
+  final int start;
+  final int end;
+
+  /// True when the client sent a usable `bytes=` range, so the reply is a
+  /// 206 with a `Content-Range` rather than a plain 200.
+  final bool partial;
+
+  final bool satisfiable;
+}
 
 /// Local HTTP server that fronts a partially-downloaded torrent file for the
 /// video player.
@@ -115,7 +140,7 @@ class LocalStreamingServer {
 
   Future<void> start() async {
     _server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    debugPrint(
+    AppLog.d(
       '[$_logTag] listening on 127.0.0.1:${_server!.port} '
       'for ${p.basename(filePath)}',
     );
@@ -123,7 +148,7 @@ class LocalStreamingServer {
     _server!.listen(
       _handleRequest,
       onError: (e) {
-        debugPrint('[$_logTag] listen error: $e');
+        AppLog.e('[$_logTag] listen error: $e');
       },
       cancelOnError: false,
     );
@@ -132,7 +157,7 @@ class LocalStreamingServer {
   Future<void> stop() async {
     if (_stopped) return;
     _stopped = true;
-    debugPrint('[$_logTag] stopping');
+    AppLog.d('[$_logTag] stopping');
     for (final req in _activeRequests.toList()) {
       try {
         await req.response.close();
@@ -146,6 +171,71 @@ class LocalStreamingServer {
     } catch (_) {}
     _server = null;
   }
+
+  /// Parse a `Range:` header against a known file [size].
+  ///
+  /// Callers must already have rejected `size <= 0` — every clamp here
+  /// assumes at least one addressable byte.
+  ///
+  /// Deliberately lenient in the same ways the original inline parser was,
+  /// because mpv depends on it: a header with no `bytes=` prefix, or a
+  /// `bytes=` value containing no dash, yields a full-body 200 rather than a
+  /// 416; only the first range of a comma-separated list is honoured; and an
+  /// unparseable bound falls back to the whole file instead of failing.
+  @visibleForTesting
+  static ParsedByteRange parseRangeHeader(String? rangeHeader, int size) {
+    var partial = false;
+    var start = 0;
+    var end = size - 1;
+
+    if (rangeHeader != null && rangeHeader.startsWith('bytes=')) {
+      final spec = rangeHeader.substring(6).split(',').first.trim();
+      final dash = spec.indexOf('-');
+      if (dash >= 0) {
+        final lhs = spec.substring(0, dash);
+        final rhs = spec.substring(dash + 1);
+        if (lhs.isEmpty && rhs.isNotEmpty) {
+          // bytes=-N → last N bytes
+          final n = int.tryParse(rhs) ?? 0;
+          start = (size - n).clamp(0, size - 1).toInt();
+          end = size - 1;
+        } else {
+          start = int.tryParse(lhs) ?? 0;
+          end = rhs.isEmpty ? size - 1 : (int.tryParse(rhs) ?? size - 1);
+        }
+        partial = true;
+      }
+    }
+
+    // Satisfiability is judged on the *raw* parsed end, before clamping.
+    // `bytes=0-999999` on a small file is satisfiable and simply truncates;
+    // `bytes=500-100` is not. Reordering these two steps changes behaviour.
+    if (start < 0 || start >= size || end < start) {
+      return ParsedByteRange(
+        start: start,
+        end: end,
+        partial: partial,
+        satisfiable: false,
+      );
+    }
+
+    return ParsedByteRange(
+      start: start,
+      end: end.clamp(start, size - 1).toInt(),
+      partial: partial,
+      satisfiable: true,
+    );
+  }
+
+  /// Whether a read at [start] lands in the container-index tail window
+  /// described on [_tailProbeWindow].
+  ///
+  /// The window is absolute, not proportional: for a file smaller than the
+  /// window this is true at every offset, so such files never take the
+  /// blocking-read path.
+  @visibleForTesting
+  static bool isTailProbeStart(int start, int size) =>
+      start >= size - _tailProbeWindow;
 
   Future<void> _handleRequest(HttpRequest req) async {
     _activeRequests.add(req);
@@ -168,53 +258,35 @@ class LocalStreamingServer {
       res.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
       res.headers.set(
         HttpHeaders.contentTypeHeader,
-        _guessContentType(filePath),
+        guessContentType(filePath),
       );
       // Disable proxy/keepalive shenanigans that can confuse libavformat.
       res.headers.set(HttpHeaders.cacheControlHeader, 'no-store');
 
       // Parse Range header. mpv always sends one for video streams.
       final rangeHeader = req.headers.value(HttpHeaders.rangeHeader);
-      var partial = false;
-      var start = 0;
-      var end = size - 1;
+      final range = parseRangeHeader(rangeHeader, size);
 
-      if (rangeHeader != null && rangeHeader.startsWith('bytes=')) {
-        final spec = rangeHeader.substring(6).split(',').first.trim();
-        final dash = spec.indexOf('-');
-        if (dash >= 0) {
-          final lhs = spec.substring(0, dash);
-          final rhs = spec.substring(dash + 1);
-          if (lhs.isEmpty && rhs.isNotEmpty) {
-            // bytes=-N → last N bytes
-            final n = int.tryParse(rhs) ?? 0;
-            start = (size - n).clamp(0, size - 1).toInt();
-            end = size - 1;
-          } else {
-            start = int.tryParse(lhs) ?? 0;
-            end = rhs.isEmpty ? size - 1 : (int.tryParse(rhs) ?? size - 1);
-          }
-          partial = true;
-        }
-      }
-
-      if (start < 0 || start >= size || end < start) {
+      if (!range.satisfiable) {
         res.statusCode = HttpStatus.requestedRangeNotSatisfiable;
         res.headers.set(HttpHeaders.contentRangeHeader, 'bytes */$size');
         await res.close();
         return;
       }
-      end = end.clamp(start, size - 1).toInt();
+
+      final start = range.start;
+      final end = range.end;
+      final partial = range.partial;
 
       // Tail-probe fast-fail. If the request lands in the last 64 MB of the
       // file AND those bytes haven't been downloaded yet, return 416 so
       // mpv's demuxer skips the probe instead of blocking. User seeks into
       // the middle of the file fall outside the tail window and drop into
       // the blocking-read path below.
-      final isTailProbe = start >= size - _tailProbeWindow;
+      final isTailProbe = isTailProbeStart(start, size);
       final startByteAvailable = await _isFileByteAvailable(start);
       if (isTailProbe && !startByteAvailable) {
-        debugPrint(
+        AppLog.d(
           '[$_logTag] 416 tail-probe — start=$start not yet downloaded '
           '(range $start-$end of $size)',
         );
@@ -239,7 +311,7 @@ class LocalStreamingServer {
       }
 
       final progressPct = (_cachedProgress * 100).toStringAsFixed(1);
-      debugPrint(
+      AppLog.d(
         '[$_logTag] ${req.method} '
         '${rangeHeader ?? "(full)"} → $start-$end '
         '($length bytes, file=$progressPct%${startByteAvailable ? "" : ", waiting"})',
@@ -253,7 +325,7 @@ class LocalStreamingServer {
       await _streamRange(req, res, start, end);
       await res.close();
     } catch (e, st) {
-      debugPrint('[$_logTag] request error: $e\n$st');
+      AppLog.e('[$_logTag] request error: $e\n$st');
       try {
         await req.response.close();
       } catch (_) {}
@@ -305,7 +377,7 @@ class LocalStreamingServer {
             stallReferenceAt = DateTime.now();
           } else if (DateTime.now().difference(stallReferenceAt) >
               _stallTimeout) {
-            debugPrint(
+            AppLog.w(
               '[$_logTag] giving up at position $position — file progress '
               '${(stallReferenceProgress * 100).toStringAsFixed(1)}% has not '
               'advanced for ${_stallTimeout.inMinutes} min',
@@ -466,7 +538,7 @@ class LocalStreamingServer {
       }
     } catch (e) {
       // Don't update timestamp on failure — retry on next call.
-      debugPrint('[$_logTag] file metadata lookup failed: $e');
+      AppLog.e('[$_logTag] file metadata lookup failed: $e');
       return;
     }
 
@@ -478,7 +550,7 @@ class LocalStreamingServer {
           if (t.pieceSize > 0) _pieceSize = t.pieceSize;
         }
       } catch (e) {
-        debugPrint('[$_logTag] torrent metadata lookup failed: $e');
+        AppLog.e('[$_logTag] torrent metadata lookup failed: $e');
       }
     }
 
@@ -488,13 +560,14 @@ class LocalStreamingServer {
         _cachedPieceStates = states;
       }
     } catch (e) {
-      debugPrint('[$_logTag] piece states lookup failed: $e');
+      AppLog.e('[$_logTag] piece states lookup failed: $e');
     }
 
     _cachedAt = now;
   }
 
-  static String _guessContentType(String path) {
+  @visibleForTesting
+  static String guessContentType(String path) {
     final ext = p.extension(path).toLowerCase();
     switch (ext) {
       case '.mkv':

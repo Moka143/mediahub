@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -8,12 +7,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/auto_download_event.dart';
 import '../models/eztv_torrent.dart';
 import '../services/auto_download_service.dart';
+import '../utils/formatters.dart';
 import 'auto_download_events_provider.dart';
 import '../services/eztv_api_service.dart';
 import 'connection_provider.dart';
 import 'local_media_provider.dart';
 import 'settings_provider.dart';
 import 'torrentio_provider.dart';
+import '../services/app_logger.dart';
 
 const _autoDownloadStateKey = 'auto_download_state';
 
@@ -202,7 +203,7 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
       final json = jsonDecode(jsonString) as Map<String, dynamic>;
       return AutoDownloadState.fromJson(json);
     } catch (e) {
-      debugPrint('Error loading auto-download state: $e');
+      AppLog.e('[AutoDownload] Error loading auto-download state: $e');
       return const AutoDownloadState();
     }
   }
@@ -212,7 +213,7 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
       final prefs = ref.read(sharedPreferencesProvider);
       await prefs.setString(_autoDownloadStateKey, jsonEncode(state.toJson()));
     } catch (e) {
-      debugPrint('Error saving auto-download state: $e');
+      AppLog.e('[AutoDownload] Error saving auto-download state: $e');
     }
   }
 
@@ -312,18 +313,18 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
     required String currentQuality,
   }) async {
     if (!isAutoDownloadActiveForShow(showId)) {
-      debugPrint(
+      AppLog.d(
         '[AutoDownload] onWatchProgress skipped: gate closed for showId=$showId',
       );
       return;
     }
     if (progress < state.progressThreshold) {
-      debugPrint(
+      AppLog.d(
         '[AutoDownload] onWatchProgress skipped: progress=$progress < threshold=${state.progressThreshold}',
       );
       return;
     }
-    debugPrint(
+    AppLog.d(
       '[AutoDownload] onWatchProgress: showId=$showId $showName S${season}E$episode progress=${progress.toStringAsFixed(2)}',
     );
 
@@ -341,21 +342,18 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
 
     // Generate queue key
     final nextEpNum = episode + 1;
-    final queueKey =
-        '${showId}_S${season.toString().padLeft(2, '0')}E${nextEpNum.toString().padLeft(2, '0')}';
+    final queueKey = '${showId}_${Formatters.episodeCode(season, nextEpNum)}';
 
     // Check if already in queue
     if (state.downloadQueue.contains(queueKey)) {
-      debugPrint(
-        '[AutoDownload] $queueKey already in download queue — skipping',
-      );
+      AppLog.d('[AutoDownload] $queueKey already in download queue — skipping');
       return;
     }
 
     // Update show quality preference from current episode
     await setShowQualityPreference(showId, currentQuality);
 
-    debugPrint('[AutoDownload] queueing download for $queueKey');
+    AppLog.d('[AutoDownload] queueing download for $queueKey');
 
     // Trigger next episode download
     await _downloadNextEpisode(
@@ -470,12 +468,12 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
     required int currentEpisode,
     required String quality,
   }) async {
-    debugPrint(
+    AppLog.d(
       '[AutoDownload] _downloadNextEpisode: showId=$showId imdbId=$imdbId '
       '$showName S${currentSeason}E$currentEpisode quality=$quality',
     );
     if (imdbId == null) {
-      debugPrint('[AutoDownload] aborting — no imdbId');
+      AppLog.w('[AutoDownload] aborting — no imdbId');
       return false;
     }
 
@@ -527,7 +525,7 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
     );
 
     if (torrent == null) {
-      debugPrint(
+      AppLog.d(
         '[AutoDownload] no torrent found for $showName ${nextEp.episodeCode} '
         '(quality=$quality)',
       );
@@ -547,7 +545,7 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
           );
       return false;
     }
-    debugPrint(
+    AppLog.d(
       '[AutoDownload] torrent found: hash=${torrent.hash} '
       'quality=${torrent.quality}',
     );
@@ -560,7 +558,7 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
       infoHash: torrent.hash,
       fileIdx: torrent.fileIdx,
     );
-    debugPrint('[AutoDownload] addTorrent result: success=$success');
+    AppLog.d('[AutoDownload] addTorrent result: success=$success');
 
     if (success) {
       // Add to queue and update tracking

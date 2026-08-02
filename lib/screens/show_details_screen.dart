@@ -37,6 +37,7 @@ import '../widgets/mediahub_torrent_drawer.dart';
 import '../widgets/streaming_progress_overlay.dart';
 import 'settings_screen.dart';
 import 'video_player_screen.dart';
+import '../services/app_logger.dart';
 
 /// Screen for displaying TV show details with seasons and episodes
 class ShowDetailsScreen extends ConsumerStatefulWidget {
@@ -167,9 +168,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to load streams: $e')));
+        AppSnackBar.showError(context, message: 'Failed to load streams: $e');
       }
     }
   }
@@ -188,11 +187,10 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
 
     try {
       if (!connectionState.isConnected) {
-        messenger.showSnackBar(
-          const SnackBar(
-            content: Text('Not connected to qBittorrent'),
-            duration: Duration(seconds: 3),
-          ),
+        AppSnackBar.showOn(
+          messenger,
+          message: 'Not connected to qBittorrent',
+          kind: AppSnackBarKind.warning,
         );
         return;
       }
@@ -239,11 +237,10 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
         );
 
         if (!success) {
-          messenger.showSnackBar(
-            const SnackBar(
-              content: Text('Failed to start download'),
-              duration: Duration(seconds: 3),
-            ),
+          AppSnackBar.showOn(
+            messenger,
+            message: 'Failed to start download',
+            kind: AppSnackBarKind.error,
           );
           return;
         }
@@ -254,34 +251,25 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
           _selectFileFromSeasonPack(stream);
         }
 
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text(
-              'Started downloading ${episode.episodeCode}${stream.isSeasonPack ? " (from pack)" : ""}',
-            ),
-            backgroundColor: AppColors.success,
-            duration: const Duration(seconds: 5),
-            action: SnackBarAction(
-              label: 'View Downloads',
-              textColor: Colors.white,
-              onPressed: () {
-                messenger.hideCurrentSnackBar();
-                containerRef.read(currentTabIndexProvider.notifier).set(1);
-                rootNavigatorKey.currentState?.popUntil(
-                  (route) => route.isFirst,
-                );
-              },
-            ),
-          ),
+        AppSnackBar.showOn(
+          messenger,
+          message:
+              'Started downloading ${episode.episodeCode}'
+              '${stream.isSeasonPack ? " (from pack)" : ""}',
+          kind: AppSnackBarKind.success,
+          actionLabel: 'View Downloads',
+          onAction: () {
+            messenger.hideCurrentSnackBar();
+            containerRef.read(currentTabIndexProvider.notifier).set(1);
+            rootNavigatorKey.currentState?.popUntil((route) => route.isFirst);
+          },
         );
       }
     } catch (e) {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Failed to start download: $e'),
-          backgroundColor: AppColors.error,
-          duration: const Duration(seconds: 4),
-        ),
+      AppSnackBar.showOn(
+        messenger,
+        message: 'Failed to start download: $e',
+        kind: AppSnackBarKind.error,
       );
     }
   }
@@ -339,11 +327,10 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
       streamingOverlay?.remove();
       streamingOverlay = null;
 
-      rootScaffoldMessengerKey.currentState?.showSnackBar(
-        const SnackBar(
-          content: Text('Failed to start streaming session'),
-          backgroundColor: AppColors.error,
-        ),
+      AppSnackBar.showOn(
+        rootScaffoldMessengerKey.currentState,
+        message: 'Failed to start streaming session',
+        kind: AppSnackBarKind.error,
       );
       return;
     }
@@ -368,7 +355,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
         await Future.delayed(const Duration(seconds: 3));
         final retryFiles = await apiService.getTorrentFiles(stream.infoHash);
         if (retryFiles.isEmpty) {
-          debugPrint(
+          AppLog.d(
             '[ShowDetails] No files found in torrent, cannot select specific file',
           );
           return;
@@ -382,12 +369,12 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
       // Set target file to high priority
       if (stream.fileIdx! < files.length) {
         await apiService.setFilePriority(stream.infoHash, [stream.fileIdx!], 7);
-        debugPrint(
+        AppLog.d(
           '[ShowDetails] Selected file ${stream.fileIdx} from season pack',
         );
       }
     } catch (e) {
-      debugPrint('[ShowDetails] Error selecting file from season pack: $e');
+      AppLog.e('[ShowDetails] Error selecting file from season pack: $e');
     }
   }
 
@@ -526,14 +513,11 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
         streamingOverlayData?.dispose();
         streamingOverlayData = null;
 
-        rootScaffoldMessengerKey.currentState?.showSnackBar(
-          SnackBar(
-            content: Text(
+        AppSnackBar.showOn(
+          rootScaffoldMessengerKey.currentState,
+          message:
               'Streaming error: ${session.errorMessage ?? "Failed to stream"}',
-            ),
-            backgroundColor: AppColors.error,
-            behavior: SnackBarBehavior.floating,
-          ),
+          kind: AppSnackBarKind.error,
         );
 
       case StreamingState.cancelled:
@@ -562,11 +546,10 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
 
     if (videoFile == null) {
       final messenger = rootScaffoldMessengerKey.currentState;
-      messenger?.showSnackBar(
-        SnackBar(
-          content: Text('Could not find video file in: $contentPath'),
-          backgroundColor: AppColors.error,
-        ),
+      AppSnackBar.showOn(
+        messenger,
+        message: 'Could not find video file in: $contentPath',
+        kind: AppSnackBarKind.error,
       );
       return;
     }
@@ -629,7 +612,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
         episodeNumber: episode?.episodeNumber,
       );
     } catch (e) {
-      debugPrint('Error finding video file: $e');
+      AppLog.e('[ShowDetails] Error finding video file: $e');
       return null;
     }
   }
@@ -696,108 +679,108 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
             // Cinematic backdrop hero — left full-bleed.
             _buildSliverAppBar(show, isFavorite, seasons),
 
-        // Next-episode card (renders only when nextEpisodeToAir set).
-        contentSliver(_buildShowInfo(show), padding: EdgeInsets.zero),
+            // Next-episode card (renders only when nextEpisodeToAir set).
+            contentSliver(_buildShowInfo(show), padding: EdgeInsets.zero),
 
-        // Browse Episodes CTA — opens the right-side drawer.
-        contentSliver(
-          _BrowseEpisodesCta(
-            show: show,
-            seasons: seasons,
-            loadingTorrents: _isLoadingTorrents,
-            onOpen: (seasonList) => _openEpisodesDrawer(show, seasonList),
-          ),
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.screenPadding,
-            AppSpacing.lg,
-            AppSpacing.screenPadding,
-            0,
-          ),
-        ),
-
-        // Trailers + Cast — full-bleed slivers (their internal headers
-        // handle the screen padding, the horizontal scrollers extend
-        // edge-to-edge).
-        if (show.videos.isNotEmpty)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.only(top: AppSpacing.xxl),
-              child: TrailersRow(videos: show.videos),
+            // Browse Episodes CTA — opens the right-side drawer.
+            contentSliver(
+              _BrowseEpisodesCta(
+                show: show,
+                seasons: seasons,
+                loadingTorrents: _isLoadingTorrents,
+                onOpen: (seasonList) => _openEpisodesDrawer(show, seasonList),
+              ),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.screenPadding,
+                AppSpacing.lg,
+                AppSpacing.screenPadding,
+                0,
+              ),
             ),
-          ),
-        if (show.cast.isNotEmpty)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.only(top: AppSpacing.xxl),
-              child: CastRow(cast: show.cast),
-            ),
-          ),
 
-        // Storyline + Quick facts in a two-column layout when wide,
-        // single-column when narrow.
-        SliverToBoxAdapter(
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 1080),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.screenPadding,
-                  AppSpacing.xl,
-                  AppSpacing.screenPadding,
-                  0,
+            // Trailers + Cast — full-bleed slivers (their internal headers
+            // handle the screen padding, the horizontal scrollers extend
+            // edge-to-edge).
+            if (show.videos.isNotEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.xxl),
+                  child: TrailersRow(videos: show.videos),
                 ),
-                child: LayoutBuilder(
-                  builder: (context, c) {
-                    final twoCol = c.maxWidth >= 800;
-                    final storyline =
-                        show.overview != null && show.overview!.isNotEmpty
-                        ? _InfoSection(
-                            title: 'Storyline',
-                            child: Text(
-                              show.overview!,
-                              style: const TextStyle(
-                                color: AppColors.fg1,
-                                fontSize: 14,
-                                height: 1.6,
-                              ),
-                            ),
-                          )
-                        : null;
-                    final facts = _InfoSection(
-                      title: 'Quick facts',
-                      child: _QuickFactsGrid(show: show),
-                    );
-                    if (twoCol) {
-                      return Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (storyline != null) ...[
-                            Expanded(flex: 5, child: storyline),
-                            const SizedBox(width: AppSpacing.xl),
+              ),
+            if (show.cast.isNotEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.xxl),
+                  child: CastRow(cast: show.cast),
+                ),
+              ),
+
+            // Storyline + Quick facts in a two-column layout when wide,
+            // single-column when narrow.
+            SliverToBoxAdapter(
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1080),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.screenPadding,
+                      AppSpacing.xl,
+                      AppSpacing.screenPadding,
+                      0,
+                    ),
+                    child: LayoutBuilder(
+                      builder: (context, c) {
+                        final twoCol = c.maxWidth >= 800;
+                        final storyline =
+                            show.overview != null && show.overview!.isNotEmpty
+                            ? _InfoSection(
+                                title: 'Storyline',
+                                child: Text(
+                                  show.overview!,
+                                  style: const TextStyle(
+                                    color: AppColors.fg1,
+                                    fontSize: 14,
+                                    height: 1.6,
+                                  ),
+                                ),
+                              )
+                            : null;
+                        final facts = _InfoSection(
+                          title: 'Quick facts',
+                          child: _QuickFactsGrid(show: show),
+                        );
+                        if (twoCol) {
+                          return Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (storyline != null) ...[
+                                Expanded(flex: 5, child: storyline),
+                                const SizedBox(width: AppSpacing.xl),
+                              ],
+                              Expanded(flex: 4, child: facts),
+                            ],
+                          );
+                        }
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (storyline != null) ...[
+                              storyline,
+                              const SizedBox(height: AppSpacing.xl),
+                            ],
+                            facts,
                           ],
-                          Expanded(flex: 4, child: facts),
-                        ],
-                      );
-                    }
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        if (storyline != null) ...[
-                          storyline,
-                          const SizedBox(height: AppSpacing.xl),
-                        ],
-                        facts,
-                      ],
-                    );
-                  },
+                        );
+                      },
+                    ),
+                  ),
                 ),
               ),
             ),
-          ),
-        ),
 
-        // Bottom padding
-        const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.huge)),
+            // Bottom padding
+            const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.huge)),
           ],
         ),
         _buildFloatingHeaderControls(show, isFavorite),
@@ -848,10 +831,8 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
           ...show.genres
               .take(2)
               .map(
-                (g) => MediaHubMetaPill(
-                  label: g,
-                  color: AppColors.accentPrimary,
-                ),
+                (g) =>
+                    MediaHubMetaPill(label: g, color: AppColors.accentPrimary),
               ),
         ],
         primaryAction: FilledButton.icon(

@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/local_media_file.dart';
@@ -10,6 +9,7 @@ import '../providers/tmdb_account_provider.dart';
 import '../providers/torrent_provider.dart';
 import '../providers/watch_progress_provider.dart';
 import 'tmdb_account_service.dart';
+import 'app_logger.dart';
 
 /// Cache of show-name → TMDB show id so the watched-sync doesn't hit
 /// `/search/tv` on every Mark watched / Mark not watched click. A null
@@ -43,8 +43,7 @@ Future<int?> _resolveMovieId(WidgetRef ref, String? movieName) async {
   if (movieName == null || movieName.isEmpty) return null;
   if (_movieIdCache.containsKey(movieName)) return _movieIdCache[movieName];
   try {
-    final movies =
-        await ref.read(tmdbServiceProvider).searchMovies(movieName);
+    final movies = await ref.read(tmdbServiceProvider).searchMovies(movieName);
     final id = movies.isNotEmpty ? movies.first.id : null;
     _movieIdCache[movieName] = id;
     return id;
@@ -58,8 +57,10 @@ Future<int?> _resolveMovieId(WidgetRef ref, String? movieName) async {
 /// Mirrors the same logic the library card UI uses for poster lookups.
 String _cleanMovieName(String filename) {
   var name = filename.replaceAll(
-    RegExp(r'\.(mp4|mkv|avi|mov|wmv|flv|webm|m4v|mpg|mpeg|ts|3gp)$',
-        caseSensitive: false),
+    RegExp(
+      r'\.(mp4|mkv|avi|mov|wmv|flv|webm|m4v|mpg|mpeg|ts|3gp)$',
+      caseSensitive: false,
+    ),
     '',
   );
   name = name.replaceAll(
@@ -138,7 +139,7 @@ Future<LibraryDeleteResult> deleteLibraryItem(
         );
       }
     } catch (e) {
-      debugPrint('[LibraryActions] qBit delete failed for $hash: $e');
+      AppLog.e('[LibraryActions] qBit delete failed for $hash: $e');
     }
     // qBit refused — fall through to direct file delete.
   }
@@ -154,7 +155,7 @@ Future<LibraryDeleteResult> deleteLibraryItem(
     await ref.read(watchProgressProvider.notifier).cleanupStaleEntries();
     return LibraryDeleteResult(fileRemoved: true, torrentRemoved: hash != null);
   } catch (e) {
-    debugPrint('[LibraryActions] File delete failed for ${file.path}: $e');
+    AppLog.e('[LibraryActions] File delete failed for ${file.path}: $e');
     return LibraryDeleteResult(
       fileRemoved: false,
       torrentRemoved: false,
@@ -187,8 +188,7 @@ Future<void> markAsWatched(
   // structured key (showId / movieId). That lets reconcile + UI
   // matchers use the id directly on subsequent passes instead of
   // re-resolving from the filename.
-  final isEpisodeFile =
-      file.seasonNumber != null && file.episodeNumber != null;
+  final isEpisodeFile = file.seasonNumber != null && file.episodeNumber != null;
   int? resolvedShowId = file.showId ?? tmdbShowId;
   int? resolvedMovieId = tmdbMovieId;
   if (ref.read(isTmdbSignedInProvider)) {
@@ -265,7 +265,7 @@ Future<void> markAsWatched(
       ]);
     }
   } catch (e) {
-    debugPrint('[LibraryActions] TMDB watched-sync push failed: $e');
+    AppLog.e('[LibraryActions] TMDB watched-sync push failed: $e');
   }
 }
 
@@ -283,8 +283,9 @@ Future<void> markAsNotWatched(
   // Prefer an id we already persisted on the WatchProgress entry — set
   // by an earlier markAsWatched or the reconcile push. Falls back to
   // the file's parsed showId / explicit caller id / on-the-fly resolve.
-  final existing =
-      ref.read(watchProgressProvider)[WatchProgress.generateHash(file.path)];
+  final existing = ref.read(
+    watchProgressProvider,
+  )[WatchProgress.generateHash(file.path)];
 
   await ref.read(watchProgressProvider.notifier).markNotCompleted(file.path);
 
@@ -294,18 +295,20 @@ Future<void> markAsNotWatched(
   final session = ref.read(tmdbSessionProvider);
   if (session == null) return;
 
-  final isEpisodeFile =
-      file.seasonNumber != null && file.episodeNumber != null;
+  final isEpisodeFile = file.seasonNumber != null && file.episodeNumber != null;
   final showId = isEpisodeFile
-      ? (file.showId ?? existing?.showId ?? tmdbShowId ??
-          await _resolveShowId(ref, file.showName))
+      ? (file.showId ??
+            existing?.showId ??
+            tmdbShowId ??
+            await _resolveShowId(ref, file.showName))
       : null;
   final movieId = !isEpisodeFile
-      ? (tmdbMovieId ?? existing?.movieId ??
-          await _resolveMovieId(
-            ref,
-            file.showName ?? _cleanMovieName(file.fileName),
-          ))
+      ? (tmdbMovieId ??
+            existing?.movieId ??
+            await _resolveMovieId(
+              ref,
+              file.showName ?? _cleanMovieName(file.fileName),
+            ))
       : null;
 
   try {
@@ -321,7 +324,7 @@ Future<void> markAsNotWatched(
       await accountService.deleteShowRating(seriesId: showId);
     }
   } catch (e) {
-    debugPrint('[LibraryActions] TMDB watched-sync delete failed: $e');
+    AppLog.e('[LibraryActions] TMDB watched-sync delete failed: $e');
   }
 }
 
@@ -396,8 +399,8 @@ Future<void> reconcileWatchedWithTmdb(
           );
           ratedKeys.add(k);
         } catch (e) {
-          debugPrint(
-            '[reconcile] push failed for $showId S${season}E$episode: $e',
+          AppLog.e(
+            '[LibraryActions] push failed for $showId S${season}E$episode: $e',
           );
           // Treat as present so the pull step below doesn't clobber
           // local on a transient failure. Next reconcile retries.
@@ -434,7 +437,9 @@ Future<void> reconcileWatchedWithTmdb(
 
       final showName = file?.showName ?? existing?.showName;
       final showId =
-          file?.showId ?? existing?.showId ?? await _resolveShowId(ref, showName);
+          file?.showId ??
+          existing?.showId ??
+          await _resolveShowId(ref, showName);
       if (showId == null) continue;
 
       final k = keyFor(showId, season, episode);
@@ -498,9 +503,8 @@ Future<void> reconcileWatchedWithTmdb(
         if (movieId == null) {
           // Try to resolve from filename — same as the watch_screen
           // mark-watched path. Cached so we don't hit TMDB twice.
-          final name = p.showName ?? _cleanMovieName(
-            p.filePath.split('/').last,
-          );
+          final name =
+              p.showName ?? _cleanMovieName(p.filePath.split('/').last);
           movieId = await _resolveMovieId(ref, name);
         }
         if (movieId == null) continue;
@@ -512,7 +516,7 @@ Future<void> reconcileWatchedWithTmdb(
           );
           ratedMovieIds.add(movieId);
         } catch (e) {
-          debugPrint('[reconcile] movie push failed for $movieId: $e');
+          AppLog.e('[LibraryActions] movie push failed for $movieId: $e');
           ratedMovieIds.add(movieId);
         }
       }
@@ -560,13 +564,9 @@ Future<void> reconcileWatchedWithTmdb(
     // Synthetic entries for TMDB-rated movies not present locally.
     for (final id in ratedMovieIds) {
       if (coveredMovieIds.contains(id)) continue;
-      await progressNotifier.markCompleted(
-        'tmdb:rated-movie:$id',
-        movieId: id,
-      );
+      await progressNotifier.markCompleted('tmdb:rated-movie:$id', movieId: id);
     }
   } catch (e) {
-    debugPrint('[LibraryActions] TMDB watched reconcile failed: $e');
+    AppLog.e('[LibraryActions] TMDB watched reconcile failed: $e');
   }
 }
-

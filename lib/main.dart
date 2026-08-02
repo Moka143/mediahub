@@ -8,8 +8,8 @@ import 'package:window_manager/window_manager.dart';
 
 import 'app.dart';
 import 'providers/settings_provider.dart';
+import 'services/app_logger.dart';
 import 'services/prefs_recovery.dart';
-import 'services/startup_logger.dart';
 import 'services/window_state_service.dart';
 import 'utils/constants.dart';
 
@@ -19,27 +19,32 @@ void main() {
   // everything, write it to disk, and exit cleanly so at least the user can
   // tell the app launched and failed instead of "did nothing".
   runZonedGuarded(_bootstrap, (error, stack) async {
-    final log = await StartupLogger.open();
-    await log.log('FATAL during startup: $error\n$stack');
+    // init() is idempotent — this only does work when the crash happened
+    // before _bootstrap reached its own call. Crucially it no longer reopens
+    // an already-open log, which used to re-run the size check and could
+    // delete the very breadcrumbs leading up to this fatal.
+    await AppLog.init();
+    AppLog.e('[Startup] FATAL during startup: $error\n$stack');
+    await AppLog.idle;
     exit(1);
   });
 }
 
 Future<void> _bootstrap() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final log = await StartupLogger.open();
-  await log.log('startup: WidgetsFlutterBinding ready');
+  await AppLog.init();
+  AppLog.i('[Startup] WidgetsFlutterBinding ready');
 
   MediaKit.ensureInitialized();
   await windowManager.ensureInitialized();
-  await log.log('startup: window_manager ready');
+  AppLog.i('[Startup] window_manager ready');
 
-  final prefsResult = await loadPrefsSafe(log);
+  final prefsResult = await loadPrefsSafe();
   final sharedPreferences = prefsResult.prefs;
   if (prefsResult.recovered) {
-    await log.log('startup: prefs were corrupted, reset to defaults');
+    AppLog.w('[Startup] prefs were corrupted, reset to defaults');
   } else {
-    await log.log('startup: prefs loaded');
+    AppLog.i('[Startup] prefs loaded');
   }
 
   final windowStateService = WindowStateService(sharedPreferences);
@@ -69,11 +74,11 @@ Future<void> _bootstrap() async {
     await windowManager.show();
     await windowManager.focus();
   });
-  await log.log('startup: window shown');
+  AppLog.i('[Startup] window shown');
 
   windowManager.addListener(windowStateService);
 
-  await log.log('startup: runApp()');
+  AppLog.i('[Startup] runApp()');
   runApp(
     ProviderScope(
       overrides: [

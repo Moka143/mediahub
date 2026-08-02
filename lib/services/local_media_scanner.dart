@@ -1,9 +1,9 @@
-import 'package:flutter/foundation.dart';
 import 'dart:io';
 
 import 'package:watcher/watcher.dart';
 
 import '../models/local_media_file.dart';
+import 'app_logger.dart';
 
 /// Service for scanning local media files from the download folder
 class LocalMediaScanner {
@@ -32,7 +32,7 @@ class LocalMediaScanner {
       }
     } catch (e) {
       // Handle permission errors or other issues
-      debugPrint('Error scanning directory: $e');
+      AppLog.e('[LibraryScan] Error scanning directory: $e');
     }
 
     // Sort by modified date (newest first)
@@ -63,7 +63,7 @@ class LocalMediaScanner {
     try {
       watcher = DirectoryWatcher(downloadPath);
     } catch (e) {
-      debugPrint('Error setting up file watcher: $e');
+      AppLog.e('[LibraryScan] Error setting up file watcher: $e');
       return;
     }
 
@@ -170,7 +170,7 @@ class LocalMediaScanner {
         }
       }
     } catch (e) {
-      debugPrint('Error finding subtitles: $e');
+      AppLog.e('[LibraryScan] Error finding subtitles: $e');
     }
 
     return subtitles;
