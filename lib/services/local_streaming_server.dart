@@ -19,6 +19,7 @@ class ParsedByteRange {
     required this.end,
     required this.partial,
     required this.satisfiable,
+    this.openEnded = false,
   });
 
   final int start;
@@ -29,6 +30,12 @@ class ParsedByteRange {
   final bool partial;
 
   final bool satisfiable;
+
+  /// True when the client wrote `bytes=N-` with no explicit end — i.e. "give
+  /// me the rest of the resource". [end] is then a default (end-of-file)
+  /// rather than something the client actually asked for, which is what makes
+  /// it safe to shorten. See [LocalStreamingServer.clampOpenEndedEnd].
+  final bool openEnded;
 }
 
 /// Local HTTP server that fronts a partially-downloaded torrent file for the
@@ -92,6 +99,13 @@ class LocalStreamingServer {
   /// what makes "drag the seek bar past the download edge" eventually
   /// re-buffer instead of dying with a 416.
   static const int _tailProbeWindow = 64 * 1024 * 1024; // 64 MB
+
+  /// Smallest run of available bytes worth answering an open-ended request
+  /// with. Below this we block instead, so a barely-started file doesn't turn
+  /// one request into a rapid series of near-empty ones. See
+  /// [clampOpenEndedEnd].
+  @visibleForTesting
+  static const int minClampedChunk = 4 * 1024 * 1024; // 4 MB
 
   /// If we're blocking on a missing piece and qBittorrent's overall download
   /// progress on this file doesn't advance at all for this long, give up
@@ -185,6 +199,7 @@ class LocalStreamingServer {
   @visibleForTesting
   static ParsedByteRange parseRangeHeader(String? rangeHeader, int size) {
     var partial = false;
+    var openEnded = false;
     var start = 0;
     var end = size - 1;
 
@@ -195,13 +210,14 @@ class LocalStreamingServer {
         final lhs = spec.substring(0, dash);
         final rhs = spec.substring(dash + 1);
         if (lhs.isEmpty && rhs.isNotEmpty) {
-          // bytes=-N → last N bytes
+          // bytes=-N → last N bytes. A bounded ask, not open-ended.
           final n = int.tryParse(rhs) ?? 0;
           start = (size - n).clamp(0, size - 1).toInt();
           end = size - 1;
         } else {
           start = int.tryParse(lhs) ?? 0;
           end = rhs.isEmpty ? size - 1 : (int.tryParse(rhs) ?? size - 1);
+          openEnded = rhs.isEmpty;
         }
         partial = true;
       }
@@ -216,6 +232,7 @@ class LocalStreamingServer {
         end: end,
         partial: partial,
         satisfiable: false,
+        openEnded: openEnded,
       );
     }
 
@@ -224,7 +241,49 @@ class LocalStreamingServer {
       end: end.clamp(start, size - 1).toInt(),
       partial: partial,
       satisfiable: true,
+      openEnded: openEnded,
     );
+  }
+
+  /// Shorten an open-ended range to what is currently on disk.
+  ///
+  /// **This is the difference between a stream that opens and one that
+  /// hangs.** mpv opens a video with `Range: bytes=0-`, meaning "the rest of
+  /// the file". Answering that literally means promising
+  /// `Content-Length: <whole file>` and then stalling mid-body at the
+  /// download edge — the client is left waiting on a response that claimed
+  /// hundreds of MB and stopped delivering, and libav abandons the open
+  /// without ever retrying. Observed on a 448 MB episode at 19.8%: one
+  /// request, no second attempt, duration never resolved, permanent spinner.
+  ///
+  /// Serving only the currently-available run instead lets the request
+  /// *finish*. `Content-Range` still advertises the full size, so the client
+  /// knows there is more and simply asks for the next slice once it needs
+  /// it — the same header/tail/resume pattern libav uses against a complete
+  /// file.
+  ///
+  /// Two deliberate exceptions fall through to the blocking path:
+  ///   * a bounded request (`bytes=A-B`) is honoured exactly — the client
+  ///     asked for those bytes specifically, and they are typically small;
+  ///   * an available run shorter than [minClampedChunk], which would other-
+  ///     wise turn one stalled request into a storm of tiny ones. Notably
+  ///     this covers a seek past the download edge, where nothing at [start]
+  ///     is available yet — that case still blocks, so the seek-past-head
+  ///     indicator and the sequential-download toggle behave as before.
+  @visibleForTesting
+  static int clampOpenEndedEnd({
+    required int start,
+    required int requestedEnd,
+    required int firstUnavailableByte,
+    required bool openEnded,
+  }) {
+    if (!openEnded) return requestedEnd;
+    final availableEnd = firstUnavailableByte - 1;
+    // Everything asked for is already on disk — nothing to shorten.
+    if (availableEnd >= requestedEnd) return requestedEnd;
+    // Too little to be worth a round trip; let the caller block instead.
+    if (availableEnd - start + 1 < minClampedChunk) return requestedEnd;
+    return availableEnd;
   }
 
   /// Whether a read at [start] lands in the container-index tail window
@@ -268,6 +327,12 @@ class LocalStreamingServer {
       final range = parseRangeHeader(rangeHeader, size);
 
       if (!range.satisfiable) {
+        // Logged: this used to return silently, which made it impossible to
+        // tell from the log whether a client had probed at all.
+        AppLog.d(
+          '[$_logTag] 416 unsatisfiable — ${rangeHeader ?? "(none)"} '
+          'against size $size',
+        );
         res.statusCode = HttpStatus.requestedRangeNotSatisfiable;
         res.headers.set(HttpHeaders.contentRangeHeader, 'bytes */$size');
         await res.close();
@@ -275,7 +340,6 @@ class LocalStreamingServer {
       }
 
       final start = range.start;
-      final end = range.end;
       final partial = range.partial;
 
       // Tail-probe fast-fail. If the request lands in the last 64 MB of the
@@ -284,11 +348,12 @@ class LocalStreamingServer {
       // the middle of the file fall outside the tail window and drop into
       // the blocking-read path below.
       final isTailProbe = isTailProbeStart(start, size);
-      final startByteAvailable = await _isFileByteAvailable(start);
+      final firstMissing = await _firstUnavailableByteFrom(start);
+      final startByteAvailable = firstMissing > start;
       if (isTailProbe && !startByteAvailable) {
         AppLog.d(
           '[$_logTag] 416 tail-probe — start=$start not yet downloaded '
-          '(range $start-$end of $size)',
+          '(range $start-${range.end} of $size)',
         );
         res.statusCode = HttpStatus.requestedRangeNotSatisfiable;
         res.headers.set(HttpHeaders.contentRangeHeader, 'bytes */$size');
@@ -297,11 +362,23 @@ class LocalStreamingServer {
         return;
       }
 
+      // Shorten "give me the rest of the file" to the run that is actually on
+      // disk, so the response can complete rather than stalling mid-body.
+      final end = clampOpenEndedEnd(
+        start: start,
+        requestedEnd: range.end,
+        firstUnavailableByte: firstMissing,
+        openEnded: range.openEnded,
+      );
+      final clamped = end != range.end;
       final length = end - start + 1;
 
       res.headers.contentLength = length;
       if (partial) {
         res.statusCode = HttpStatus.partialContent;
+        // Always the FULL size after the slash — that is what tells the client
+        // the resource continues past this response, so it comes back for the
+        // next slice instead of treating the stream as finished.
         res.headers.set(
           HttpHeaders.contentRangeHeader,
           'bytes $start-$end/$size',
@@ -314,7 +391,9 @@ class LocalStreamingServer {
       AppLog.d(
         '[$_logTag] ${req.method} '
         '${rangeHeader ?? "(full)"} → $start-$end '
-        '($length bytes, file=$progressPct%${startByteAvailable ? "" : ", waiting"})',
+        '($length bytes, file=$progressPct%'
+        '${clamped ? ", clamped to available" : ""}'
+        '${startByteAvailable ? "" : ", waiting"})',
       );
 
       if (req.method == 'HEAD') {
@@ -491,12 +570,6 @@ class LocalStreamingServer {
     }
     // All pieces from pieceIdx through lastPiece are downloaded.
     return size;
-  }
-
-  /// True iff the byte at [fileByteOffset] is currently downloaded.
-  Future<bool> _isFileByteAvailable(int fileByteOffset) async {
-    final firstMissing = await _firstUnavailableByteFrom(fileByteOffset);
-    return firstMissing > fileByteOffset;
   }
 
   /// Linear (sequential-download) approximation used when piece metadata

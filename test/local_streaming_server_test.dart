@@ -169,6 +169,108 @@ void main() {
     });
   });
 
+  group('parseRangeHeader — openEnded flag', () {
+    // Drives clampOpenEndedEnd: only a range the client left open may be
+    // shortened, because its end is our default rather than their ask.
+    test('bytes=N- is open-ended', () {
+      expect(
+        LocalStreamingServer.parseRangeHeader('bytes=0-', 1000).openEnded,
+        isTrue,
+      );
+      expect(
+        LocalStreamingServer.parseRangeHeader('bytes=500-', 1000).openEnded,
+        isTrue,
+      );
+    });
+
+    test('a closed range is not open-ended', () {
+      expect(
+        LocalStreamingServer.parseRangeHeader('bytes=0-999', 1000).openEnded,
+        isFalse,
+      );
+    });
+
+    test('a suffix range is not open-ended', () {
+      expect(
+        LocalStreamingServer.parseRangeHeader('bytes=-200', 1000).openEnded,
+        isFalse,
+      );
+    });
+
+    test('an absent header is not open-ended', () {
+      expect(
+        LocalStreamingServer.parseRangeHeader(null, 1000).openEnded,
+        isFalse,
+      );
+    });
+  });
+
+  group('clampOpenEndedEnd', () {
+    const min = LocalStreamingServer.minClampedChunk;
+    const fileEnd = 400 * 1024 * 1024;
+
+    int clamp({
+      int start = 0,
+      int requestedEnd = fileEnd,
+      required int firstUnavailableByte,
+      bool openEnded = true,
+    }) => LocalStreamingServer.clampOpenEndedEnd(
+      start: start,
+      requestedEnd: requestedEnd,
+      firstUnavailableByte: firstUnavailableByte,
+      openEnded: openEnded,
+    );
+
+    test('shortens an open-ended range to the available run', () {
+      // The real failure: mpv asked for all 400 MB while 92 MB was on disk,
+      // so the response promised 400 MB and then stalled mid-body.
+      const available = 92 * 1024 * 1024;
+      expect(clamp(firstUnavailableByte: available), available - 1);
+    });
+
+    test('leaves a bounded request exactly as asked', () {
+      expect(
+        clamp(requestedEnd: 1023, firstUnavailableByte: 4096, openEnded: false),
+        1023,
+      );
+    });
+
+    test('does not shorten when everything requested is already on disk', () {
+      expect(clamp(firstUnavailableByte: fileEnd + 1), fileEnd);
+    });
+
+    test('does not shorten a run below the minimum chunk', () {
+      // Would otherwise turn one stalled request into a storm of tiny ones.
+      expect(clamp(firstUnavailableByte: min - 1), fileEnd);
+    });
+
+    test('shortens at exactly the minimum chunk', () {
+      expect(clamp(firstUnavailableByte: min), min - 1);
+    });
+
+    test('a seek past the download edge still blocks rather than clamping', () {
+      // start itself is unavailable, so firstUnavailable == start. Clamping
+      // here would return an empty body; the blocking path plus the
+      // seek-past-head indicator is the intended behaviour.
+      const start = 300 * 1024 * 1024;
+      expect(
+        clamp(start: start, firstUnavailableByte: start),
+        fileEnd,
+        reason: 'must fall through to the blocking read',
+      );
+    });
+
+    test('measures the run from start, not from zero', () {
+      // 2 MB available beyond a mid-file start is below the floor even though
+      // the absolute offset is large.
+      const start = 100 * 1024 * 1024;
+      expect(
+        clamp(start: start, firstUnavailableByte: start + 2 * 1024 * 1024),
+        fileEnd,
+      );
+    });
+  });
+
   group('isTailProbeStart', () {
     const hundredMb = 100 * 1024 * 1024;
 
