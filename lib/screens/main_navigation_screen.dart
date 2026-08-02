@@ -31,6 +31,7 @@ import '../widgets/connection_status_widget.dart';
 import '../widgets/mediahub_torrent_row.dart';
 import '../providers/favorites_provider.dart';
 import '../providers/tmdb_account_provider.dart';
+import '../providers/watch_progress_provider.dart';
 import '../providers/watchlist_provider.dart';
 import '../services/library_actions.dart';
 import 'calendar_screen.dart';
@@ -79,7 +80,13 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
     // bidirectional, additive, so episodes you marked on another device
     // show up here and items you watched locally before signing in get
     // pushed up.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      // Unconditional and first: recovers watched marks stranded in the
+      // legacy manual-watched store. Must run before the TMDB reconcile so
+      // the recovered marks are part of the local set that gets pushed up,
+      // rather than being seen as absent and unmarked by the pull step.
+      await migrateManualWatchedMarks(ref);
       if (!mounted) return;
       if (ref.read(tmdbSessionProvider) != null) {
         ref.read(favoritesProvider.notifier).syncFromTmdb();

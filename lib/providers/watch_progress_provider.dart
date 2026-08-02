@@ -1,10 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/watch_progress.dart';
+import '../models/watched_index.dart';
 import '../services/tmdb_account_service.dart';
 import '../utils/formatters.dart';
 import 'local_media_provider.dart';
@@ -14,7 +16,15 @@ import '../services/app_logger.dart';
 
 /// Key for storing watch progress in SharedPreferences
 const _watchProgressKey = 'watch_progress';
+
+/// Legacy key for the old standalone "manual watched" store. Nothing has
+/// read it since the dead-code purge in 80ec980, which removed its last UI
+/// reader but left the store — and any marks users had already saved into
+/// it — stranded. [migrateManualWatchedMarks] folds those marks into
+/// [watchProgressProvider] and renames the key to [_manualWatchedArchiveKey]
+/// so the raw data is preserved rather than destroyed.
 const _manualWatchedKey = 'manual_watched_episodes';
+const _manualWatchedArchiveKey = 'manual_watched_episodes_archived_v1';
 
 /// Provider for all watch progress entries
 final watchProgressProvider =
@@ -22,243 +32,122 @@ final watchProgressProvider =
       WatchProgressNotifier.new,
     );
 
-/// Provider for manual watched state (season/show level)
-final manualWatchedProvider =
-    NotifierProvider<ManualWatchedNotifier, ManualWatchedState>(
-      ManualWatchedNotifier.new,
-    );
+/// The single source of truth for "has this been watched?".
+///
+/// Derived from [watchProgressProvider], so it rebuilds once per change to
+/// the progress map rather than being re-scanned per query. Route every UI
+/// watched-check through [isEpisodeWatchedProvider] /
+/// [isMovieWatchedProvider] / this index — the hand-rolled `.values.any(...)`
+/// scans that used to live in the episodes drawer and the movie screens had
+/// each drifted to different matching rules.
+final watchedIndexProvider = Provider<WatchedIndex>((ref) {
+  final progress = ref.watch(watchProgressProvider);
+  return WatchedIndex.fromProgress(progress.values);
+});
 
-/// State class for manual watched tracking
-class ManualWatchedState {
-  /// Map of showId -> Set of "S01E05" episode codes marked as watched
-  final Map<int, Set<String>> watchedEpisodes;
-
-  /// Map of showId -> Set of season numbers marked as watched
-  final Map<int, Set<int>> watchedSeasons;
-
-  /// Set of showIds marked as fully watched
-  final Set<int> watchedShows;
-
-  const ManualWatchedState({
-    this.watchedEpisodes = const {},
-    this.watchedSeasons = const {},
-    this.watchedShows = const {},
-  });
-
-  ManualWatchedState copyWith({
-    Map<int, Set<String>>? watchedEpisodes,
-    Map<int, Set<int>>? watchedSeasons,
-    Set<int>? watchedShows,
-  }) {
-    return ManualWatchedState(
-      watchedEpisodes: watchedEpisodes ?? this.watchedEpisodes,
-      watchedSeasons: watchedSeasons ?? this.watchedSeasons,
-      watchedShows: watchedShows ?? this.watchedShows,
-    );
-  }
-
-  bool isEpisodeWatched(int showId, int season, int episode) {
-    final episodeCode = Formatters.episodeCode(season, episode);
-    return watchedEpisodes[showId]?.contains(episodeCode) ?? false;
-  }
-
-  bool isSeasonWatched(int showId, int season) {
-    return watchedSeasons[showId]?.contains(season) ?? false;
-  }
-
-  bool isShowWatched(int showId) {
-    return watchedShows.contains(showId);
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'watched_episodes': watchedEpisodes.map(
-        (k, v) => MapEntry(k.toString(), v.toList()),
-      ),
-      'watched_seasons': watchedSeasons.map(
-        (k, v) => MapEntry(k.toString(), v.toList()),
-      ),
-      'watched_shows': watchedShows.toList(),
-    };
-  }
-
-  factory ManualWatchedState.fromJson(Map<String, dynamic> json) {
-    return ManualWatchedState(
-      watchedEpisodes:
-          (json['watched_episodes'] as Map<String, dynamic>?)?.map(
-            (k, v) => MapEntry(
-              int.parse(k),
-              (v as List).map((e) => e as String).toSet(),
-            ),
-          ) ??
-          {},
-      watchedSeasons:
-          (json['watched_seasons'] as Map<String, dynamic>?)?.map(
-            (k, v) => MapEntry(
-              int.parse(k),
-              (v as List).map((e) => e as int).toSet(),
-            ),
-          ) ??
-          {},
-      watchedShows:
-          (json['watched_shows'] as List?)?.map((e) => e as int).toSet() ?? {},
-    );
-  }
-}
-
-/// Notifier for manual watched state
-class ManualWatchedNotifier extends Notifier<ManualWatchedState> {
-  @override
-  ManualWatchedState build() {
-    final prefs = ref.watch(sharedPreferencesProvider);
-    return _loadState(prefs);
-  }
-
-  ManualWatchedState _loadState(SharedPreferences prefs) {
-    try {
-      final jsonString = prefs.getString(_manualWatchedKey);
-      if (jsonString == null) return const ManualWatchedState();
-      final json = jsonDecode(jsonString) as Map<String, dynamic>;
-      return ManualWatchedState.fromJson(json);
-    } catch (e) {
-      AppLog.e('[WatchProgress] Error loading manual watched state: $e');
-      return const ManualWatchedState();
-    }
-  }
-
-  Future<void> _saveState() async {
-    try {
-      final prefs = ref.read(sharedPreferencesProvider);
-      await prefs.setString(_manualWatchedKey, jsonEncode(state.toJson()));
-    } catch (e) {
-      AppLog.e('[WatchProgress] Error saving manual watched state: $e');
-    }
-  }
-
-  /// Mark a specific episode as watched
-  Future<void> markEpisodeWatched(int showId, int season, int episode) async {
-    final episodeCode = Formatters.episodeCode(season, episode);
-    final newEpisodes = Map<int, Set<String>>.from(state.watchedEpisodes);
-    newEpisodes.putIfAbsent(showId, () => {});
-    newEpisodes[showId] = Set<String>.from(newEpisodes[showId]!)
-      ..add(episodeCode);
-
-    state = state.copyWith(watchedEpisodes: newEpisodes);
-    await _saveState();
-  }
-
-  /// Mark a specific episode as unwatched
-  Future<void> markEpisodeUnwatched(int showId, int season, int episode) async {
-    final episodeCode = Formatters.episodeCode(season, episode);
-    final newEpisodes = Map<int, Set<String>>.from(state.watchedEpisodes);
-    if (newEpisodes.containsKey(showId)) {
-      newEpisodes[showId] = Set<String>.from(newEpisodes[showId]!)
-        ..remove(episodeCode);
-      if (newEpisodes[showId]!.isEmpty) {
-        newEpisodes.remove(showId);
-      }
-    }
-
-    // Also remove from season/show watched
-    final newSeasons = Map<int, Set<int>>.from(state.watchedSeasons);
-    if (newSeasons.containsKey(showId)) {
-      newSeasons[showId] = Set<int>.from(newSeasons[showId]!)..remove(season);
-    }
-    final newShows = Set<int>.from(state.watchedShows)..remove(showId);
-
-    state = state.copyWith(
-      watchedEpisodes: newEpisodes,
-      watchedSeasons: newSeasons,
-      watchedShows: newShows,
-    );
-    await _saveState();
-  }
-
-  /// Mark an entire season as watched
-  Future<void> markSeasonWatched(int showId, int season) async {
-    final newSeasons = Map<int, Set<int>>.from(state.watchedSeasons);
-    newSeasons.putIfAbsent(showId, () => {});
-    newSeasons[showId] = Set<int>.from(newSeasons[showId]!)..add(season);
-
-    state = state.copyWith(watchedSeasons: newSeasons);
-    await _saveState();
-  }
-
-  /// Mark an entire season as unwatched
-  Future<void> markSeasonUnwatched(int showId, int season) async {
-    final newSeasons = Map<int, Set<int>>.from(state.watchedSeasons);
-    if (newSeasons.containsKey(showId)) {
-      newSeasons[showId] = Set<int>.from(newSeasons[showId]!)..remove(season);
-      if (newSeasons[showId]!.isEmpty) {
-        newSeasons.remove(showId);
-      }
-    }
-
-    // Also remove from show watched
-    final newShows = Set<int>.from(state.watchedShows)..remove(showId);
-
-    state = state.copyWith(watchedSeasons: newSeasons, watchedShows: newShows);
-    await _saveState();
-  }
-
-  /// Mark an entire show as watched
-  Future<void> markShowWatched(int showId) async {
-    final newShows = Set<int>.from(state.watchedShows)..add(showId);
-    state = state.copyWith(watchedShows: newShows);
-    await _saveState();
-  }
-
-  /// Mark an entire show as unwatched
-  Future<void> markShowUnwatched(int showId) async {
-    final newShows = Set<int>.from(state.watchedShows)..remove(showId);
-    final newSeasons = Map<int, Set<int>>.from(state.watchedSeasons)
-      ..remove(showId);
-    final newEpisodes = Map<int, Set<String>>.from(state.watchedEpisodes)
-      ..remove(showId);
-
-    state = state.copyWith(
-      watchedShows: newShows,
-      watchedSeasons: newSeasons,
-      watchedEpisodes: newEpisodes,
-    );
-    await _saveState();
-  }
-
-  /// Toggle episode watched state
-  Future<void> toggleEpisodeWatched(int showId, int season, int episode) async {
-    if (state.isEpisodeWatched(showId, season, episode)) {
-      await markEpisodeUnwatched(showId, season, episode);
-    } else {
-      await markEpisodeWatched(showId, season, episode);
-    }
-  }
-
-  /// Check if episode is watched (from any source)
-  bool isEpisodeWatched(int showId, int season, int episode) {
-    // Check show level first
-    if (state.isShowWatched(showId)) return true;
-    // Check season level
-    if (state.isSeasonWatched(showId, season)) return true;
-    // Check episode level
-    return state.isEpisodeWatched(showId, season, episode);
-  }
-}
-
-/// Provider to check if a specific episode is watched
+/// Whether a specific episode is watched. Pass [showName] so entries that
+/// predate persisted show ids can still be matched by name.
 final isEpisodeWatchedProvider =
-    Provider.family<bool, ({int showId, int season, int episode})>((
-      ref,
-      params,
-    ) {
-      final manualWatched = ref.watch(manualWatchedProvider);
-      return manualWatched.isEpisodeWatched(
-            params.showId,
-            params.season,
-            params.episode,
-          ) ||
-          manualWatched.isSeasonWatched(params.showId, params.season) ||
-          manualWatched.isShowWatched(params.showId);
+    Provider.family<
+      bool,
+      ({int showId, int season, int episode, String? showName})
+    >((ref, params) {
+      return ref
+          .watch(watchedIndexProvider)
+          .isEpisodeWatched(
+            showId: params.showId,
+            season: params.season,
+            episode: params.episode,
+            showName: params.showName,
+          );
     });
+
+/// Whether a specific movie is watched.
+final isMovieWatchedProvider = Provider.family<bool, int>((ref, movieId) {
+  return ref.watch(watchedIndexProvider).isMovieWatched(movieId);
+});
+
+/// One-time recovery of watched marks stranded in the legacy
+/// `manual_watched_episodes` store.
+///
+/// Episode-level marks convert exactly and become synthetic completed
+/// entries under a `manual:watched:<showId>/<season>/<episode>` path — the
+/// same mechanism `reconcileWatchedWithTmdb` already uses for episodes
+/// rated on another device but never downloaded here.
+///
+/// Season-level and show-level marks are *not* expanded: doing so needs the
+/// episode list for each season, which means a TMDB round-trip we can't make
+/// synchronously at startup. Rather than drop them, the whole legacy blob is
+/// archived under [_manualWatchedArchiveKey] so a later pass can expand them.
+///
+/// Idempotent: the presence of the legacy key is itself the guard, so once
+/// the key has been renamed this is a no-op.
+Future<int> migrateManualWatchedMarks(WidgetRef ref) async {
+  final prefs = ref.read(sharedPreferencesProvider);
+  final raw = prefs.getString(_manualWatchedKey);
+  if (raw == null) return 0;
+
+  var recovered = 0;
+  try {
+    final marks = parseLegacyEpisodeMarks(raw);
+    final notifier = ref.read(watchProgressProvider.notifier);
+    for (final m in marks) {
+      await notifier.markCompleted(
+        'manual:watched:${m.showId}/${m.season}/${m.episode}',
+        showId: m.showId,
+        seasonNumber: m.season,
+        episodeNumber: m.episode,
+      );
+      recovered++;
+    }
+    AppLog.i(
+      '[WatchProgress] recovered $recovered stranded watched mark(s) from '
+      'the legacy manual-watched store',
+    );
+  } catch (e) {
+    AppLog.e('[WatchProgress] manual-watched migration failed: $e');
+    // Fall through and archive anyway — leaving the key in place would
+    // retry a blob we already know we can't parse on every launch.
+  }
+
+  await prefs.setString(_manualWatchedArchiveKey, raw);
+  await prefs.remove(_manualWatchedKey);
+  return recovered;
+}
+
+/// Parse episode-level marks out of the legacy manual-watched JSON blob.
+///
+/// Shape: `{"watched_episodes": {"<showId>": ["S01E05", ...]}, ...}`.
+/// Malformed show ids and episode codes are skipped rather than throwing —
+/// this runs at startup on user data of unknown vintage, and recovering
+/// nine of ten marks beats recovering none.
+@visibleForTesting
+List<({int showId, int season, int episode})> parseLegacyEpisodeMarks(
+  String rawJson,
+) {
+  final out = <({int showId, int season, int episode})>[];
+  final json = jsonDecode(rawJson) as Map<String, dynamic>;
+  final episodes = json['watched_episodes'] as Map<String, dynamic>?;
+  if (episodes == null) return out;
+
+  final codePattern = RegExp(r'^s(\d{1,3})e(\d{1,3})$', caseSensitive: false);
+  for (final entry in episodes.entries) {
+    final showId = int.tryParse(entry.key);
+    if (showId == null) continue;
+    final codes = entry.value;
+    if (codes is! List) continue;
+    for (final code in codes) {
+      if (code is! String) continue;
+      final m = codePattern.firstMatch(code.trim());
+      if (m == null) continue;
+      final season = int.tryParse(m.group(1)!);
+      final episode = int.tryParse(m.group(2)!);
+      if (season == null || episode == null) continue;
+      out.add((showId: showId, season: season, episode: episode));
+    }
+  }
+  return out;
+}
 
 /// Provider for "Continue Watching" items (in progress, not completed)
 /// Filters out items where the file no longer exists

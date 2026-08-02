@@ -104,27 +104,24 @@ class _MediaHubEpisodesDrawerState
     final code = Formatters.episodeCode(ep.seasonNumber, ep.episodeNumber);
     final showName = widget.show.name.toLowerCase();
 
-    // Read the raw WatchProgress map — not `continueWatchingProvider`
-    // (which strips out `isCompleted` items) and not
-    // `watchedItemsProvider` (which requires the file to still exist).
-    // The watched mark is meant to persist across file deletion and
-    // re-download, so we look it up directly. Prefer structured
-    // matching by TMDB show id + season + episode where the entry has
-    // those fields; fall back to filename matching for older entries.
-    final allProgress = ref.read(watchProgressProvider);
-    final hasWatched = allProgress.values.any((p) {
-      if (!p.isCompleted) return false;
-      if (p.showId != null &&
-          p.seasonNumber != null &&
-          p.episodeNumber != null) {
-        return p.showId == widget.show.id &&
-            p.seasonNumber == ep.seasonNumber &&
-            p.episodeNumber == ep.episodeNumber;
-      }
-      return p.episodeCode?.toLowerCase() == code.toLowerCase() &&
-          (p.showName?.toLowerCase().contains(showName) ?? false);
-    });
-    if (hasWatched) return _EpisodeStatus.watched;
+    // `watchedIndexProvider` is the single source of truth — deliberately
+    // not `continueWatchingProvider` (which strips out `isCompleted`
+    // items) and not `watchedItemsProvider` (which requires the file to
+    // still exist), because a watched mark has to survive deleting the
+    // file and re-downloading it later.
+    //
+    // `watch`, not `read`: this used to read the map once, so marking an
+    // episode watched while the drawer was open left the row stale until
+    // it was rebuilt for some unrelated reason.
+    final watched = ref.watch(watchedIndexProvider);
+    if (watched.isEpisodeWatched(
+      showId: widget.show.id,
+      season: ep.seasonNumber,
+      episode: ep.episodeNumber,
+      showName: showName,
+    )) {
+      return _EpisodeStatus.watched;
+    }
 
     final torrents = ref.read(torrentListProvider).torrents;
     for (final t in torrents) {

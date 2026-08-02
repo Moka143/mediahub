@@ -187,12 +187,7 @@ class _MoviesScreenState extends ConsumerState<MoviesScreen> {
     // Watched-movies set — drives the "WATCHED" ribbon on each card.
     // Computed in build so a mark/unmark triggers a rebuild and the
     // ribbon appears/disappears live.
-    _watchedMovieIds = ref
-        .watch(watchProgressProvider)
-        .values
-        .where((p) => p.isCompleted && p.movieId != null)
-        .map((p) => p.movieId!)
-        .toSet();
+    _watchedMovieIds = ref.watch(watchedIndexProvider).watchedMovieIds;
     return RefreshIndicator(
       onRefresh: () async => _resetAndLoad(),
       child: Align(

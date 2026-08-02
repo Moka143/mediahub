@@ -477,10 +477,7 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
     // Watched flag — surfaced as a green "WATCHED" pill next to the
     // runtime / rating row so the user knows at-a-glance that they've
     // seen this movie, even when it's not currently downloaded.
-    final isWatched = ref
-        .watch(watchProgressProvider)
-        .values
-        .any((p) => p.isCompleted && p.movieId == movie.id);
+    final isWatched = ref.watch(isMovieWatchedProvider(movie.id));
 
     return Stack(
       children: [
