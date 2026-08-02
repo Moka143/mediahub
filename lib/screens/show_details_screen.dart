@@ -124,6 +124,29 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
   }
 
   Future<void> _onEpisodeTap(Episode episode, Show showDetails) async {
+    // Already on disk? Play it. The drawer labels these rows OPEN / REWATCH
+    // rather than GET, and sending them to the source picker instead — which
+    // is what used to happen — contradicts the button the user just pressed
+    // and makes an episode they already have look un-downloaded.
+    final localFile = ref.read(
+      episodeLocalFileProvider((
+        showName: showDetails.name,
+        season: episode.seasonNumber,
+        episode: episode.episodeNumber,
+      )),
+    );
+    if (localFile != null && File(localFile.path).existsSync()) {
+      rootNavigatorKey.currentState?.push(
+        MaterialPageRoute(
+          builder: (_) => VideoPlayerScreen(
+            file: localFile,
+            showImdbId: showDetails.imdbId,
+          ),
+        ),
+      );
+      return;
+    }
+
     if (showDetails.imdbId == null) {
       AppSnackBar.showError(
         context,

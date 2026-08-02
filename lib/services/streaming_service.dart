@@ -315,14 +315,29 @@ class StreamingService {
       // Add torrent with streaming-optimized settings.
       // Only sequentialDownload — firstLastPiecePrio conflicts by also
       // prioritising the LAST piece, which breaks strict in-order delivery.
-      final success = await _qbtService.addTorrent(
+      var added = await _qbtService.addTorrent(
         magnetLink: request.magnetUri,
         savePath: savePath,
         sequentialDownload: true,
         firstLastPiecePrio: false,
       );
 
-      if (!success) {
+      if (!added) {
+        // qBittorrent reports a duplicate add as a failure ("Fails." on 4.x,
+        // 4xx on 5.x) — but for us it isn't one: the torrent we want is
+        // already there. This is the normal case for the second episode of a
+        // season pack, and treating it as fatal killed the session before
+        // monitoring ever started, with no user-visible error.
+        added = await _isTorrentPresent(request.infoHash);
+        if (added) {
+          AppLog.d(
+            '[StreamingService] Torrent already present — continuing with '
+            'the existing one rather than failing the session',
+          );
+        }
+      }
+
+      if (!added) {
         _updateSession(
           sessionId,
           state: StreamingState.error,
@@ -350,6 +365,22 @@ class StreamingService {
         errorMessage: 'Error: $e',
       );
       return _sessions[sessionId]!;
+    }
+  }
+
+  /// Whether qBittorrent already holds a torrent with this info hash.
+  ///
+  /// Used to tell a genuine add failure apart from a duplicate add, which
+  /// qBittorrent also reports as a failure. Compared case-insensitively:
+  /// qBittorrent lower-cases hashes, indexers don't always.
+  Future<bool> _isTorrentPresent(String infoHash) async {
+    try {
+      final torrents = await _qbtService.getTorrents();
+      final wanted = infoHash.toLowerCase();
+      return torrents.any((t) => t.hash.toLowerCase() == wanted);
+    } catch (e) {
+      AppLog.e('[StreamingService] Could not check for existing torrent: $e');
+      return false;
     }
   }
 
@@ -584,33 +615,59 @@ class StreamingService {
       '[StreamingService] Selected file index $targetFileIndex: $targetFilePath',
     );
 
-    // Fast path: torrent is already fully downloaded (seeding / paused /
-    // stopped after completion). Skip the buffer wait — and crucially skip
-    // toggling file priorities, which can re-trigger a qBit recheck on a
-    // completed torrent and starve the next sync update.
-    final isAlreadyComplete = torrent.isCompleted || torrent.progress >= 0.99;
+    // Fast path: the file we were asked for is already on disk. Judged on the
+    // SELECTED FILE, not the torrent.
+    //
+    // `torrent.progress` is computed over *wanted* bytes, so a season pack
+    // whose earlier episode finished reports 1.0 even though the episode being
+    // asked for now was never fetched. Treating that as "ready" sent us
+    // straight to _promoteToReady looking for a file that doesn't exist —
+    // the silent failure for every episode after the first in a pack.
+    final isAlreadyComplete = files[targetFileIndex].progress >= 0.999;
 
-    // For season packs, disable all other files to save bandwidth — but only
-    // while the torrent is still downloading. Setting priorities on a
-    // completed torrent can flip qBittorrent into a recheck state that
-    // briefly reports progress=0 on the file, which then never recovers in
-    // the sync delta (see Fix 1 in plan).
-    if (session.request.isSeasonPack &&
-        files.length > 1 &&
-        !isAlreadyComplete) {
-      AppLog.d('[StreamingService] Disabling non-target files in season pack');
-      try {
-        // Set all files to skip (priority 0)
-        final allFileIds = List.generate(files.length, (i) => i);
-        await _qbtService.setFilePriority(torrent.hash, allFileIds, 0);
+    if (!isAlreadyComplete) {
+      // For season packs, disable all other files to save bandwidth. Only
+      // worth doing while something still needs fetching: re-prioritising a
+      // torrent whose target file is already complete can flip qBittorrent
+      // into a recheck that briefly reports progress=0 on the file and never
+      // recovers in the sync delta.
+      if (session.request.isSeasonPack && files.length > 1) {
+        AppLog.d(
+          '[StreamingService] Disabling non-target files in season pack',
+        );
+        try {
+          // Set all files to skip (priority 0)
+          final allFileIds = List.generate(files.length, (i) => i);
+          await _qbtService.setFilePriority(torrent.hash, allFileIds, 0);
 
-        // Set target file to high priority
-        await _qbtService.setFilePriority(torrent.hash, [targetFileIndex], 7);
+          // Set target file to high priority
+          await _qbtService.setFilePriority(torrent.hash, [targetFileIndex], 7);
 
-        AppLog.d('[StreamingService] File priorities set successfully');
-      } catch (e) {
-        AppLog.e('[StreamingService] Error setting file priorities: $e');
-        // Continue anyway - might already be set
+          AppLog.d('[StreamingService] File priorities set successfully');
+        } catch (e) {
+          AppLog.e('[StreamingService] Error setting file priorities: $e');
+          // Continue anyway - might already be set
+        }
+      }
+
+      // A torrent that finished an earlier episode has been stopped — by the
+      // user, or by `stopSeedingOnComplete` — and will never fetch the newly
+      // wanted file while it stays that way.
+      //
+      // Deliberately after the priority change: re-prioritising drops
+      // qBittorrent's wanted-bytes progress below 1.0, so the torrent no
+      // longer looks completed and `_maybeAutoStopSeeding` won't simply stop
+      // it again on its next poll.
+      if (torrent.isPaused) {
+        AppLog.d(
+          '[StreamingService] Torrent is stopped (state=${torrent.state}) but '
+          'the target file is incomplete — resuming',
+        );
+        try {
+          await _qbtService.resumeTorrents([torrent.hash]);
+        } catch (e) {
+          AppLog.e('[StreamingService] Failed to resume torrent: $e');
+        }
       }
     }
 
@@ -621,14 +678,13 @@ class StreamingService {
       state: StreamingState.buffering,
       selectedFileIndex: targetFileIndex,
       selectedFilePath: targetFilePath,
-      bufferProgress: torrent.progress,
+      bufferProgress: files[targetFileIndex].progress,
     );
 
     if (isAlreadyComplete) {
       AppLog.d(
-        '[StreamingService] Torrent already complete (state=${torrent.state}, '
-        'progress=${(torrent.progress * 100).toStringAsFixed(1)}%) — '
-        'fast-pathing to ready.',
+        '[StreamingService] Selected file already complete '
+        '(torrent state=${torrent.state}) — fast-pathing to ready.',
       );
       await _promoteToReady(sessionId, torrent);
       return;

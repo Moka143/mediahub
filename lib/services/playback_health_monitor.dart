@@ -300,6 +300,21 @@ class PlaybackHealthMonitor {
   // Poll
   // ---------------------------------------------------------------------
 
+  /// Push the streaming file's download fraction to the seek bar. Independent
+  /// of playback state, so it keeps working while mpv is still opening.
+  Future<void> _reportDownloadedRatio() async {
+    try {
+      final files = await _qbt.getTorrentFiles(torrentHash);
+      final idx = fileIndex;
+      if (idx == null || idx < 0 || idx >= files.length) return;
+      if (!_alive) return;
+      if (files[idx].size <= 0) return;
+      onDownloadedRatio(files[idx].progress);
+    } catch (e) {
+      AppLog.e('[HealthMonitor] Downloaded-ratio poll failed: $e');
+    }
+  }
+
   Future<void> _runCheck() async {
     if (!_alive || _recoveryInFlight || _checkInFlight) return;
     _checkInFlight = true;
@@ -314,6 +329,18 @@ class PlaybackHealthMonitor {
     final isPlaying = _player.state.playing;
     final position = _player.state.position;
     final duration = _player.state.duration;
+
+    // Report download progress before anything else bails out.
+    //
+    // Everything below needs a duration to reason about — but the seek bar's
+    // buffered track does not, and it is exactly while mpv is still settling
+    // (duration still 0) that the user most wants to see the file filling up.
+    // Reporting after the duration guard meant the indicator sat frozen at
+    // whatever it was seeded with for the entire open, and stayed frozen
+    // forever if mpv never resolved a duration at all.
+    await _reportDownloadedRatio();
+    if (!_alive) return;
+
     if (duration.inMilliseconds <= 0) return;
 
     // 1) Stall detection.
@@ -346,8 +373,6 @@ class PlaybackHealthMonitor {
       final fileSize = file.size;
       final fileProgress = file.progress;
       if (fileSize <= 0) return;
-
-      onDownloadedRatio(fileProgress);
 
       // File is done — nothing useful left to pause for.
       if (fileProgress >= completeEnough) {
