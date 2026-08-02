@@ -1,14 +1,17 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:flutter_torrent_client/models/stream_request.dart';
 import 'package:flutter_torrent_client/models/torrentio_stream.dart';
 import 'package:flutter_torrent_client/services/streaming_service.dart';
 
 StreamingSession _session({DateTime? createdAt}) => StreamingSession(
   id: 'session-1',
-  stream: TorrentioStream(
-    name: 'Test.Release.1080p',
-    title: 'Test.Release.1080p',
-    infoHash: 'abc123',
+  request: StreamRequest.fromTorrentio(
+    TorrentioStream(
+      name: 'Test.Release.1080p',
+      title: 'Test.Release.1080p',
+      infoHash: 'abc123',
+    ),
   ),
   createdAt: createdAt,
 );
@@ -54,7 +57,7 @@ void main() {
       ).copyWith(state: StreamingState.buffering);
 
       expect(updated.id, 'session-1');
-      expect(updated.stream.infoHash, 'abc123');
+      expect(updated.request.infoHash, 'abc123');
       expect(updated.state, StreamingState.buffering);
     });
   });

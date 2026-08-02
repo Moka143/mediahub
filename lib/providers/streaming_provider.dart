@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/stream_request.dart';
 import '../models/torrentio_stream.dart';
 import '../services/streaming_service.dart';
 import 'connection_provider.dart';
@@ -57,9 +58,34 @@ class StreamingSessionsNotifier extends Notifier<StreamingSessionsState> {
     return const StreamingSessionsState();
   }
 
-  /// Start a new streaming session
+  /// Start a new streaming session from a Torrentio stream.
   Future<StreamingSession?> startStreaming({
     required TorrentioStream stream,
+    String? showImdbId,
+    String? showName,
+    String? movieImdbId,
+    int? season,
+    int? episode,
+    String? episodeCode,
+    String? savePath,
+  }) {
+    return startStreamingRequest(
+      request: StreamRequest.fromTorrentio(stream),
+      showImdbId: showImdbId,
+      showName: showName,
+      movieImdbId: movieImdbId,
+      season: season,
+      episode: episode,
+      episodeCode: episodeCode,
+      savePath: savePath,
+    );
+  }
+
+  /// Start a new streaming session from a normalised [StreamRequest] —
+  /// used by the next-episode / binge flow, which resolves torrents through
+  /// `AutoDownloadService` rather than Torrentio's stream list.
+  Future<StreamingSession?> startStreamingRequest({
+    required StreamRequest request,
     String? showImdbId,
     String? showName,
     String? movieImdbId,
@@ -71,8 +97,8 @@ class StreamingSessionsNotifier extends Notifier<StreamingSessionsState> {
     final streamingService = ref.read(streamingServiceProvider);
 
     // Start the session
-    final session = await streamingService.startStreaming(
-      stream: stream,
+    final session = await streamingService.startStreamingRequest(
+      request: request,
       showImdbId: showImdbId,
       showName: showName,
       movieImdbId: movieImdbId,
@@ -164,7 +190,8 @@ final isStreamingTorrentProvider = Provider.family<bool, String>((
   final state = ref.watch(streamingSessionsProvider);
   return state.sessions.values.any(
     (s) =>
-        s.stream.infoHash.toLowerCase() == infoHash.toLowerCase() && s.isActive,
+        s.request.infoHash.toLowerCase() == infoHash.toLowerCase() &&
+        s.isActive,
   );
 });
 

@@ -1,20 +1,16 @@
 import 'dart:async';
-import 'dart:io';
 
-import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
-import 'package:path/path.dart' as p;
 import 'package:window_manager/window_manager.dart';
 
 import '../design/app_tokens.dart';
 import '../models/episode.dart';
-import '../models/eztv_torrent.dart';
 import '../models/local_media_file.dart';
-import '../models/torrent_file.dart';
+import '../models/stream_request.dart';
 import '../providers/auto_download_provider.dart';
 import '../providers/connection_provider.dart';
 import '../providers/local_media_provider.dart';
@@ -144,6 +140,10 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   /// buffered region wouldn't update.
   String? _nextEpisodeStreamingProxyUrl;
   StreamSubscription<Duration>? _autoDownloadSubscription;
+
+  /// Subscription to the next-episode [StreamingService] session. Cancelled
+  /// on any terminal state and in [dispose].
+  StreamSubscription<StreamingSession>? _nextEpisodeSubscription;
 
   // Streaming status indicator
   StreamingStatus? _streamingStatus;
@@ -1145,6 +1145,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     _positionSubscription?.cancel();
     _completedSubscription?.cancel();
     _autoDownloadSubscription?.cancel();
+    _nextEpisodeSubscription?.cancel();
     _bufferingDebounceTimer?.cancel();
     _bufferingSubscription?.cancel();
     // Synchronous and ref-free — the monitor owns its own timer and stream
@@ -1716,262 +1717,129 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       );
     }
 
-    // Start download with sequential mode for streaming
-    final success = await autoDownloadService.downloadNextEpisode(
-      magnetLink: torrent.magnetUrl,
-      savePath: settings.defaultSavePath,
-      infoHash: torrent.hash,
-      fileIdx: torrent.fileIdx,
-    );
+    // Route through StreamingService rather than adding the torrent here.
+    // This path used to call AutoDownloadService.downloadNextEpisode and then
+    // re-implement the whole readiness workflow — file selection, the buffer
+    // threshold, the on-disk file lookup and the proxy standup — in this
+    // screen. Two copies meant two behaviours: notably the local copy added
+    // torrents with firstLastPiecePrio: true, which StreamingService
+    // deliberately sets to false because prioritising the LAST piece breaks
+    // the strict in-order delivery sequential mode exists to provide.
+    final session = await ref
+        .read(streamingSessionsProvider.notifier)
+        .startStreamingRequest(
+          request: StreamRequest.fromEztv(torrent),
+          showImdbId: _currentImdbId,
+          showName: widget.file.showName,
+          season: episode.seasonNumber,
+          episode: episode.episodeNumber,
+          episodeCode: episode.episodeCode,
+          savePath: settings.defaultSavePath,
+        );
 
     if (!mounted) return;
 
-    AppLog.d('[StreamingService] Stream started: $success');
-
-    if (success) {
-      // Track the show for future auto-downloads
-      if (_currentShowId != null) {
-        ref
-            .read(autoDownloadProvider.notifier)
-            .trackShow(
-              showId: _currentShowId!,
-              imdbId: _currentImdbId,
-              showName: widget.file.showName ?? '',
-              season: episode.seasonNumber,
-              episode: episode.episodeNumber,
-              quality: torrent.quality,
-            );
-      }
-
-      // Track that we started downloading this episode
-      setState(() {
-        _nextEpisodeDownloadStarted = true;
-        _downloadingEpisode = episode;
-      });
-
-      // Show buffering status
-      _showStreamingStatus(
-        status: StreamingStatus.buffering,
-        message: 'Buffering started',
-        episodeCode: episode.episodeCode,
-        progress: 0.0,
-      );
-
-      // Start monitoring stream readiness for next episode
-      _monitorNextEpisodeStream(torrent, episode);
-    } else {
+    if (session == null) {
       _showStreamingStatus(
         status: StreamingStatus.error,
         message: 'Failed to start stream',
         episodeCode: episode.episodeCode,
       );
+      return;
     }
-  }
 
-  /// Monitor streaming progress for the next episode
-  Future<void> _monitorNextEpisodeStream(
-    EztvTorrent streamTorrent,
-    Episode episode,
-  ) async {
-    final qbtService = ref.read(qbApiServiceProvider);
-    final expectedHash = streamTorrent.hash.toLowerCase();
-
-    // Wait a moment for qBittorrent to process the magnet
-    await Future.delayed(const Duration(seconds: 3));
-
-    // Poll for torrent progress
-    for (int i = 0; i < 120; i++) {
-      // Max 10 minutes
-      await Future.delayed(const Duration(seconds: 5));
-
-      if (!mounted) return;
-
-      // Find the torrent by matching the magnet hash
-      final torrents = await qbtService.getTorrents();
-      final torrent = torrents.firstWhereOrNull(
-        (t) =>
-            t.hash.toLowerCase() == expectedHash ||
-            streamTorrent.magnetUrl.toLowerCase().contains(
-              t.hash.toLowerCase(),
-            ),
-      );
-
-      if (torrent == null) continue;
-
-      final files = await qbtService.getTorrentFiles(torrent.hash);
-      final selectedFile = _selectStreamingFile(files, streamTorrent.fileIdx);
-      if (selectedFile == null) continue;
-
-      // Update progress in the indicator
-      _showStreamingStatus(
-        status: StreamingStatus.buffering,
-        message: 'Buffering...',
-        episodeCode: episode.episodeCode,
-        progress: selectedFile.progress,
-      );
-
-      // Match the readiness gate the main streaming session uses
-      // (StreamingService._handleBuffering) — bytes downloaded crossing the
-      // size-scaled threshold, no piece-level contiguity check. The proxy
-      // makes the strict piece check unnecessary: it never serves bytes past
-      // the download head, so a hole in the leading pieces just turns into
-      // a brief mpv pause-for-cache rather than a frozen demuxer.
-      final minBytes = StreamingService.minBufferBytesFor(selectedFile.size);
-      final bufferedBytes = (selectedFile.size * selectedFile.progress).round();
-      final isReady = bufferedBytes >= minBytes;
-
-      if (isReady && mounted) {
-        // Update the next episode to the downloaded file
-        final videoFile = await _findVideoFileInPath(
-          torrent.contentPath,
-          selectedFilePath: selectedFile.name,
-          episode: episode,
-        );
-        if (videoFile != null) {
-          // Stand up a LocalStreamingServer so the upcoming
-          // VideoPlayerScreen.pushReplacement opens in proxy mode and the
-          // seek-bar buffered indicator works for the next episode the same
-          // way it does for the first. Register with StreamingService so
-          // its lifetime outlives this screen's dispose (pushReplacement
-          // pops us before the new screen mounts) and so it gets cleaned
-          // up at app shutdown.
-          String? proxyUrl;
-          try {
-            final server = LocalStreamingServer(
-              qbt: qbtService,
-              filePath: videoFile.path,
-              torrentHash: torrent.hash,
-              fileIndex: selectedFile.index,
-              logTag: 'next',
-            );
-            await server.start();
-            ref
-                .read(streamingServiceProvider)
-                .registerExternalServer(
-                  'next:${torrent.hash}:${selectedFile.index}',
-                  server,
-                );
-            proxyUrl = server.url;
-            AppLog.d(
-              '[NextEpisodeProxy] ready hash=${torrent.hash} '
-              'fileIdx=${selectedFile.index} '
-              'path=${videoFile.path} '
-              'url=$proxyUrl',
-            );
-          } catch (e) {
-            AppLog.e('[NextEpisodeProxy] failed to start: $e');
-          }
-
-          setState(() {
-            _nextEpisode = videoFile;
-            _nextEpisodeFromTmdb = null; // Clear TMDB version
-            _nextEpisodeStreamingTorrentHash = torrent.hash;
-            _nextEpisodeStreamingFileIndex = selectedFile.index;
-            _nextEpisodeStreamingProxyUrl = proxyUrl;
-          });
-
-          // Show ready status
-          _showStreamingStatus(
-            status: StreamingStatus.ready,
-            message: 'Ready to play!',
-            episodeCode: episode.episodeCode,
+    // Track the show for future auto-downloads
+    if (_currentShowId != null) {
+      ref
+          .read(autoDownloadProvider.notifier)
+          .trackShow(
+            showId: _currentShowId!,
+            imdbId: _currentImdbId,
+            showName: widget.file.showName ?? '',
+            season: episode.seasonNumber,
+            episode: episode.episodeNumber,
+            quality: torrent.quality,
           );
-        }
-        return;
-      }
     }
 
-    // Timeout - dismiss indicator
-    _dismissStreamingStatus();
+    setState(() {
+      _nextEpisodeDownloadStarted = true;
+      _downloadingEpisode = episode;
+    });
+
+    _showStreamingStatus(
+      status: StreamingStatus.buffering,
+      message: 'Buffering started',
+      episodeCode: episode.episodeCode,
+      progress: 0.0,
+    );
+
+    _monitorNextEpisodeStream(session.id, episode);
   }
 
-  TorrentFile? _selectStreamingFile(List<TorrentFile> files, int? fileIdx) {
-    if (fileIdx != null && fileIdx >= 0 && fileIdx < files.length) {
-      return files[fileIdx];
-    }
+  /// Mirror a next-episode [StreamingService] session into this screen's
+  /// status indicator, and capture the proxy details when it turns ready.
+  ///
+  /// This used to be a hand-rolled 10-minute poll loop that re-derived file
+  /// selection, the buffer threshold, the on-disk path and the proxy — all
+  /// of which `StreamingService` already does for the primary playback path.
+  /// Subscribing to the session means one implementation, and the session
+  /// (not this screen) owns the proxy's lifetime, so it correctly survives
+  /// the `pushReplacement` that pops us before the next screen mounts.
+  void _monitorNextEpisodeStream(String sessionId, Episode episode) {
+    _nextEpisodeSubscription?.cancel();
+    _nextEpisodeSubscription = ref
+        .read(streamingServiceProvider)
+        .getSessionStream(sessionId)
+        ?.listen((session) {
+          if (!mounted) return;
 
-    final videoFiles = files.where((file) {
-      final ext = file.name.split('.').last.toLowerCase();
-      return videoExtensions.contains(ext);
-    }).toList();
+          switch (session.state) {
+            case StreamingState.addingTorrent:
+            case StreamingState.selectingFiles:
+            case StreamingState.buffering:
+              _showStreamingStatus(
+                status: StreamingStatus.buffering,
+                message: 'Buffering...',
+                episodeCode: episode.episodeCode,
+                progress: session.bufferProgress,
+              );
 
-    if (videoFiles.isEmpty) return null;
-    videoFiles.sort((a, b) => b.size.compareTo(a.size));
-    return videoFiles.first;
-  }
+            case StreamingState.ready:
+            case StreamingState.playing:
+              final videoFile = session.videoFile;
+              if (videoFile == null) return;
+              setState(() {
+                _nextEpisode = videoFile;
+                _nextEpisodeFromTmdb = null; // Clear TMDB version
+                _nextEpisodeStreamingTorrentHash = session.torrentHash;
+                _nextEpisodeStreamingFileIndex = session.selectedFileIndex;
+                _nextEpisodeStreamingProxyUrl = session.streamUrl;
+              });
+              _showStreamingStatus(
+                status: StreamingStatus.ready,
+                message: 'Ready to play!',
+                episodeCode: episode.episodeCode,
+              );
+              _nextEpisodeSubscription?.cancel();
+              _nextEpisodeSubscription = null;
 
-  /// Find video file in a content path
-  Future<LocalMediaFile?> _findVideoFileInPath(
-    String contentPath, {
-    String? selectedFilePath,
-    Episode? episode,
-  }) async {
-    try {
-      final fileOrDir = FileSystemEntity.typeSync(contentPath);
-      List<File> videoFiles = [];
-      File? selectedFile;
+            case StreamingState.error:
+              _showStreamingStatus(
+                status: StreamingStatus.error,
+                message: session.errorMessage ?? 'Streaming failed',
+                episodeCode: episode.episodeCode,
+              );
+              _nextEpisodeSubscription?.cancel();
+              _nextEpisodeSubscription = null;
 
-      if (fileOrDir == FileSystemEntityType.file) {
-        final ext = contentPath.split('.').last.toLowerCase();
-        if (videoExtensions.contains(ext)) {
-          selectedFile = File(contentPath);
-          videoFiles.add(selectedFile);
-        }
-      } else if (fileOrDir == FileSystemEntityType.directory) {
-        final dir = Directory(contentPath);
-        final selectedFileName = selectedFilePath == null
-            ? null
-            : p.basename(selectedFilePath.replaceAll(r'\', '/'));
-
-        if (selectedFilePath != null) {
-          final segments = selectedFilePath
-              .split(RegExp(r'[\\/]'))
-              .where((s) => s.isNotEmpty);
-          final candidatePath = p.normalize(
-            p.join(contentPath, p.joinAll(segments)),
-          );
-          final candidate = File(candidatePath);
-          if (await candidate.exists()) {
-            selectedFile = candidate;
+            case StreamingState.cancelled:
+            case StreamingState.idle:
+              _dismissStreamingStatus();
+              _nextEpisodeSubscription?.cancel();
+              _nextEpisodeSubscription = null;
           }
-        }
-
-        await for (final entity in dir.list(recursive: true)) {
-          if (entity is File) {
-            final ext = entity.path.split('.').last.toLowerCase();
-            if (videoExtensions.contains(ext)) {
-              if (selectedFileName != null &&
-                  p.basename(entity.path).toLowerCase() ==
-                      selectedFileName.toLowerCase()) {
-                selectedFile = entity;
-              }
-              videoFiles.add(entity);
-            }
-          }
-        }
-      }
-
-      if (videoFiles.isEmpty) return null;
-
-      videoFiles.sort((a, b) => b.lengthSync().compareTo(a.lengthSync()));
-      final file = selectedFile ?? videoFiles.first;
-      final stat = file.statSync();
-      final fileName = p.basename(file.path);
-
-      return LocalMediaFile(
-        path: file.path,
-        fileName: fileName,
-        sizeBytes: stat.size,
-        modifiedDate: stat.modified,
-        extension: fileName.split('.').last.toLowerCase(),
-        showName: widget.file.showName,
-        seasonNumber: episode?.seasonNumber,
-        episodeNumber: episode?.episodeNumber,
-      );
-    } catch (e) {
-      AppLog.e('[VideoPlayerScreen] Error finding video file: $e');
-      return null;
-    }
+        });
   }
 
   void _showShortcutsDialog() {

@@ -5,6 +5,7 @@ import 'package:collection/collection.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/local_media_file.dart';
+import '../models/stream_request.dart';
 import '../models/torrentio_stream.dart';
 import '../models/torrent.dart';
 import '../models/torrent_file.dart';
@@ -43,7 +44,11 @@ enum StreamingState {
 /// Represents a streaming session for a single video
 class StreamingSession {
   final String id;
-  final TorrentioStream stream;
+
+  /// What we were asked to stream, normalised away from whichever indexer
+  /// produced it. See [StreamRequest].
+  final StreamRequest request;
+
   final String? showImdbId;
   final String? showName;
   final String? movieImdbId;
@@ -83,7 +88,7 @@ class StreamingSession {
 
   StreamingSession({
     required this.id,
-    required this.stream,
+    required this.request,
     this.showImdbId,
     this.showName,
     this.movieImdbId,
@@ -125,7 +130,7 @@ class StreamingSession {
   }) {
     return StreamingSession(
       id: id,
-      stream: stream,
+      request: request,
       showImdbId: showImdbId,
       showName: showName,
       movieImdbId: movieImdbId,
@@ -232,38 +237,44 @@ class StreamingService {
   List<StreamingSession> get activeSessions =>
       _sessions.values.where((s) => s.isActive).toList();
 
-  /// Register a streaming proxy server that isn't owned by a normal session
-  /// — e.g. the binge-watching auto-next-episode flow in VideoPlayerScreen,
-  /// which manages its own buffering check rather than going through
-  /// [startStreaming]. Storing the server here ensures it's torn down on
-  /// app shutdown rather than leaking. Replaces any previously-registered
-  /// server under the same [key].
-  void registerExternalServer(String key, LocalStreamingServer server) {
-    final existing = _streamingServers[key];
-    if (existing != null && !identical(existing, server)) {
-      unawaited(existing.stop());
-    }
-    _streamingServers[key] = server;
-  }
-
-  /// Stop and remove a previously-registered external server. Safe to call
-  /// for unknown keys.
-  Future<void> stopExternalServer(String key) async {
-    final s = _streamingServers.remove(key);
-    if (s != null) {
-      await s.stop();
-    }
-  }
-
   /// Get a specific session by ID
   StreamingSession? getSession(String sessionId) => _sessions[sessionId];
 
-  /// Start a streaming session for a TorrentioStream
-  ///
-  /// For single-file torrents: Downloads the single file with streaming optimization
-  /// For season packs: Downloads only the specified file (using fileIdx)
+  /// Start a streaming session for a Torrentio stream — the browse →
+  /// pick-a-source path. Thin adapter over [startStreamingRequest].
   Future<StreamingSession> startStreaming({
     required TorrentioStream stream,
+    String? showImdbId,
+    String? showName,
+    String? movieImdbId,
+    int? season,
+    int? episode,
+    String? episodeCode,
+    String? savePath,
+  }) {
+    return startStreamingRequest(
+      request: StreamRequest.fromTorrentio(stream),
+      showImdbId: showImdbId,
+      showName: showName,
+      movieImdbId: movieImdbId,
+      season: season,
+      episode: episode,
+      episodeCode: episodeCode,
+      savePath: savePath,
+    );
+  }
+
+  /// Start a streaming session from a normalised [StreamRequest].
+  ///
+  /// For single-file torrents: downloads the single file with streaming
+  /// optimisation. For season packs: deprioritises every file except the
+  /// selected one, so a 40 GB pack doesn't get pulled to watch one episode.
+  ///
+  /// This is the single implementation of the streaming workflow. The
+  /// next-episode / binge flow routes through here too — it used to carry
+  /// its own copy inside `video_player_screen.dart`.
+  Future<StreamingSession> startStreamingRequest({
+    required StreamRequest request,
     String? showImdbId,
     String? showName,
     String? movieImdbId,
@@ -274,12 +285,12 @@ class StreamingService {
   }) async {
     // Generate unique session ID
     final sessionId =
-        '${stream.infoHash}_${DateTime.now().millisecondsSinceEpoch}';
+        '${request.infoHash}_${DateTime.now().millisecondsSinceEpoch}';
 
     // Create session
     final session = StreamingSession(
       id: sessionId,
-      stream: stream,
+      request: request,
       showImdbId: showImdbId,
       showName: showName,
       movieImdbId: movieImdbId,
@@ -295,17 +306,17 @@ class StreamingService {
     _notifySession(sessionId);
 
     AppLog.d('[StreamingService] Starting session $sessionId');
-    AppLog.d('[StreamingService] Stream: ${stream.name}');
-    AppLog.d('[StreamingService] Is single file: ${stream.isSingleFile}');
-    AppLog.d('[StreamingService] FileIdx: ${stream.fileIdx}');
-    AppLog.d('[StreamingService] Filename: ${stream.filename}');
+    AppLog.d('[StreamingService] Stream: ${request.displayName}');
+    AppLog.d('[StreamingService] Is single file: ${request.isSingleFile}');
+    AppLog.d('[StreamingService] FileIdx: ${request.fileIdx}');
+    AppLog.d('[StreamingService] Filename: ${request.filename}');
 
     try {
       // Add torrent with streaming-optimized settings.
       // Only sequentialDownload — firstLastPiecePrio conflicts by also
       // prioritising the LAST piece, which breaks strict in-order delivery.
       final success = await _qbtService.addTorrent(
-        magnetLink: stream.magnetUri,
+        magnetLink: request.magnetUri,
         savePath: savePath,
         sequentialDownload: true,
         firstLastPiecePrio: false,
@@ -323,7 +334,7 @@ class StreamingService {
       // Update with torrent hash
       _updateSession(
         sessionId,
-        torrentHash: stream.infoHash,
+        torrentHash: request.infoHash,
         state: StreamingState.selectingFiles,
       );
 
@@ -399,7 +410,7 @@ class StreamingService {
       // Find the torrent
       final torrents = await _qbtService.getTorrents();
       final torrent = torrents.firstWhereOrNull(
-        (t) => t.hash.toLowerCase() == session.stream.infoHash.toLowerCase(),
+        (t) => t.hash.toLowerCase() == session.request.infoHash.toLowerCase(),
       );
 
       if (torrent == null) {
@@ -474,7 +485,7 @@ class StreamingService {
     int? targetFileIndex;
     String? targetFilePath;
 
-    if (session.stream.isSingleFile) {
+    if (session.request.isSingleFile) {
       // Single file torrent - find the largest video file
       AppLog.d(
         '[StreamingService] Single-file torrent - selecting largest video',
@@ -493,20 +504,20 @@ class StreamingService {
     } else {
       // Season pack - use fileIdx if available, or match by filename
       AppLog.d(
-        '[StreamingService] Season pack - using fileIdx: ${session.stream.fileIdx}',
+        '[StreamingService] Season pack - using fileIdx: ${session.request.fileIdx}',
       );
 
-      if (session.stream.fileIdx != null &&
-          session.stream.fileIdx! < files.length) {
+      if (session.request.fileIdx != null &&
+          session.request.fileIdx! < files.length) {
         // Use the provided file index
-        targetFileIndex = session.stream.fileIdx!;
+        targetFileIndex = session.request.fileIdx!;
         targetFilePath = files[targetFileIndex].name;
         AppLog.d(
           '[StreamingService] Selected file at index $targetFileIndex: $targetFilePath',
         );
-      } else if (session.stream.filename != null) {
+      } else if (session.request.filename != null) {
         // Try to match by filename
-        final targetFilename = session.stream.filename!
+        final targetFilename = session.request.filename!
             .split('/')
             .last
             .toLowerCase();
@@ -584,7 +595,9 @@ class StreamingService {
     // completed torrent can flip qBittorrent into a recheck state that
     // briefly reports progress=0 on the file, which then never recovers in
     // the sync delta (see Fix 1 in plan).
-    if (session.stream.isSeasonPack && files.length > 1 && !isAlreadyComplete) {
+    if (session.request.isSeasonPack &&
+        files.length > 1 &&
+        !isAlreadyComplete) {
       AppLog.d('[StreamingService] Disabling non-target files in season pack');
       try {
         // Set all files to skip (priority 0)
