@@ -104,6 +104,36 @@ class MediaPosterCard extends ConsumerStatefulWidget {
     this.overlayRatingTone,
   });
 
+  /// Height this card needs at [width] in the default
+  /// [CardTitleStyle.below] layout.
+  ///
+  /// A horizontal `ListView` has to be given a bounded cross axis, so its
+  /// host must state a height — and a hard-coded one silently drifts out of
+  /// date the moment the card's text block changes. The Continue Watching
+  /// row was pinned at 190 against a card that needs ~275, which clipped
+  /// 84 px off every card in it.
+  ///
+  /// Text is measured through the ambient [TextScaler] rather than assumed,
+  /// so the row also survives a user running large accessibility text —
+  /// which a fixed number never would.
+  static double heightForWidth(
+    BuildContext context, {
+    double width = 152,
+    bool hasSubtitle = true,
+  }) {
+    final scaler = MediaQuery.textScalerOf(context);
+    // Poster is a 2:3 AspectRatio.
+    final poster = width * 3 / 2;
+    // _buildBelowLayout's padding: xs on top, sm on the bottom.
+    const padding = AppSpacing.xs + AppSpacing.sm;
+    // bodySmall / labelSmall at their default ~1.35 line height.
+    final title = scaler.scale(12) * 1.35;
+    final subtitle = hasSubtitle ? 3 + scaler.scale(11) * 1.35 : 0.0;
+    // Round up, plus a hair, so sub-pixel rounding can't reintroduce the
+    // overflow this method exists to prevent.
+    return (poster + padding + title + subtitle).ceilToDouble() + 2;
+  }
+
   @override
   ConsumerState<MediaPosterCard> createState() => _MediaPosterCardState();
 }

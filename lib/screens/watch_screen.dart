@@ -1167,7 +1167,10 @@ class _ContinueWatchingStrip extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return SizedBox(
-      height: 190,
+      // Asked of the card rather than hard-coded: these rows carry a
+      // subtitle ("48 min remaining"), and the previous fixed 190 clipped
+      // 84 px off every card.
+      height: MediaPosterCard.heightForWidth(context),
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         padding: EdgeInsets.zero,
