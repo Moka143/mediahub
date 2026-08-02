@@ -11,6 +11,7 @@ import '../models/torrentio_stream.dart';
 import '../models/torrent.dart';
 import '../models/torrent_file.dart';
 import '../utils/formatters.dart';
+import '../utils/platform_utils.dart';
 import 'local_streaming_server.dart';
 import 'qbittorrent_api_service.dart';
 import 'app_logger.dart';
@@ -661,16 +662,13 @@ class StreamingService {
         );
       } else if (session.request.filename != null) {
         // Try to match by filename
-        final targetFilename = session.request.filename!
-            .split('/')
-            .last
-            .toLowerCase();
+        final targetFilename = basenameOf(
+          session.request.filename!,
+        ).toLowerCase();
         final match = files.asMap().entries.firstWhereOrNull(
           (e) =>
               e.value.name.toLowerCase().contains(targetFilename) ||
-              targetFilename.contains(
-                e.value.name.split('/').last.toLowerCase(),
-              ),
+              targetFilename.contains(basenameOf(e.value.name).toLowerCase()),
         );
         if (match != null) {
           targetFileIndex = match.key;

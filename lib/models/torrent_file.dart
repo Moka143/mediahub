@@ -1,4 +1,5 @@
 import '../utils/constants.dart';
+import '../utils/platform_utils.dart';
 
 /// Represents a file within a torrent
 class TorrentFile {
@@ -51,10 +52,10 @@ class TorrentFile {
   }
 
   /// Get the file name without path
-  String get fileName {
-    final parts = name.split('/');
-    return parts.isNotEmpty ? parts.last : name;
-  }
+  /// qBittorrent reports these with the host's separator, so a Windows
+  /// server yields `Season 01\\Episode.mkv`. Splitting on '/' alone left the
+  /// whole relative path as the "file name".
+  String get fileName => basenameOf(name);
 
   /// Get the file extension
   String get extension {

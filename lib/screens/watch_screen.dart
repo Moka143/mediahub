@@ -11,6 +11,7 @@ import '../providers/navigation_provider.dart';
 import '../providers/watch_progress_provider.dart';
 import '../services/library_actions.dart';
 import '../utils/feedback_utils.dart';
+import '../utils/platform_utils.dart';
 import '../widgets/common/empty_state.dart';
 import '../widgets/common/loading_state.dart';
 import '../widgets/media/media.dart';
@@ -255,7 +256,7 @@ class _WatchScreenState extends ConsumerState<WatchScreen> {
       (f) => f.path == progress.filePath,
       orElse: () => LocalMediaFile(
         path: progress.filePath,
-        fileName: progress.filePath.split('/').last,
+        fileName: basenameOf(progress.filePath),
         sizeBytes: 0,
         modifiedDate: DateTime.now(),
         extension: progress.filePath.split('.').last,

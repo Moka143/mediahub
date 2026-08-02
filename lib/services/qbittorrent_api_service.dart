@@ -12,6 +12,7 @@ import '../models/torrent_file.dart';
 import '../models/tracker.dart';
 import 'app_logger.dart';
 import '../utils/constants.dart';
+import '../utils/platform_utils.dart';
 
 /// Exception for qBittorrent API errors
 class QBittorrentApiException implements Exception {
@@ -432,7 +433,7 @@ class QBittorrentApiService {
             'torrents',
             await MultipartFile.fromFile(
               torrentFile.path,
-              filename: torrentFile.path.split('/').last,
+              filename: basenameOf(torrentFile.path),
             ),
           ),
         );

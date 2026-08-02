@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path/path.dart' as p;
 
 import '../models/local_media_file.dart';
 import '../models/watch_progress.dart';
@@ -10,6 +9,7 @@ import '../providers/local_media_provider.dart';
 import '../providers/tmdb_account_provider.dart';
 import '../providers/torrent_provider.dart';
 import '../providers/watch_progress_provider.dart';
+import '../utils/platform_utils.dart';
 import 'tmdb_account_service.dart';
 import 'app_logger.dart';
 
@@ -138,7 +138,7 @@ String? _findTorrentHashForFile(WidgetRef ref, LocalMediaFile file) {
 ///     file you already have is a minor annoyance; being handed a file of
 ///     zeros is a broken player with no error.
 Future<bool> isFileCompleteOnDisk(WidgetRef ref, LocalMediaFile file) async {
-  final name = p.basename(file.path);
+  final name = basenameOf(file.path);
   final onDisk = File(file.path);
   if (!onDisk.existsSync()) {
     AppLog.d('[Completeness] "$name" — not on disk');
@@ -167,7 +167,7 @@ Future<bool> isFileCompleteOnDisk(WidgetRef ref, LocalMediaFile file) async {
     final files = await ref.read(qbApiServiceProvider).getTorrentFiles(hash);
     final target = name.toLowerCase();
     for (final f in files) {
-      final entry = p.basename(f.name.replaceAll(r'\', '/')).toLowerCase();
+      final entry = basenameOf(f.name).toLowerCase();
       if (entry == target) {
         final complete = f.progress >= 0.999;
         AppLog.d(
@@ -579,8 +579,7 @@ Future<void> reconcileWatchedWithTmdb(
         if (movieId == null) {
           // Try to resolve from filename — same as the watch_screen
           // mark-watched path. Cached so we don't hit TMDB twice.
-          final name =
-              p.showName ?? _cleanMovieName(p.filePath.split('/').last);
+          final name = p.showName ?? _cleanMovieName(basenameOf(p.filePath));
           movieId = await _resolveMovieId(ref, name);
         }
         if (movieId == null) continue;
@@ -616,7 +615,7 @@ Future<void> reconcileWatchedWithTmdb(
         final name =
             file?.showName ??
             existing?.showName ??
-            _cleanMovieName(file?.fileName ?? path.split('/').last);
+            _cleanMovieName(file?.fileName ?? basenameOf(path));
         movieId = await _resolveMovieId(ref, name);
       }
       if (movieId == null) continue;

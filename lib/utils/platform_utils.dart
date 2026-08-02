@@ -2,6 +2,27 @@ import 'dart:io';
 
 import 'constants.dart';
 
+/// Last path segment, whichever platform produced the string.
+///
+/// Deliberately separator-agnostic rather than separator-*aware*:
+///
+///   * `path.basename` follows the host platform, so on macOS it treats `\`
+///     as an ordinary character — and qBittorrent running on Windows hands
+///     back `Show\S01E01.mkv`, which would survive whole.
+///   * `split('/').last` — which six call sites used — returns the entire
+///     string for any Windows path, so the "file name" becomes
+///     `C:\Users\me\Downloads\Show.S01E01.mkv`. That silently poisons
+///     anything derived from it: the TMDB movie lookup in the watched-sync
+///     cleans a full path instead of a title and matches nothing, so movie
+///     watched-state stops syncing on Windows with no error anywhere.
+///
+/// Both separators, always, because these strings cross platforms: a torrent
+/// created on Windows can be read on macOS and vice versa.
+String basenameOf(String path) {
+  final index = path.lastIndexOf(RegExp(r'[\\/]'));
+  return index < 0 ? path : path.substring(index + 1);
+}
+
 /// Platform-specific utility functions
 class PlatformUtils {
   PlatformUtils._();
