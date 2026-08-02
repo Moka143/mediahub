@@ -120,24 +120,29 @@ lib/
 ├── design/                       # design tokens, colors, theme
 ├── models/                       # Torrent, Movie, Show, Episode, Settings, etc.
 ├── services/
-│   ├── tmdb_api_service.dart
+│   ├── tmdb_api_service.dart, tmdb_account_service.dart
 │   ├── eztv_api_service.dart
 │   ├── torrentio_api_service.dart
 │   ├── opensubtitles_service.dart
 │   ├── qbittorrent_api_service.dart
 │   ├── qbittorrent_process_service.dart
-│   ├── streaming_service.dart       # file selection, buffer monitoring, player wiring
-│   ├── auto_download_service.dart   # new-episode polling + queueing
-│   └── local_media_scanner.dart
+│   ├── streaming_service.dart          # file selection, buffer monitoring, player wiring
+│   ├── local_streaming_server.dart     # piece-aware HTTP proxy in front of the partial file
+│   ├── playback_health_monitor.dart    # download-edge tracking + stall recovery
+│   ├── auto_download_service.dart      # new-episode polling + queueing
+│   ├── library_actions.dart            # delete / mark-watched / TMDB reconcile
+│   ├── local_media_scanner.dart
+│   └── app_logger.dart                 # append-only disk log with rotation
 ├── providers/                    # Riverpod 3.x notifiers (one per feature area)
 ├── screens/
 │   ├── splash_screen.dart, onboarding_screen.dart
-│   ├── main_navigation_screen.dart  # NavigationRail / NavigationBar
-│   ├── home_screen.dart, movies_screen.dart, shows_screen.dart
+│   ├── main_navigation_screen.dart     # sidebar (≥900px) / NavigationBar
+│   ├── mediahub_home_screen.dart, movies_screen.dart, shows_screen.dart
 │   ├── movie_details_screen.dart, show_details_screen.dart
+│   ├── watch_screen.dart               # local library
 │   ├── favorites_screen.dart, calendar_screen.dart
-│   ├── video_player_screen.dart     # full-screen player + health monitor
-│   ├── torrent_details_screen.dart, settings_screen.dart
+│   ├── video_player_screen.dart        # full-screen player + health monitor
+│   └── torrent_details_screen.dart, settings_screen.dart
 └── widgets/                      # cards, overlays, dialogs, video controls
 ```
 

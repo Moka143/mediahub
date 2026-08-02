@@ -688,8 +688,13 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
   }
 }
 
-/// Provider for next episode info (for a specific show/episode)
-final nextEpisodeProvider =
+/// Provider for next episode info from TMDB (for a specific show/episode).
+///
+/// Distinct from [nextLocalEpisodeProvider] in `local_media_provider.dart`,
+/// which answers "is the next episode already on disk?" and returns a
+/// `LocalMediaFile?`. This one asks TMDB and carries season-end / series-end
+/// context. Both were previously named `nextEpisodeProvider`.
+final nextTmdbEpisodeProvider =
     FutureProvider.family<
       NextEpisodeResult,
       ({int showId, int season, int episode})

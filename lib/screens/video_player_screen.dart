@@ -15,7 +15,7 @@ import '../models/episode.dart';
 import '../models/eztv_torrent.dart';
 import '../models/local_media_file.dart';
 import '../models/torrent_file.dart';
-import '../providers/auto_download_provider.dart' hide nextEpisodeProvider;
+import '../providers/auto_download_provider.dart';
 import '../providers/connection_provider.dart';
 import '../providers/local_media_provider.dart';
 import '../providers/player_provider.dart';
@@ -516,7 +516,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     } else {
       // TMDB didn't find next episode (network failure, no TMDB match).
       // Fall back to local-only check.
-      final localNext = ref.read(nextEpisodeProvider(widget.file));
+      final localNext = ref.read(nextLocalEpisodeProvider(widget.file));
       if (localNext != null && mounted) {
         setState(() => _nextEpisode = localNext);
       }

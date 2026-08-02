@@ -356,10 +356,17 @@ final localShowsCountProvider = Provider<int>((ref) {
   return grouped.length;
 });
 
-/// Provider to find the next episode after a given file
+/// Provider to find the next episode **already on disk** after a given file.
 /// Returns the next episode ONLY if it's the immediate next episode (e.g., E04 after E03)
 /// Does NOT skip to later episodes (e.g., won't return E05 if E04 is missing)
-final nextEpisodeProvider = Provider.family<LocalMediaFile?, LocalMediaFile>((
+///
+/// Named for the local library deliberately: [nextTmdbEpisodeProvider] in
+/// `auto_download_provider.dart` answers the same question against TMDB and
+/// returns a different type. The two were both called `nextEpisodeProvider`
+/// and only stayed apart because `video_player_screen.dart` imported one of
+/// them with a `hide` clause — the next file to import both would have
+/// silently bound the wrong one.
+final nextLocalEpisodeProvider = Provider.family<LocalMediaFile?, LocalMediaFile>((
   ref,
   currentFile,
 ) {
