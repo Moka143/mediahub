@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/local_media_file.dart';
 import '../models/watch_progress.dart';
+import '../services/app_logger.dart';
 import '../services/local_media_scanner.dart';
 import '../services/tmdb_api_service.dart';
 import 'settings_provider.dart';
@@ -30,10 +31,15 @@ final tmdbServiceProvider = Provider<TmdbApiService>((ref) {
   return TmdbApiService(accessToken: token);
 });
 
-/// Cache for show poster lookups
+/// Cache for show poster lookups.
+///
+/// Process-lifetime, so it distinguishes a confirmed miss (TMDB answered and
+/// had nothing) from a failure (network down, rate limited). Only the former
+/// is cached — caching a transient failure left the card showing a flat
+/// gradient for the rest of the session with no way to retry.
 final _showPosterCache = <String, String?>{};
 
-/// Cache for movie poster lookups
+/// Cache for movie poster lookups. Same rule as [_showPosterCache].
 final _moviePosterCache = <String, String?>{};
 
 /// Provider to lookup show poster from TMDB
@@ -47,21 +53,21 @@ final showPosterProvider = FutureProvider.family<String?, String>((
   }
 
   final tmdb = ref.read(tmdbServiceProvider);
+  final String? posterUrl;
   try {
     final shows = await tmdb.searchShows(showName);
-    if (shows.isNotEmpty) {
-      final posterPath = shows.first.posterPath;
-      final posterUrl = posterPath != null
-          ? TmdbApiService.getPosterUrl(posterPath, size: 'w185')
-          : null;
-      _showPosterCache[showName] = posterUrl;
-      return posterUrl;
-    }
+    final posterPath = shows.isNotEmpty ? shows.first.posterPath : null;
+    posterUrl = posterPath != null
+        ? TmdbApiService.getPosterUrl(posterPath, size: 'w185')
+        : null;
   } catch (e) {
-    // Silently fail - just return null for poster
+    // Transient — leave uncached so a later rebuild can retry.
+    AppLog.w('[LocalMedia] show poster lookup failed for "$showName": $e');
+    return null;
   }
-  _showPosterCache[showName] = null;
-  return null;
+
+  _showPosterCache[showName] = posterUrl;
+  return posterUrl;
 });
 
 /// Provider to lookup movie poster from TMDB based on filename
@@ -75,18 +81,17 @@ final moviePosterProvider = FutureProvider.family<String?, String>((
   }
 
   final tmdb = ref.read(tmdbServiceProvider);
+  final String? posterUrl;
   try {
     final movies = await tmdb.searchMovies(movieName);
-    if (movies.isNotEmpty) {
-      final posterPath = movies.first.posterUrl;
-      _moviePosterCache[movieName] = posterPath;
-      return posterPath;
-    }
+    posterUrl = movies.isNotEmpty ? movies.first.posterUrl : null;
   } catch (e) {
-    // Silently fail - just return null for poster
+    AppLog.w('[LocalMedia] movie poster lookup failed for "$movieName": $e');
+    return null;
   }
-  _moviePosterCache[movieName] = null;
-  return null;
+
+  _moviePosterCache[movieName] = posterUrl;
+  return posterUrl;
 });
 
 /// Provider for LocalMediaScanner instance

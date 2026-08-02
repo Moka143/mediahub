@@ -1,12 +1,15 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/peer.dart';
 import '../models/torrent.dart';
 import '../models/torrent_file.dart';
 import '../models/tracker.dart';
+import '../services/app_logger.dart';
 import '../services/qbittorrent_api_service.dart';
 import '../utils/constants.dart';
 import '../utils/debouncer.dart';
@@ -15,6 +18,52 @@ import 'connection_provider.dart';
 import 'local_media_provider.dart';
 import 'settings_provider.dart';
 import 'watch_progress_provider.dart';
+
+/// Outcome of a torrent mutation (pause / resume / delete / add / …).
+///
+/// These used to return a bare `bool` produced by `catch (e) { return false; }`,
+/// so the cause never left the provider and every failure surfaced to the user
+/// as the same generic "Failed to pause torrent" — identical whether
+/// qBittorrent was unreachable, the credentials were wrong, or the torrent
+/// hash was stale.
+class TorrentActionResult {
+  const TorrentActionResult.success() : error = null;
+  const TorrentActionResult.failure(this.error);
+
+  /// Human-readable cause, or null when the action succeeded.
+  final String? error;
+
+  bool get success => error == null;
+
+  /// Message to show the user: the caller's generic description, with the
+  /// underlying cause appended when we have one.
+  String messageOr(String fallback) =>
+      error == null ? fallback : '$fallback — $error';
+}
+
+/// Turn a thrown qBittorrent/Dio error into something worth showing a user.
+@visibleForTesting
+String describeQbError(Object error) {
+  if (error is QBittorrentApiException) return error.message;
+  if (error is DioException) {
+    switch (error.type) {
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+        return 'qBittorrent timed out';
+      case DioExceptionType.connectionError:
+        return 'Cannot reach qBittorrent';
+      case DioExceptionType.badResponse:
+        final code = error.response?.statusCode;
+        return code == null
+            ? 'qBittorrent returned an error'
+            : 'qBittorrent returned HTTP $code';
+      default:
+        return error.message ?? 'Request failed';
+    }
+  }
+  return error.toString();
+}
 
 /// State for torrent list
 class TorrentListState {
@@ -287,116 +336,110 @@ class TorrentListNotifier extends Notifier<TorrentListState> {
     _refreshDebouncer.run(() => refresh());
   }
 
+  /// Run a qBittorrent mutation, turning both failure modes — a thrown
+  /// exception and a plain `false` from the API — into a [TorrentActionResult]
+  /// that carries a cause the UI can show.
+  ///
+  /// [onSuccess] runs only when the call succeeded, before the result is
+  /// returned, so callers can't forget the follow-up refresh.
+  Future<TorrentActionResult> _run(
+    String action,
+    Future<bool> Function(QBittorrentApiService api) call, {
+    Future<void> Function()? onSuccess,
+  }) async {
+    final apiService = ref.read(qbApiServiceProvider);
+    try {
+      final ok = await call(apiService);
+      if (!ok) {
+        AppLog.w('[Torrents] $action rejected by qBittorrent');
+        return const TorrentActionResult.failure(
+          'qBittorrent rejected the request',
+        );
+      }
+      if (onSuccess != null) await onSuccess();
+      return const TorrentActionResult.success();
+    } catch (e) {
+      AppLog.e('[Torrents] $action failed: $e');
+      return TorrentActionResult.failure(describeQbError(e));
+    }
+  }
+
   /// Add torrent from magnet link
-  Future<bool> addMagnet(
+  Future<TorrentActionResult> addMagnet(
     String magnetLink, {
     String? savePath,
     bool startNow = true,
-  }) async {
-    final apiService = ref.read(qbApiServiceProvider);
-
-    try {
-      final success = await apiService.addTorrent(
+  }) {
+    return _run(
+      'addMagnet',
+      (api) => api.addTorrent(
         magnetLink: magnetLink,
         savePath: savePath,
         paused: !startNow,
-      );
-
-      if (success) {
-        // Immediate refresh for add operations to show the new torrent
-        await refresh();
-      }
-
-      return success;
-    } catch (e) {
-      return false;
-    }
+      ),
+      // Immediate refresh for add operations to show the new torrent
+      onSuccess: refresh,
+    );
   }
 
   /// Add torrent from file
-  Future<bool> addTorrentFile(
+  Future<TorrentActionResult> addTorrentFile(
     File file, {
     String? savePath,
     bool startNow = true,
-  }) async {
-    final apiService = ref.read(qbApiServiceProvider);
-
-    try {
-      final success = await apiService.addTorrent(
+  }) {
+    return _run(
+      'addTorrentFile',
+      (api) => api.addTorrent(
         torrentFile: file,
         savePath: savePath,
         paused: !startNow,
-      );
-
-      if (success) {
-        // Immediate refresh for add operations to show the new torrent
-        await refresh();
-      }
-
-      return success;
-    } catch (e) {
-      return false;
-    }
+      ),
+      onSuccess: refresh,
+    );
   }
 
   /// Pause torrent
-  Future<bool> pauseTorrent(String hash) async {
-    return await pauseTorrents([hash]);
-  }
+  Future<TorrentActionResult> pauseTorrent(String hash) =>
+      pauseTorrents([hash]);
 
   /// Pause multiple torrents
-  Future<bool> pauseTorrents(List<String> hashes) async {
-    final apiService = ref.read(qbApiServiceProvider);
-
-    try {
-      final success = await apiService.pauseTorrents(hashes);
-      if (success) {
-        _debouncedRefresh();
-      }
-      return success;
-    } catch (e) {
-      return false;
-    }
+  Future<TorrentActionResult> pauseTorrents(List<String> hashes) {
+    return _run(
+      'pause',
+      (api) => api.pauseTorrents(hashes),
+      onSuccess: () async => _debouncedRefresh(),
+    );
   }
 
   /// Resume torrent
-  Future<bool> resumeTorrent(String hash) async {
-    return await resumeTorrents([hash]);
-  }
+  Future<TorrentActionResult> resumeTorrent(String hash) =>
+      resumeTorrents([hash]);
 
   /// Resume multiple torrents
-  Future<bool> resumeTorrents(List<String> hashes) async {
-    final apiService = ref.read(qbApiServiceProvider);
-
-    try {
-      final success = await apiService.resumeTorrents(hashes);
-      if (success) {
-        _debouncedRefresh();
-      }
-      return success;
-    } catch (e) {
-      return false;
-    }
+  Future<TorrentActionResult> resumeTorrents(List<String> hashes) {
+    return _run(
+      'resume',
+      (api) => api.resumeTorrents(hashes),
+      onSuccess: () async => _debouncedRefresh(),
+    );
   }
 
   /// Delete torrent
-  Future<bool> deleteTorrent(String hash, {bool deleteFiles = false}) async {
-    return await deleteTorrents([hash], deleteFiles: deleteFiles);
-  }
+  Future<TorrentActionResult> deleteTorrent(
+    String hash, {
+    bool deleteFiles = false,
+  }) => deleteTorrents([hash], deleteFiles: deleteFiles);
 
   /// Delete multiple torrents
-  Future<bool> deleteTorrents(
+  Future<TorrentActionResult> deleteTorrents(
     List<String> hashes, {
     bool deleteFiles = false,
-  }) async {
-    final apiService = ref.read(qbApiServiceProvider);
-
-    try {
-      final success = await apiService.deleteTorrents(
-        hashes,
-        deleteFiles: deleteFiles,
-      );
-      if (success) {
+  }) {
+    return _run(
+      'delete',
+      (api) => api.deleteTorrents(hashes, deleteFiles: deleteFiles),
+      onSuccess: () async {
         // Optimistic local removal so the row disappears in the next frame
         // instead of waiting for the poll cycle to pick up the change.
         final hashSet = hashes.toSet();
@@ -424,41 +467,26 @@ class TorrentListNotifier extends Notifier<TorrentListState> {
           // Clean up watch progress entries for files that no longer exist
           ref.read(watchProgressProvider.notifier).cleanupStaleEntries();
         });
-      }
-      return success;
-    } catch (e) {
-      return false;
-    }
+      },
+    );
   }
 
   /// Force recheck torrent
-  Future<bool> recheckTorrent(String hash) async {
-    final apiService = ref.read(qbApiServiceProvider);
-
-    try {
-      final success = await apiService.recheckTorrents([hash]);
-      if (success) {
-        _debouncedRefresh();
-      }
-      return success;
-    } catch (e) {
-      return false;
-    }
+  Future<TorrentActionResult> recheckTorrent(String hash) {
+    return _run(
+      'recheck',
+      (api) => api.recheckTorrents([hash]),
+      onSuccess: () async => _debouncedRefresh(),
+    );
   }
 
   /// Reannounce torrent to trackers
-  Future<bool> reannounceTorrent(String hash) async {
-    final apiService = ref.read(qbApiServiceProvider);
-
-    try {
-      final success = await apiService.reannounceTorrents([hash]);
-      if (success) {
-        _debouncedRefresh();
-      }
-      return success;
-    } catch (e) {
-      return false;
-    }
+  Future<TorrentActionResult> reannounceTorrent(String hash) {
+    return _run(
+      'reannounce',
+      (api) => api.reannounceTorrents([hash]),
+      onSuccess: () async => _debouncedRefresh(),
+    );
   }
 }
 

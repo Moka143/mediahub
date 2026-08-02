@@ -189,14 +189,17 @@ class TorrentDetailsScreen extends ConsumerWidget {
     );
 
     if (result != null && result.confirmed) {
-      final success = await ref
+      final deletion = await ref
           .read(torrentListProvider.notifier)
           .deleteTorrent(torrent.hash, deleteFiles: result.deleteFiles);
 
-      if (success && context.mounted) {
+      if (deletion.success && context.mounted) {
         Navigator.of(context).pop();
       } else if (context.mounted) {
-        AppSnackBar.showError(context, message: 'Failed to delete torrent');
+        AppSnackBar.showError(
+          context,
+          message: deletion.messageOr('Failed to delete torrent'),
+        );
       }
     }
   }

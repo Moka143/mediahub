@@ -736,16 +736,16 @@ class _DownloadsContentState extends ConsumerState<_DownloadsContent> {
     Set<String> selectedHashes,
   ) async {
     if (selectedHashes.isEmpty) return;
-    final success = await ref
+    final result = await ref
         .read(torrentListProvider.notifier)
         .pauseTorrents(selectedHashes.toList());
-    if (success) {
+    if (result.success) {
       ref.read(selectedTorrentHashesProvider.notifier).clear();
       ref.read(selectionModeProvider.notifier).disable();
     } else if (context.mounted) {
       AppSnackBar.showError(
         context,
-        message: 'Failed to pause selected torrents',
+        message: result.messageOr('Failed to pause selected torrents'),
       );
     }
   }
@@ -756,16 +756,16 @@ class _DownloadsContentState extends ConsumerState<_DownloadsContent> {
     Set<String> selectedHashes,
   ) async {
     if (selectedHashes.isEmpty) return;
-    final success = await ref
+    final result = await ref
         .read(torrentListProvider.notifier)
         .resumeTorrents(selectedHashes.toList());
-    if (success) {
+    if (result.success) {
       ref.read(selectedTorrentHashesProvider.notifier).clear();
       ref.read(selectionModeProvider.notifier).disable();
     } else if (context.mounted) {
       AppSnackBar.showError(
         context,
-        message: 'Failed to resume selected torrents',
+        message: result.messageOr('Failed to resume selected torrents'),
       );
     }
   }
@@ -784,20 +784,20 @@ class _DownloadsContentState extends ConsumerState<_DownloadsContent> {
 
     if (result == null || !result.confirmed) return;
 
-    final success = await ref
+    final deletion = await ref
         .read(torrentListProvider.notifier)
         .deleteTorrents(
           selectedHashes.toList(),
           deleteFiles: result.deleteFiles,
         );
 
-    if (success) {
+    if (deletion.success) {
       ref.read(selectedTorrentHashesProvider.notifier).clear();
       ref.read(selectionModeProvider.notifier).disable();
     } else if (context.mounted) {
       AppSnackBar.showError(
         context,
-        message: 'Failed to delete selected torrents',
+        message: deletion.messageOr('Failed to delete selected torrents'),
       );
     }
   }
@@ -1067,14 +1067,17 @@ class _TorrentListBuilder extends ConsumerWidget {
     Torrent torrent,
   ) async {
     AppHaptics.lightImpact();
-    final success = await ref
+    final result = await ref
         .read(torrentListProvider.notifier)
         .pauseTorrent(torrent.hash);
     if (context.mounted) {
-      if (success) {
+      if (result.success) {
         AppSnackBar.showInfo(context, message: 'Paused: ${torrent.name}');
       } else {
-        AppSnackBar.showError(context, message: 'Failed to pause torrent');
+        AppSnackBar.showError(
+          context,
+          message: result.messageOr('Failed to pause torrent'),
+        );
       }
     }
   }
@@ -1085,14 +1088,17 @@ class _TorrentListBuilder extends ConsumerWidget {
     Torrent torrent,
   ) async {
     AppHaptics.lightImpact();
-    final success = await ref
+    final result = await ref
         .read(torrentListProvider.notifier)
         .resumeTorrent(torrent.hash);
     if (context.mounted) {
-      if (success) {
+      if (result.success) {
         AppSnackBar.showSuccess(context, message: 'Resumed: ${torrent.name}');
       } else {
-        AppSnackBar.showError(context, message: 'Failed to resume torrent');
+        AppSnackBar.showError(
+          context,
+          message: result.messageOr('Failed to resume torrent'),
+        );
       }
     }
   }
@@ -1109,15 +1115,18 @@ class _TorrentListBuilder extends ConsumerWidget {
 
     if (result != null && result.confirmed) {
       AppHaptics.mediumImpact();
-      final success = await ref
+      final deletion = await ref
           .read(torrentListProvider.notifier)
           .deleteTorrent(torrent.hash, deleteFiles: result.deleteFiles);
 
       if (context.mounted) {
-        if (success) {
+        if (deletion.success) {
           AppSnackBar.showSuccess(context, message: 'Deleted: ${torrent.name}');
         } else {
-          AppSnackBar.showError(context, message: 'Failed to delete torrent');
+          AppSnackBar.showError(
+            context,
+            message: deletion.messageOr('Failed to delete torrent'),
+          );
         }
       }
     }

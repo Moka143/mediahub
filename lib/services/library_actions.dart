@@ -12,8 +12,13 @@ import 'tmdb_account_service.dart';
 import 'app_logger.dart';
 
 /// Cache of show-name → TMDB show id so the watched-sync doesn't hit
-/// `/search/tv` on every Mark watched / Mark not watched click. A null
-/// entry is also cached so we don't retry a confirmed miss either.
+/// `/search/tv` on every Mark watched / Mark not watched click.
+///
+/// A confirmed miss (TMDB answered, and had no match) is cached as null so
+/// we don't retry it. A *failure* — network down, rate limited, 5xx — is
+/// deliberately NOT cached: these maps live for the whole process, so
+/// caching a transient failure meant that title could never resolve again
+/// until the app restarted, and every watched-sync for it silently no-oped.
 final Map<String, int?> _showIdCache = {};
 
 /// Same idea as [_showIdCache] but for movies — `/search/movie`.
@@ -28,17 +33,18 @@ Future<int?> _resolveShowId(WidgetRef ref, String? showName) async {
   try {
     final shows = await ref.read(tmdbServiceProvider).searchShows(showName);
     final id = shows.isNotEmpty ? shows.first.id : null;
+    // Only reached when TMDB actually answered — safe to remember.
     _showIdCache[showName] = id;
     return id;
-  } catch (_) {
-    _showIdCache[showName] = null;
-    return null;
+  } catch (e) {
+    AppLog.w('[LibraryActions] show id lookup failed for "$showName": $e');
+    return null; // Not cached — retry on the next pass.
   }
 }
 
-/// Look up a TMDB movie id by name. Same null-cache pattern as
-/// [_resolveShowId]. Used by movie-watched sync + the
-/// reconcile push step for `LocalMediaFile`s with no `seasonNumber`.
+/// Look up a TMDB movie id by name. Same cache-misses-not-failures rule as
+/// [_resolveShowId]. Used by movie-watched sync + the reconcile push step
+/// for `LocalMediaFile`s with no `seasonNumber`.
 Future<int?> _resolveMovieId(WidgetRef ref, String? movieName) async {
   if (movieName == null || movieName.isEmpty) return null;
   if (_movieIdCache.containsKey(movieName)) return _movieIdCache[movieName];
@@ -47,9 +53,9 @@ Future<int?> _resolveMovieId(WidgetRef ref, String? movieName) async {
     final id = movies.isNotEmpty ? movies.first.id : null;
     _movieIdCache[movieName] = id;
     return id;
-  } catch (_) {
-    _movieIdCache[movieName] = null;
-    return null;
+  } catch (e) {
+    AppLog.w('[LibraryActions] movie id lookup failed for "$movieName": $e');
+    return null; // Not cached — retry on the next pass.
   }
 }
 
@@ -127,10 +133,10 @@ Future<LibraryDeleteResult> deleteLibraryItem(
   final hash = _findTorrentHashForFile(ref, file);
   if (hash != null) {
     try {
-      final ok = await ref.read(torrentListProvider.notifier).deleteTorrents([
+      final res = await ref.read(torrentListProvider.notifier).deleteTorrents([
         hash,
       ], deleteFiles: true);
-      if (ok) {
+      if (res.success) {
         // Torrent delete already invalidates media providers + cleans stale
         // watch progress entries (see TorrentListNotifier.deleteTorrents).
         return const LibraryDeleteResult(

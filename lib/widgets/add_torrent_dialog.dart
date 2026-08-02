@@ -98,29 +98,29 @@ class _AddTorrentDialogState extends ConsumerState<AddTorrentDialog> {
 
     try {
       final notifier = ref.read(torrentListProvider.notifier);
-      bool success;
+      final TorrentActionResult result;
 
       if (hasMagnet) {
-        success = await notifier.addMagnet(
+        result = await notifier.addMagnet(
           _magnetController.text,
           savePath: _savePath,
           startNow: _startImmediately,
         );
       } else {
-        success = await notifier.addTorrentFile(
+        result = await notifier.addTorrentFile(
           File(_selectedFilePath!),
           savePath: _savePath,
           startNow: _startImmediately,
         );
       }
 
-      if (success) {
+      if (result.success) {
         if (mounted) {
           Navigator.of(context).pop(true);
         }
       } else {
         setState(() {
-          _error = 'Failed to add torrent';
+          _error = result.messageOr('Failed to add torrent');
           _isLoading = false;
         });
       }
