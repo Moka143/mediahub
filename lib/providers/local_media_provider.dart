@@ -8,26 +8,12 @@ import '../services/app_logger.dart';
 import '../services/local_media_scanner.dart';
 import '../services/tmdb_api_service.dart';
 import 'settings_provider.dart';
-import 'tmdb_account_provider.dart';
+import 'shows_provider.dart';
 import 'watch_progress_provider.dart';
 
 /// Provider for download save path from settings
 final downloadPathProvider = Provider<String>((ref) {
   return ref.watch(settingsProvider).defaultSavePath;
-});
-
-/// Provider for TMDB API service — uses the effective access token (user
-/// access token when signed in, otherwise user-pasted read token or the
-/// bundled default), so users who don't manually enter a key still get
-/// catalog access in release builds.
-final tmdbServiceProvider = Provider<TmdbApiService>((ref) {
-  // Defer to tmdbAccountServiceProvider's logic by reading the session
-  // directly: when signed in, the user token takes precedence over
-  // the read token.
-  final session = ref.watch(tmdbSessionProvider);
-  final String token =
-      session?.accessToken ?? ref.watch(effectiveTmdbAccessTokenProvider);
-  return TmdbApiService(accessToken: token);
 });
 
 /// Cache for show poster lookups.
@@ -51,7 +37,7 @@ final showPosterProvider = FutureProvider.family<String?, String>((
     return _showPosterCache[showName];
   }
 
-  final tmdb = ref.read(tmdbServiceProvider);
+  final tmdb = ref.read(tmdbApiServiceProvider);
   final String? posterUrl;
   try {
     final shows = await tmdb.searchShows(showName);
@@ -79,7 +65,7 @@ final moviePosterProvider = FutureProvider.family<String?, String>((
     return _moviePosterCache[movieName];
   }
 
-  final tmdb = ref.read(tmdbServiceProvider);
+  final tmdb = ref.read(tmdbApiServiceProvider);
   final String? posterUrl;
   try {
     final movies = await tmdb.searchMovies(movieName);

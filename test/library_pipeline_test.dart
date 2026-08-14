@@ -3,12 +3,12 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_torrent_client/models/local_media_file.dart';
-import 'package:flutter_torrent_client/models/watch_progress.dart';
-import 'package:flutter_torrent_client/providers/local_media_provider.dart';
-import 'package:flutter_torrent_client/providers/settings_provider.dart';
-import 'package:flutter_torrent_client/providers/watch_progress_provider.dart';
-import 'package:flutter_torrent_client/utils/platform_utils.dart';
+import 'package:mediahub/models/local_media_file.dart';
+import 'package:mediahub/models/watch_progress.dart';
+import 'package:mediahub/providers/local_media_provider.dart';
+import 'package:mediahub/providers/settings_provider.dart';
+import 'package:mediahub/providers/watch_progress_provider.dart';
+import 'package:mediahub/utils/platform_utils.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// End-to-end over the real provider graph: a directory on disk → the

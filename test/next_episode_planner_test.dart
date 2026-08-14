@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_torrent_client/services/next_episode_planner.dart';
+import 'package:mediahub/services/next_episode_planner.dart';
 
 /// A 45-minute episode — the shape most of these rules were tuned for.
 const _episode = Duration(minutes: 45);

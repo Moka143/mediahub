@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:flutter_torrent_client/services/opensubtitles_service.dart';
+import 'package:mediahub/services/opensubtitles_service.dart';
 
 void main() {
   group('Subtitle.getLanguageName', () {

@@ -246,13 +246,6 @@ class StreamingService {
     'm2ts',
   };
 
-  /// Minimum contiguous piece percentage at the start of the file.
-  /// The piece-level check verifies these are actually downloaded in order.
-  /// Tracks the higher byte floor below — 5% of pieces matches the ~10%
-  /// byte target without overshooting on tiny files where each piece is
-  /// a big fraction of the whole.
-  static const double minPiecePercent = 0.05;
-
   /// Pre-play buffer model: max(absolute floor, 10% of file), clamped to a
   /// cap so a 50 GB UHD rip doesn't demand 5 GB before opening. Matches the
   /// user's mental model of "stream waits for ~10% before playing" while
@@ -858,10 +851,9 @@ class StreamingService {
 
   /// Handle buffering state for a streaming session.
   ///
-  /// Uses TWO checks before declaring ready:
-  /// 1. Overall file progress → enough bytes buffered (scales with file size).
-  /// 2. Piece-level contiguous check → the selected file's first N pieces are
-  ///    actually downloaded in order, so the player won't hit gaps.
+  /// Readiness is byte-fraction plus [assessBuffering] (stalled vs too-slow
+  /// vs waiting). Piece-level gaps are the HTTP proxy's job — see
+  /// [LocalStreamingServer] — not a second pre-play gate here.
   Future<void> _handleBuffering(String sessionId, Torrent torrent) async {
     final session = _sessions[sessionId];
     if (session == null || session.selectedFileIndex == null) return;

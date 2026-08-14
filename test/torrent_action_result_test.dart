@@ -1,7 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_torrent_client/providers/torrent_provider.dart';
-import 'package:flutter_torrent_client/services/qbittorrent_api_service.dart';
+import 'package:mediahub/providers/torrent_provider.dart';
+import 'package:mediahub/services/qbittorrent_api_service.dart';
 
 DioException _dio(DioExceptionType type, {int? statusCode, String? message}) {
   final options = RequestOptions(path: '/api/v2/torrents/pause');

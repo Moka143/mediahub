@@ -6,6 +6,7 @@ import '../models/local_media_file.dart';
 import '../models/watch_progress.dart';
 import '../providers/connection_provider.dart';
 import '../providers/local_media_provider.dart';
+import '../providers/shows_provider.dart';
 import '../providers/tmdb_account_provider.dart';
 import '../providers/torrent_provider.dart';
 import '../providers/watch_progress_provider.dart';
@@ -33,7 +34,7 @@ Future<int?> _resolveShowId(WidgetRef ref, String? showName) async {
   if (showName == null || showName.isEmpty) return null;
   if (_showIdCache.containsKey(showName)) return _showIdCache[showName];
   try {
-    final shows = await ref.read(tmdbServiceProvider).searchShows(showName);
+    final shows = await ref.read(tmdbApiServiceProvider).searchShows(showName);
     final id = shows.isNotEmpty ? shows.first.id : null;
     // Only reached when TMDB actually answered — safe to remember.
     _showIdCache[showName] = id;
@@ -51,7 +52,9 @@ Future<int?> _resolveMovieId(WidgetRef ref, String? movieName) async {
   if (movieName == null || movieName.isEmpty) return null;
   if (_movieIdCache.containsKey(movieName)) return _movieIdCache[movieName];
   try {
-    final movies = await ref.read(tmdbServiceProvider).searchMovies(movieName);
+    final movies = await ref
+        .read(tmdbApiServiceProvider)
+        .searchMovies(movieName);
     final id = movies.isNotEmpty ? movies.first.id : null;
     _movieIdCache[movieName] = id;
     return id;

@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:flutter_torrent_client/models/stream_request.dart';
-import 'package:flutter_torrent_client/models/torrentio_stream.dart';
-import 'package:flutter_torrent_client/services/streaming_service.dart';
+import 'package:mediahub/models/stream_request.dart';
+import 'package:mediahub/models/torrentio_stream.dart';
+import 'package:mediahub/services/streaming_service.dart';
 
 StreamingSession _session({DateTime? createdAt}) => StreamingSession(
   id: 'session-1',

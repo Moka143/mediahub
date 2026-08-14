@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:flutter_torrent_client/services/app_logger.dart';
+import 'package:mediahub/services/app_logger.dart';
 
 void main() {
   late Directory tmp;

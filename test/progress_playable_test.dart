@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_torrent_client/models/watch_progress.dart';
-import 'package:flutter_torrent_client/providers/watch_progress_provider.dart';
+import 'package:mediahub/models/watch_progress.dart';
+import 'package:mediahub/providers/watch_progress_provider.dart';
 
 void main() {
   group('WatchProgress.isSyntheticPath', () {

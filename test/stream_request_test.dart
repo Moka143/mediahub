@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_torrent_client/models/eztv_torrent.dart';
-import 'package:flutter_torrent_client/models/stream_request.dart';
-import 'package:flutter_torrent_client/models/torrentio_stream.dart';
+import 'package:mediahub/models/eztv_torrent.dart';
+import 'package:mediahub/models/stream_request.dart';
+import 'package:mediahub/models/torrentio_stream.dart';
 
 void main() {
   group('StreamRequest.fromTorrentio', () {

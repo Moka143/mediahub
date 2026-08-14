@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:flutter_torrent_client/services/local_streaming_server.dart';
+import 'package:mediahub/services/local_streaming_server.dart';
 
 /// Matches the private `_tailProbeWindow` on the server (64 MB).
 const _tailProbeWindow = 64 * 1024 * 1024;

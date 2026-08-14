@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:flutter_torrent_client/services/window_state_service.dart';
+import 'package:mediahub/services/window_state_service.dart';
 
 void main() {
   group('WindowStateService.isSane', () {

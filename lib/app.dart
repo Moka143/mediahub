@@ -14,8 +14,8 @@ final rootScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 
 /// Main application widget
-class TorrentClientApp extends ConsumerWidget {
-  const TorrentClientApp({super.key});
+class MediaHubApp extends ConsumerWidget {
+  const MediaHubApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
