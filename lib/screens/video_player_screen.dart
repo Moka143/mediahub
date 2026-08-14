@@ -547,10 +547,9 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         _currentShowId = show.id;
       }
       unawaited(
-        ref.read(watchProgressProvider.notifier).attachShowId(
-          widget.file.path,
-          show.id,
-        ),
+        ref
+            .read(watchProgressProvider.notifier)
+            .attachShowId(widget.file.path, show.id),
       );
 
       // Get full show details with IMDB ID (using append_to_response for external_ids)
@@ -724,10 +723,9 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
           });
         }
         unawaited(
-          ref.read(watchProgressProvider.notifier).attachShowId(
-            widget.file.path,
-            show.id,
-          ),
+          ref
+              .read(watchProgressProvider.notifier)
+              .attachShowId(widget.file.path, show.id),
         );
       }
 
@@ -1330,7 +1328,8 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
                   right: AppSpacing.lg,
                   bottom: 110,
                   child: NextEpisodeOverlay(
-                    episodeCode: _nextEpisode?.episodeCode ??
+                    episodeCode:
+                        _nextEpisode?.episodeCode ??
                         _nextEpisodeFromTmdb?.episodeCode ??
                         '',
                     title: _nextEpisode != null

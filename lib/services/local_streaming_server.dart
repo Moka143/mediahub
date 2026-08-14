@@ -646,9 +646,7 @@ class LocalStreamingServer {
         // Sparse zeros at byte 0 must never reach mpv — it treats them as
         // a broken container and gives up on the stream for good.
         if (position == 0 && !looksLikeContainerHeader(bytes)) {
-          AppLog.d(
-            '[$_logTag] first bytes are still sparse zeros — waiting',
-          );
+          AppLog.d('[$_logTag] first bytes are still sparse zeros — waiting');
           await Future<void>.delayed(_waitInterval);
           continue;
         }

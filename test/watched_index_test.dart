@@ -366,23 +366,29 @@ void main() {
       expect(p.followsRemoteUnwatch, isFalse);
     });
 
-    test('a finished episode with the file gone still does not follow TMDB unwatch', () {
-      final p = _entry(
-        path: '/gone.mkv',
-        isCompleted: true,
-        position: Duration.zero,
-        duration: const Duration(minutes: 43),
-      );
-      expect(p.shouldMarkCompleted, isFalse);
-      expect(p.isEffectivelyWatched, isTrue);
-      expect(p.followsRemoteUnwatch, isFalse);
-    });
+    test(
+      'a finished episode with the file gone still does not follow TMDB unwatch',
+      () {
+        final p = _entry(
+          path: '/gone.mkv',
+          isCompleted: true,
+          position: Duration.zero,
+          duration: const Duration(minutes: 43),
+        );
+        expect(p.shouldMarkCompleted, isFalse);
+        expect(p.isEffectivelyWatched, isTrue);
+        expect(p.followsRemoteUnwatch, isFalse);
+      },
+    );
 
-    test('an explicit mark with no playback still follows a remote unwatch', () {
-      final p = _entry(path: '/a.mkv', isCompleted: true);
-      expect(p.shouldMarkCompleted, isFalse);
-      expect(p.isEffectivelyWatched, isTrue);
-      expect(p.followsRemoteUnwatch, isTrue);
-    });
+    test(
+      'an explicit mark with no playback still follows a remote unwatch',
+      () {
+        final p = _entry(path: '/a.mkv', isCompleted: true);
+        expect(p.shouldMarkCompleted, isFalse);
+        expect(p.isEffectivelyWatched, isTrue);
+        expect(p.followsRemoteUnwatch, isTrue);
+      },
+    );
   });
 }

@@ -14,7 +14,11 @@ void main() {
           (
             id: 1,
             name: 'Lioness',
-            recs: [_show(1, 'Lioness'), _show(10, 'The Night Agent'), _show(11, 'Jack Ryan')],
+            recs: [
+              _show(1, 'Lioness'),
+              _show(10, 'The Night Agent'),
+              _show(11, 'Jack Ryan'),
+            ],
           ),
           (
             id: 2,
@@ -109,16 +113,8 @@ void main() {
     });
 
     test('the same day always picks the same seeds', () {
-      final a = pickDailySeeds(
-        showIds: [1, 2],
-        movieIds: [100],
-        dayIndex: 4,
-      );
-      final b = pickDailySeeds(
-        showIds: [1, 2],
-        movieIds: [100],
-        dayIndex: 4,
-      );
+      final a = pickDailySeeds(showIds: [1, 2], movieIds: [100], dayIndex: 4);
+      final b = pickDailySeeds(showIds: [1, 2], movieIds: [100], dayIndex: 4);
       expect(a, b);
     });
   });

@@ -881,9 +881,7 @@ class QBittorrentApiService {
       );
 
       if (isSuccessStatus(response.statusCode) && response.data is List) {
-        return (response.data as List)
-            .map((e) => (e as num).toInt())
-            .toList();
+        return (response.data as List).map((e) => (e as num).toInt()).toList();
       }
       return null;
     } catch (e) {

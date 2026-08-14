@@ -42,9 +42,11 @@ const _maxItems = 14;
 @visibleForTesting
 int homeRecDayIndex([DateTime? now]) {
   final d = (now ?? DateTime.now()).toLocal();
-  return DateTime(d.year, d.month, d.day)
-      .difference(DateTime(2020, 1, 1))
-      .inDays;
+  return DateTime(
+    d.year,
+    d.month,
+    d.day,
+  ).difference(DateTime(2020, 1, 1)).inDays;
 }
 
 @visibleForTesting

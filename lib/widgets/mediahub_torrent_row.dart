@@ -508,11 +508,7 @@ class _RowOverflowMenu extends StatelessWidget {
         width: 26,
         height: 26,
         child: Center(
-          child: Icon(
-            Icons.more_horiz_rounded,
-            size: 14,
-            color: AppColors.fg1,
-          ),
+          child: Icon(Icons.more_horiz_rounded, size: 14, color: AppColors.fg1),
         ),
       ),
       onSelected: (a) {

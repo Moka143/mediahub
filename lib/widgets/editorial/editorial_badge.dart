@@ -67,7 +67,11 @@ class EditorialBadge extends StatelessWidget {
             BadgeKind.err => (AppColors.err, const Color(0x80FF5F5B)),
           };
 
-    final fontSize = prominent ? 13.0 : compact ? 9.0 : 10.0;
+    final fontSize = prominent
+        ? 13.0
+        : compact
+        ? 9.0
+        : 10.0;
     final resolvedIconSize = prominent ? 14.0 : iconSize;
     final padding = prominent
         ? const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: 6)

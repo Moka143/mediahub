@@ -211,7 +211,8 @@ final watchedItemsProvider = Provider<List<WatchProgress>>((ref) {
   return progress.values
       .where(
         (p) =>
-            p.isEffectivelyWatched && isProgressPlayable(p.filePath, libraryPaths),
+            p.isEffectivelyWatched &&
+            isProgressPlayable(p.filePath, libraryPaths),
       )
       .toList()
     ..sort((a, b) => b.lastWatched.compareTo(a.lastWatched));

@@ -482,16 +482,19 @@ void main() {
       );
     });
 
-    test('prefixPieceIds still returns leading pieces when piece size is unknown', () {
-      expect(
-        LocalStreamingServer.prefixPieceIds(
-          firstPiece: 10,
-          lastPiece: 19,
-          pieceSize: 0,
-        ),
-        [10, 11, 12, 13],
-      );
-    });
+    test(
+      'prefixPieceIds still returns leading pieces when piece size is unknown',
+      () {
+        expect(
+          LocalStreamingServer.prefixPieceIds(
+            firstPiece: 10,
+            lastPiece: 19,
+            pieceSize: 0,
+          ),
+          [10, 11, 12, 13],
+        );
+      },
+    );
 
     test('unknown piece size is ready once the first piece is state 2', () {
       final states = List<int>.filled(20, 0);

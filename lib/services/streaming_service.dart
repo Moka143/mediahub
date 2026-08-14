@@ -1109,12 +1109,7 @@ class StreamingService {
       if (pieceSize <= 0) {
         pieceSize = await _qbtService.getPieceSize(torrent.hash);
       }
-      final range = _pieceRangeFor(
-        torrent,
-        files,
-        idx,
-        pieceSize: pieceSize,
-      );
+      final range = _pieceRangeFor(torrent, files, idx, pieceSize: pieceSize);
       if (range == null) {
         AppLog.d('[StreamingService] prefix: no piece range for file $idx');
         return false;
