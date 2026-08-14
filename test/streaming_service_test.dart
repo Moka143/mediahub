@@ -28,6 +28,22 @@ void main() {
       expect(updated.createdAt, created);
     });
 
+    test('preserves allowSlowBuffer across heartbeat copies', () {
+      final session = StreamingSession(
+        id: 'session-1',
+        request: StreamRequest.fromTorrentio(
+          TorrentioStream(
+            name: 'Test.Release.1080p',
+            title: 'Test.Release.1080p',
+            infoHash: 'abc123',
+          ),
+        ),
+        allowSlowBuffer: true,
+      ).copyWith(bufferProgress: 0.2);
+
+      expect(session.allowSlowBuffer, isTrue);
+    });
+
     test('preserves createdAt across repeated heartbeat updates', () {
       // _updateSession copies the session on every 2 s poll tick. Age has to
       // keep accumulating across those copies — if it reset, metadataTimeout

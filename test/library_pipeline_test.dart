@@ -204,6 +204,30 @@ void main() {
       expect(container.read(continueWatchingProvider), isEmpty);
     });
 
+    test('90%+ without the completed flag is not Continue Watching', () async {
+      final f = await makeFile('Severance.S02E01.mkv', bytes: 2 * 1024 * 1024);
+      final container = await makeContainer(
+        prefs: {'watch_progress': progressJson(f.path, 0.95)},
+      );
+      await library(container);
+
+      expect(container.read(continueWatchingProvider), isEmpty);
+      expect(
+        container
+            .read(watchedIndexProvider)
+            .isEpisodeWatched(
+              showId: 95396,
+              season: 2,
+              episode: 1,
+              showName: 'Severance',
+            ),
+        isTrue,
+      );
+      final files = container.read(localMediaFilesProvider).value ?? [];
+      expect(files, isNotEmpty);
+      expect(files.first.isWatched, isTrue);
+    });
+
     test('a finished file is not Continue Watching, but is watched', () async {
       final f = await makeFile('Severance.S02E01.mkv', bytes: 2 * 1024 * 1024);
       final container = await makeContainer(

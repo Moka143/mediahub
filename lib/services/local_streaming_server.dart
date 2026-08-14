@@ -114,6 +114,16 @@ class LocalStreamingServer {
   /// up an HTTP socket forever.
   static const Duration _stallTimeout = Duration(minutes: 5);
 
+  /// How long the initial `bytes=0-` open may wait for a real prefix before
+  /// we 503 rather than advertising the whole file and stalling in the body.
+  /// Kept under mpv's network timeout (~60 s).
+  static const Duration _openPrefixWait = Duration(seconds: 20);
+
+  /// Contiguous prefix mpv's lavf demuxer needs to identify the file.
+  /// Matches `demuxer-lavf-probesize` in the player.
+  @visibleForTesting
+  static const int prefixProbeBytes = 8 * 1024 * 1024; // 8 MB
+
   HttpServer? _server;
   final Set<HttpRequest> _activeRequests = {};
 
@@ -286,6 +296,118 @@ class LocalStreamingServer {
     return availableEnd;
   }
 
+  /// Whether the leading bytes of a media file are a real container, not
+  /// qBittorrent's sparse-zero padding.
+  ///
+  /// Season-pack file progress can sit at 10% while piece 0 of *this* file
+  /// is still empty. Serving those zeros makes mpv fail with
+  /// `EBML header parsing failed` / `Failed to recognize file format`,
+  /// after which it never recovers even when the real header lands.
+  @visibleForTesting
+  static bool looksLikeContainerHeader(List<int> bytes) {
+    if (bytes.length < 4) return false;
+    if (bytes[0] == 0x1A &&
+        bytes[1] == 0x45 &&
+        bytes[2] == 0xDF &&
+        bytes[3] == 0xA3) {
+      return true; // MKV / WebM EBML
+    }
+    if (bytes[0] == 0x47) return true; // MPEG-TS
+    if (bytes.length >= 8) {
+      final tag = String.fromCharCodes(bytes.sublist(4, 8));
+      if (tag == 'ftyp' || tag == 'moov' || tag == 'mdat') return true;
+    }
+    if (bytes.length >= 4) {
+      final riff = String.fromCharCodes(bytes.sublist(0, 4));
+      if (riff == 'RIFF' || riff == 'AVI ') return true;
+    }
+    return false;
+  }
+
+  /// Piece indices covering a contiguous prefix of [minBytes] from the
+  /// start of a file. Used to bump those pieces to max priority.
+  @visibleForTesting
+  static List<int> prefixPieceIds({
+    required int firstPiece,
+    required int lastPiece,
+    required int pieceSize,
+    int minBytes = prefixProbeBytes,
+  }) {
+    if (firstPiece < 0 || lastPiece < firstPiece) {
+      return const [];
+    }
+    final filePieces = lastPiece - firstPiece + 1;
+    // `/torrents/info` does not include piece_size, so callers often pass 0.
+    // Fall back to a handful of leading pieces — enough for mpv to probe.
+    if (pieceSize <= 0) {
+      final need = filePieces < 4 ? filePieces : 4;
+      return [for (var i = 0; i < need; i++) firstPiece + i];
+    }
+    final need = (minBytes / pieceSize).ceil().clamp(1, filePieces).toInt();
+    return [for (var i = 0; i < need; i++) firstPiece + i];
+  }
+
+  /// True when the first piece of this file is fully downloaded (state 2).
+  ///
+  /// One complete leading piece is enough to open; the HTTP proxy waits on
+  /// the rest. Requiring an 8 MB run blocked real streams: sequential had
+  /// finished piece 1613 while 1614 never completed, so we sat until 99%.
+  @visibleForTesting
+  static bool prefixPiecesReady({
+    required List<int> pieceStates,
+    required int firstPiece,
+    required int lastPiece,
+    required int pieceSize,
+    int minBytes = prefixProbeBytes,
+  }) {
+    if (firstPiece < 0 || firstPiece > lastPiece) return false;
+    if (firstPiece >= pieceStates.length) return false;
+    return pieceStates[firstPiece] == 2;
+  }
+
+  /// True when [path] starts with a real container header, not zeros.
+  static Future<bool> fileHasPlayableHeader(String path) async {
+    RandomAccessFile? raf;
+    try {
+      raf = await File(path).open();
+      final bytes = await raf.read(16);
+      return looksLikeContainerHeader(bytes);
+    } catch (_) {
+      return false;
+    } finally {
+      await raf?.close();
+    }
+  }
+
+  /// Map a file in a multi-file torrent onto piece indices.
+  ///
+  /// qBittorrent's `piece_range` is missing on some WebUI versions; we
+  /// reconstruct it from file sizes + piece size so we don't fall back to
+  /// the "0..progress×size is contiguous" lie.
+  @visibleForTesting
+  static (int first, int last)? pieceRangeForFile({
+    required List<int> fileSizes,
+    required int fileIndex,
+    required int pieceSize,
+  }) {
+    if (pieceSize <= 0 || fileIndex < 0 || fileIndex >= fileSizes.length) {
+      return null;
+    }
+    var offset = 0;
+    for (var i = 0; i < fileSizes.length; i++) {
+      final size = fileSizes[i];
+      if (size <= 0) {
+        if (i == fileIndex) return null;
+        continue;
+      }
+      if (i == fileIndex) {
+        return (offset ~/ pieceSize, (offset + size - 1) ~/ pieceSize);
+      }
+      offset += size;
+    }
+    return null;
+  }
+
   /// Whether a read at [start] lands in the container-index tail window
   /// described on [_tailProbeWindow].
   ///
@@ -348,8 +470,8 @@ class LocalStreamingServer {
       // the middle of the file fall outside the tail window and drop into
       // the blocking-read path below.
       final isTailProbe = isTailProbeStart(start, size);
-      final firstMissing = await _firstUnavailableByteFrom(start);
-      final startByteAvailable = firstMissing > start;
+      var firstMissing = await _firstUnavailableByteFrom(start);
+      var startByteAvailable = firstMissing > start;
       if (isTailProbe && !startByteAvailable) {
         AppLog.d(
           '[$_logTag] 416 tail-probe — start=$start not yet downloaded '
@@ -362,14 +484,32 @@ class LocalStreamingServer {
         return;
       }
 
-      // Shorten "give me the rest of the file" to the run that is actually on
-      // disk, so the response can complete rather than stalling mid-body.
-      final end = clampOpenEndedEnd(
-        start: start,
-        requestedEnd: range.end,
-        firstUnavailableByte: firstMissing,
-        openEnded: range.openEnded,
-      );
+      // Initial open (`bytes=0-`): wait for a real prefix, then advertise
+      // only that run. Promising the whole file while byte 0 is still
+      // missing hangs mpv until network-timeout (duration stays 00:00).
+      int end;
+      if (range.openEnded && start == 0) {
+        firstMissing = await _waitForStartPrefix(size);
+        startByteAvailable = firstMissing > 0;
+        if (!startByteAvailable) {
+          AppLog.w(
+            '[$_logTag] 503 — file start still not downloaded after '
+            '${_openPrefixWait.inSeconds}s',
+          );
+          res.statusCode = HttpStatus.serviceUnavailable;
+          await res.close();
+          return;
+        }
+        end = firstMissing - 1;
+        if (end > range.end) end = range.end;
+      } else {
+        end = clampOpenEndedEnd(
+          start: start,
+          requestedEnd: range.end,
+          firstUnavailableByte: firstMissing,
+          openEnded: range.openEnded,
+        );
+      }
       final clamped = end != range.end;
       final length = end - start + 1;
 
@@ -411,6 +551,22 @@ class LocalStreamingServer {
     } finally {
       _activeRequests.remove(req);
     }
+  }
+
+  /// Poll until byte 0 has a usable contiguous run, or [_openPrefixWait]
+  /// elapses. Returns the first unavailable file offset (0 if still empty).
+  Future<int> _waitForStartPrefix(int size) async {
+    final deadline = DateTime.now().add(_openPrefixWait);
+    var firstMissing = await _firstUnavailableByteFrom(0);
+    while (!_stopped && DateTime.now().isBefore(deadline)) {
+      if (firstMissing > 0 &&
+          (firstMissing >= minClampedChunk || firstMissing >= size)) {
+        return firstMissing;
+      }
+      await Future<void>.delayed(_waitInterval);
+      firstMissing = await _firstUnavailableByteFrom(0);
+    }
+    return firstMissing;
   }
 
   /// Stream [start..end] inclusive, blocking on missing pieces. Reads only
@@ -484,6 +640,15 @@ class LocalStreamingServer {
         if (bytes.isEmpty) {
           // Shouldn't happen — qBittorrent pre-allocates the file. Treat
           // as a transient I/O blip.
+          await Future<void>.delayed(_waitInterval);
+          continue;
+        }
+        // Sparse zeros at byte 0 must never reach mpv — it treats them as
+        // a broken container and gives up on the stream for good.
+        if (position == 0 && !looksLikeContainerHeader(bytes)) {
+          AppLog.d(
+            '[$_logTag] first bytes are still sparse zeros — waiting',
+          );
           await Future<void>.delayed(_waitInterval);
           continue;
         }
@@ -572,13 +737,19 @@ class LocalStreamingServer {
     return size;
   }
 
-  /// Linear (sequential-download) approximation used when piece metadata
-  /// isn't available.
+  /// Linear fallback when piece metadata isn't available.
+  ///
+  /// We used to pretend `0..progress×size` was a contiguous downloaded
+  /// prefix. That's only true for a single-file sequential torrent; a
+  /// season-pack episode can be 10% "downloaded" while its first piece is
+  /// still zeros. Claiming those bytes are ready is what made mpv parse
+  /// `0x00 at pos 0` and die.
+  ///
+  /// Without piece mapping we only trust the file when it's essentially
+  /// complete. Otherwise we block at [fromOffset] until piece states land.
   int _linearFirstUnavailable(int fromOffset, int size) {
     if (_cachedProgress >= 0.999) return size;
-    final downloaded = (size * _cachedProgress).floor();
-    if (fromOffset >= downloaded) return fromOffset;
-    return downloaded;
+    return fromOffset;
   }
 
   Future<int> _resolveFileSize() async {
@@ -609,22 +780,45 @@ class LocalStreamingServer {
           }
         }
       }
+
+      if (_pieceSize == null) {
+        try {
+          final torrents = await _qbt.getTorrents(hashes: [torrentHash]);
+          if (torrents.isNotEmpty && torrents.first.pieceSize > 0) {
+            _pieceSize = torrents.first.pieceSize;
+          }
+        } catch (e) {
+          AppLog.e('[$_logTag] torrent metadata lookup failed: $e');
+        }
+      }
+      // `/torrents/info` does not include piece_size on current qBit.
+      if (_pieceSize == null) {
+        try {
+          final size = await _qbt.getPieceSize(torrentHash);
+          if (size > 0) _pieceSize = size;
+        } catch (e) {
+          AppLog.e('[$_logTag] piece size lookup failed: $e');
+        }
+      }
+
+      if ((_pieceFirst == null || _pieceLast == null) &&
+          _pieceSize != null &&
+          fileIndex >= 0 &&
+          fileIndex < files.length) {
+        final computed = pieceRangeForFile(
+          fileSizes: files.map((f) => f.size.round()).toList(),
+          fileIndex: fileIndex,
+          pieceSize: _pieceSize!,
+        );
+        if (computed != null) {
+          _pieceFirst = computed.$1;
+          _pieceLast = computed.$2;
+        }
+      }
     } catch (e) {
       // Don't update timestamp on failure — retry on next call.
       AppLog.e('[$_logTag] file metadata lookup failed: $e');
       return;
-    }
-
-    if (_pieceSize == null) {
-      try {
-        final torrents = await _qbt.getTorrents(hashes: [torrentHash]);
-        if (torrents.isNotEmpty) {
-          final t = torrents.first;
-          if (t.pieceSize > 0) _pieceSize = t.pieceSize;
-        }
-      } catch (e) {
-        AppLog.e('[$_logTag] torrent metadata lookup failed: $e');
-      }
     }
 
     try {

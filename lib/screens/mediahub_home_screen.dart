@@ -10,6 +10,7 @@ import '../models/local_media_file.dart';
 import '../models/show.dart';
 import '../models/torrent.dart';
 import '../models/watch_progress.dart';
+import '../providers/home_recommendations_provider.dart';
 import '../providers/local_media_provider.dart';
 import '../providers/movies_provider.dart';
 import '../providers/navigation_provider.dart';
@@ -190,6 +191,96 @@ Future<void> _openHeroDetails(
   }
 }
 
+/// Backdrop + poster for the Home hero, always for the Continue
+/// Watching title itself. Never a different trending show.
+class _HeroArt {
+  const _HeroArt({this.backdropUrl, this.posterUrl});
+
+  final String? backdropUrl;
+  final String? posterUrl;
+}
+
+final _homeContinueHeroArtProvider = FutureProvider<_HeroArt?>((ref) async {
+  final list = ref.watch(continueWatchingProvider);
+  if (list.isEmpty) return null;
+  final hero = list.first;
+  final localFiles = ref
+      .watch(localMediaFilesProvider)
+      .maybeWhen(data: (f) => f, orElse: () => const <LocalMediaFile>[]);
+
+  String? localPosterUrl() {
+    if (hero.posterPath != null && hero.posterPath!.isNotEmpty) {
+      return _tmdbPoster(hero.posterPath, size: 'w500');
+    }
+    final name = hero.showName?.toLowerCase() ?? '';
+    if (name.isEmpty) return null;
+    for (final f in localFiles) {
+      if (f.posterPath != null && f.showName?.toLowerCase() == name) {
+        return _tmdbPoster(f.posterPath, size: 'w500');
+      }
+    }
+    return null;
+  }
+
+  final fallbackPoster = localPosterUrl();
+
+  if (hero.showId != null) {
+    try {
+      final show = await ref.watch(showDetailsProvider(hero.showId!).future);
+      return _HeroArt(
+        backdropUrl: show.backdropUrl,
+        posterUrl: show.posterUrl ?? fallbackPoster,
+      );
+    } catch (_) {}
+  }
+  if (hero.movieId != null) {
+    try {
+      final movie = await ref.watch(movieDetailsProvider(hero.movieId!).future);
+      return _HeroArt(
+        backdropUrl: movie.backdropUrl,
+        posterUrl: movie.posterUrl ?? fallbackPoster,
+      );
+    } catch (_) {}
+  }
+
+  final name = hero.showName;
+  if (name != null && name.isNotEmpty) {
+    final tmdb = ref.read(tmdbApiServiceProvider);
+    try {
+      final isEpisode = hero.seasonNumber != null || hero.episodeNumber != null;
+      if (isEpisode) {
+        final shows = await tmdb.searchShows(name);
+        if (shows.isNotEmpty) {
+          final show = shows.first;
+          return _HeroArt(
+            backdropUrl: show.backdropUrl,
+            posterUrl: show.posterUrl ?? fallbackPoster,
+          );
+        }
+      } else {
+        final movies = await tmdb.searchMovies(name);
+        if (movies.isNotEmpty) {
+          final movie = movies.first;
+          return _HeroArt(
+            backdropUrl: movie.backdropUrl,
+            posterUrl: movie.posterUrl ?? fallbackPoster,
+          );
+        }
+        final shows = await tmdb.searchShows(name);
+        if (shows.isNotEmpty) {
+          final show = shows.first;
+          return _HeroArt(
+            backdropUrl: show.backdropUrl,
+            posterUrl: show.posterUrl ?? fallbackPoster,
+          );
+        }
+      }
+    } catch (_) {}
+  }
+
+  return _HeroArt(posterUrl: fallbackPoster);
+});
+
 /// Procedural fallback when no real artwork is available — keeps the
 /// dark cinematic feel even before TMDB poster paths come back.
 Widget _hueBackdrop(int hue) {
@@ -214,6 +305,7 @@ Widget _hueBackdrop(int hue) {
 ///     Resume CTA when a `WatchProgress` is available, otherwise a
 ///     poetic empty state for first-run).
 ///   * Continue Watching row — 16:9 cards with progress bars.
+///   * Because you liked X — TMDB per-title recs from favorites.
 ///   * Freshly Downloaded row — recently-completed torrents.
 ///   * Two side-by-side panels: Active Downloads (live dl speeds)
 ///     and "Airing tonight" placeholder.
@@ -271,6 +363,7 @@ class MediaHubHomeScreen extends ConsumerWidget {
     // always shows real poster art instead of empty gradients.
     final trendingShows = ref.watch(trendingShowsProvider);
     final trendingMovies = ref.watch(trendingMoviesProvider);
+    final becauseYouLiked = ref.watch(homeRecommendationsProvider);
 
     return SingleChildScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -345,6 +438,61 @@ class MediaHubHomeScreen extends ConsumerWidget {
               ),
               const SizedBox(height: AppSpacing.xxl),
             ],
+
+            becauseYouLiked.maybeWhen(
+              data: (feed) => feed == null || feed.items.isEmpty
+                  ? const SizedBox.shrink()
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _SectionHeader(
+                          title: 'Because you liked ${feed.becauseTitle}',
+                          onSeeAll: () =>
+                              ref.read(currentTabIndexProvider.notifier).set(6),
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        SizedBox(
+                          height: 280,
+                          child: ListView.separated(
+                            scrollDirection: Axis.horizontal,
+                            physics: const ClampingScrollPhysics(),
+                            itemCount: feed.items.length,
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(width: AppSpacing.md),
+                            itemBuilder: (_, i) {
+                              final item = feed.items[i];
+                              return _PosterTile(
+                                imageUrl: item.posterUrl,
+                                hue: (item.id * 41 % 360).toDouble(),
+                                title: item.title,
+                                subtitle: item.year,
+                                onTap: () {
+                                  if (item.show != null) {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) =>
+                                            ShowDetailsScreen(show: item.show!),
+                                      ),
+                                    );
+                                  } else if (item.movie != null) {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => MovieDetailsScreen(
+                                          movie: item.movie!,
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                },
+                              );
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.xxl),
+                      ],
+                    ),
+              orElse: () => const SizedBox.shrink(),
+            ),
 
             // Trending Shows row — gives the page real poster art even
             // before the user has any continue-watching history.
@@ -493,7 +641,7 @@ class MediaHubHomeScreen extends ConsumerWidget {
   }
 }
 
-class _HeroCard extends StatelessWidget {
+class _HeroCard extends ConsumerWidget {
   const _HeroCard({
     required this.continueWatching,
     this.fallbackShow,
@@ -512,18 +660,23 @@ class _HeroCard extends StatelessWidget {
   final VoidCallback? onSecondaryTap;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final hero = continueWatching.isNotEmpty ? continueWatching.first : null;
     final fb = fallbackShow;
     final hue = hero != null
         ? (hero.showName?.codeUnits.fold<int>(0, (a, b) => a + b) ?? 220) % 360
         : (fb != null ? (fb.id * 37) % 360 : 220);
 
-    final backdropUrl =
-        _tmdbPoster(hero?.posterPath, size: 'original') ??
-        // Fallback: backdrop from the trending show, if any.
-        fb?.backdropUrl ??
-        fb?.posterUrl;
+    // Continue Watching uses that title's own backdrop + poster.
+    // Trending art is only for the empty-library welcome hero — mixing
+    // it in here is how Lioness ended up on another show's still.
+    final cwArt = hero == null
+        ? null
+        : ref.watch(_homeContinueHeroArtProvider).asData?.value;
+    final backdropUrl = hero != null
+        ? cwArt?.backdropUrl
+        : (fb?.backdropUrl ?? fb?.posterUrl);
+    final posterUrl = hero != null ? cwArt?.posterUrl : fb?.posterUrl;
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppRadius.xl),
@@ -532,8 +685,6 @@ class _HeroCard extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // Real TMDB poster as the hero backdrop when we have one;
-            // gradient fallback otherwise.
             if (backdropUrl != null)
               CachedNetworkImage(
                 imageUrl: backdropUrl,
@@ -555,15 +706,45 @@ class _HeroCard extends StatelessWidget {
                 ),
               ),
             ),
+            if (posterUrl != null)
+              Positioned(
+                right: AppSpacing.xxl,
+                top: 40,
+                bottom: 40,
+                child: AspectRatio(
+                  aspectRatio: 2 / 3,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                      border: Border.all(color: Colors.white.withAlpha(28)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withAlpha(140),
+                          blurRadius: 24,
+                          offset: const Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                      child: CachedNetworkImage(
+                        imageUrl: posterUrl,
+                        fit: BoxFit.cover,
+                        errorWidget: (_, _, _) => const SizedBox.shrink(),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.centerLeft,
                   end: Alignment.centerRight,
-                  stops: const [0.0, 0.6, 1.0],
+                  stops: const [0.0, 0.55, 0.82],
                   colors: [
-                    AppColors.bgPage.withAlpha(178),
-                    AppColors.bgPage.withAlpha(76),
+                    AppColors.bgPage.withAlpha(200),
+                    AppColors.bgPage.withAlpha(90),
                     Colors.transparent,
                   ],
                 ),

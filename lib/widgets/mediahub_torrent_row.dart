@@ -502,10 +502,18 @@ class _RowOverflowMenu extends StatelessWidget {
       color: kMediaHubPopupColor,
       shape: kMediaHubPopupShape,
       padding: EdgeInsets.zero,
-      icon: const Icon(
-        Icons.more_horiz_rounded,
-        size: 14,
-        color: AppColors.fg1,
+      splashRadius: 14,
+      constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+      child: const SizedBox(
+        width: 26,
+        height: 26,
+        child: Center(
+          child: Icon(
+            Icons.more_horiz_rounded,
+            size: 14,
+            color: AppColors.fg1,
+          ),
+        ),
       ),
       onSelected: (a) {
         switch (a) {

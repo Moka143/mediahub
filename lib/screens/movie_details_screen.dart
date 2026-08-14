@@ -293,7 +293,7 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
         streamingOverlayData?.value = StreamingOverlayData(
           title: '$titlePrefix "${movie.title}"',
           subtitle: pct > 0
-              ? '${pct.toStringAsFixed(1)}% ready$speedSuffix'
+              ? '${pct.toStringAsFixed(1)}% downloaded$speedSuffix'
               : 'Connecting…$speedSuffix',
           progress: pct > 0 ? session.bufferProgress : null,
           isIndeterminate: pct == 0,

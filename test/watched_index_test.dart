@@ -63,6 +63,8 @@ void main() {
           showId: 95396,
           season: 2,
           episode: 1,
+          position: const Duration(minutes: 10),
+          duration: const Duration(minutes: 50),
         ),
       ]);
 
@@ -71,6 +73,48 @@ void main() {
         isFalse,
       );
       expect(index.isEmpty, isTrue);
+    });
+
+    test('90%+ without the completed flag still counts as watched', () {
+      final index = WatchedIndex.fromProgress([
+        _entry(
+          path: '/a.mkv',
+          isCompleted: false,
+          showId: 95396,
+          season: 2,
+          episode: 1,
+          showName: 'Severance',
+          position: const Duration(minutes: 48),
+          duration: const Duration(minutes: 50),
+        ),
+      ]);
+
+      expect(
+        index.isEpisodeWatched(showId: 95396, season: 2, episode: 1),
+        isTrue,
+      );
+    });
+
+    test('matches by name when the stored TMDB id is wrong', () {
+      final index = WatchedIndex.fromProgress([
+        _entry(
+          path: '/lioness.mkv',
+          showId: 76479,
+          season: 1,
+          episode: 1,
+          showName: 'Special Ops Lioness',
+        ),
+      ]);
+
+      expect(
+        index.isEpisodeWatched(
+          showId: 113962,
+          season: 1,
+          episode: 1,
+          showName: 'Lioness',
+        ),
+        isTrue,
+      );
     });
 
     test('falls back to name matching for entries with no show id', () {
@@ -199,6 +243,20 @@ void main() {
       expect(index.movieCount, 2);
     });
 
+    test('90%+ without the completed flag still counts as a watched movie', () {
+      final index = WatchedIndex.fromProgress([
+        _entry(
+          path: '/dune.mkv',
+          isCompleted: false,
+          movieId: 438631,
+          position: const Duration(minutes: 148),
+          duration: const Duration(minutes: 155),
+        ),
+      ]);
+
+      expect(index.isMovieWatched(438631), isTrue);
+    });
+
     test('a completed movie with no resolved id is not indexed', () {
       final index = WatchedIndex.fromProgress([_entry(path: '/unknown.mkv')]);
       expect(index.movieCount, 0);
@@ -292,6 +350,39 @@ void main() {
 
     test('returns empty when the blob has no watched_episodes key', () {
       expect(parseLegacyEpisodeMarks(jsonEncode({'other': 1})), isEmpty);
+    });
+  });
+
+  group('WatchProgress watched helpers', () {
+    test('95% without the completed flag is effectively watched', () {
+      final p = _entry(
+        path: '/a.mkv',
+        isCompleted: false,
+        position: const Duration(minutes: 57),
+        duration: const Duration(minutes: 60),
+      );
+      expect(p.shouldMarkCompleted, isTrue);
+      expect(p.isEffectivelyWatched, isTrue);
+      expect(p.followsRemoteUnwatch, isFalse);
+    });
+
+    test('a finished episode with the file gone still does not follow TMDB unwatch', () {
+      final p = _entry(
+        path: '/gone.mkv',
+        isCompleted: true,
+        position: Duration.zero,
+        duration: const Duration(minutes: 43),
+      );
+      expect(p.shouldMarkCompleted, isFalse);
+      expect(p.isEffectivelyWatched, isTrue);
+      expect(p.followsRemoteUnwatch, isFalse);
+    });
+
+    test('an explicit mark with no playback still follows a remote unwatch', () {
+      final p = _entry(path: '/a.mkv', isCompleted: true);
+      expect(p.shouldMarkCompleted, isFalse);
+      expect(p.isEffectivelyWatched, isTrue);
+      expect(p.followsRemoteUnwatch, isTrue);
     });
   });
 }

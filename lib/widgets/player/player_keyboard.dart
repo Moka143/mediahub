@@ -23,8 +23,24 @@ void handlePlayerKeyEvent(
   required VoidCallback onToggleFullscreen,
   required VoidCallback onExitPlayer,
   required VoidCallback onShowShortcuts,
+  bool mediaOpened = true,
+  bool resumePromptVisible = false,
 }) {
   if (event is! KeyDownEvent) return;
+
+  // Resume prompt sits in front of an unopened player. Space / seek /
+  // volume would hit media_kit with no file and can take the view down
+  // with it. Escape still leaves.
+  if (resumePromptVisible || !mediaOpened) {
+    if (event.logicalKey == LogicalKeyboardKey.escape) {
+      if (isFullscreen) {
+        onToggleFullscreen();
+      } else {
+        onExitPlayer();
+      }
+    }
+    return;
+  }
 
   final playerService = ref.read(playerServiceProvider);
 

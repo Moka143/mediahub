@@ -101,8 +101,10 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
     final calendarDotPulse = autoDownloadState.isProcessing;
 
     // ── Global streaming safety net ────────────────────────────────────────
-    // If any session becomes ready while its originating screen is gone,
-    // this listener catches it and opens the player via the root navigator.
+    // If a *foreground* session becomes ready while its originating screen
+    // is gone, this listener opens the player via the root navigator.
+    // Next-episode prefetch passes makeActive: false so it never lands
+    // here and cannot replace the episode still playing.
     ref.listen<StreamingSession?>(activeStreamingSessionProvider, (
       previous,
       next,

@@ -31,10 +31,9 @@ class WatchedIndex {
   /// TMDB movie ids for every completed movie entry.
   final Set<int> _movieIds;
 
-  /// Completed episode entries that have season/episode but *no* show id —
-  /// older entries written before `showId` was persisted, plus anything
-  /// whose TMDB lookup never resolved. Matched fuzzily by name, which is
-  /// why they can't live in [_episodeKeys]. Normally a handful at most.
+  /// Episode entries kept for fuzzy name matching. Includes keyed
+  /// entries too — a stale/wrong TMDB id on the progress row would
+  /// otherwise hide a watched episode in the season browser.
   final List<WatchProgress> _unkeyedEpisodes;
 
   static final WatchedIndex empty = WatchedIndex._({}, {}, const []);
@@ -46,17 +45,17 @@ class WatchedIndex {
 
   /// Build from the raw watch-progress values.
   ///
-  /// Entries that are not completed are skipped entirely. An entry with
-  /// season+episode is treated as an episode even if it also somehow
-  /// carries a `movieId`, because episode identity is the more specific
-  /// claim.
+  /// Entries that are not effectively watched (completed flag or 90%+)
+  /// are skipped entirely. An entry with season+episode is treated as an
+  /// episode even if it also somehow carries a `movieId`, because episode
+  /// identity is the more specific claim.
   factory WatchedIndex.fromProgress(Iterable<WatchProgress> entries) {
     final episodeKeys = <String>{};
     final movieIds = <int>{};
     final unkeyed = <WatchProgress>[];
 
     for (final p in entries) {
-      if (!p.isCompleted) continue;
+      if (!p.isEffectivelyWatched) continue;
 
       final season = p.seasonNumber;
       final episode = p.episodeNumber;
@@ -64,9 +63,12 @@ class WatchedIndex {
         final showId = p.showId;
         if (showId != null) {
           episodeKeys.add(episodeKey(showId, season, episode));
-        } else {
-          unkeyed.add(p);
         }
+        // Always keep a name fallback. A stale/wrong TMDB id on the
+        // progress entry would otherwise hide a watched episode in the
+        // season browser (Lioness is 113962; some saves still carry
+        // another id).
+        unkeyed.add(p);
         continue;
       }
 
@@ -97,10 +99,15 @@ class WatchedIndex {
 
     final code = Formatters.episodeCode(season, episode).toLowerCase();
     final target = showName?.toLowerCase();
+    if (target == null || target.isEmpty) return false;
     return _unkeyedEpisodes.any((p) {
-      if (p.episodeCode?.toLowerCase() != code) return false;
-      if (target == null || target.isEmpty) return false;
-      return p.showName?.toLowerCase().contains(target) ?? false;
+      final sameEp =
+          (p.seasonNumber == season && p.episodeNumber == episode) ||
+          p.episodeCode?.toLowerCase() == code;
+      if (!sameEp) return false;
+      final stored = p.showName?.toLowerCase();
+      if (stored == null || stored.isEmpty) return false;
+      return stored.contains(target) || target.contains(stored);
     });
   }
 
@@ -111,7 +118,7 @@ class WatchedIndex {
   Set<int> get watchedMovieIds => Set.unmodifiable(_movieIds);
 
   /// Counts, for diagnostics and tests.
-  int get episodeCount => _episodeKeys.length + _unkeyedEpisodes.length;
+  int get episodeCount => _unkeyedEpisodes.length;
   int get movieCount => _movieIds.length;
   bool get isEmpty => episodeCount == 0 && movieCount == 0;
 }

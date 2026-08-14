@@ -12,8 +12,10 @@ import '../providers/subtitle_provider.dart';
 import '../services/opensubtitles_service.dart';
 import '../utils/feedback_utils.dart';
 import '../utils/formatters.dart';
+import 'common/mediahub_chip.dart';
 import 'common/mediahub_picker_sheet.dart';
 import 'editorial/editorial.dart';
+import 'streaming_status_indicator.dart';
 import '../services/app_logger.dart';
 
 /// Custom video controls overlay
@@ -41,9 +43,14 @@ class VideoControlsOverlay extends ConsumerWidget {
   final int? showId;
 
   /// Fired when the Continue Watching toggle transitions to explicit-On.
-  /// The player uses this to kick off the next-episode auto-download
-  /// immediately rather than waiting for the progress threshold.
+  /// If playback is already past the auto-download threshold, the player
+  /// prefetches the next episode in the background. The current episode
+  /// keeps playing.
   final VoidCallback? onContinueWatchingActivated;
+
+  /// Background next-episode prefetch. Renders as a spinner beside the
+  /// Continue Watching pill — never as a card over the video.
+  final NextEpisodePrefetch? nextEpisodePrefetch;
 
   const VideoControlsOverlay({
     super.key,
@@ -59,6 +66,7 @@ class VideoControlsOverlay extends ConsumerWidget {
     this.streamingDownloadedRatio,
     this.showId,
     this.onContinueWatchingActivated,
+    this.nextEpisodePrefetch,
   });
 
   @override
@@ -376,6 +384,7 @@ class VideoControlsOverlay extends ConsumerWidget {
                 isCompact:
                     MediaQuery.of(context).size.width < AppBreakpoints.mobile,
                 onContinueWatchingActivated: onContinueWatchingActivated,
+                nextEpisodePrefetch: nextEpisodePrefetch,
               ),
 
               SizedBox(width: AppSpacing.sm),
@@ -517,12 +526,8 @@ class _SubtitleButton extends ConsumerWidget {
           ),
           onPressed: () => _showSubtitleMenu(
             context,
-            ref,
             subtitleTracksAsync.value ?? [],
             currentTrackAsync.value,
-            openSubtitlesAsync.value ?? [],
-            currentExternalSub,
-            isLoadingOpenSubs,
           ),
         ),
         if (isLoadingOpenSubs)
@@ -546,26 +551,30 @@ class _SubtitleButton extends ConsumerWidget {
 
   void _showSubtitleMenu(
     BuildContext context,
-    WidgetRef ref,
     List<SubtitleTrack> embeddedTracks,
     SubtitleTrack? currentEmbeddedTrack,
-    List<Subtitle> openSubtitles,
-    Subtitle? currentExternalSub,
-    bool isLoadingOpenSubs,
   ) {
-    final groupedSubs = _groupSubtitlesByLanguage(openSubtitles);
-    final hasSubtitleContext = ref.read(subtitleContextProvider) != null;
-    final offSelected =
-        currentEmbeddedTrack == SubtitleTrack.no() &&
-        currentExternalSub == null;
-
     MediaHubPickerSheet.show(
       context: context,
       title: 'Subtitles',
       icon: Icons.closed_caption_rounded,
-      scrollControlled: true,
       child: Consumer(
         builder: (context, ref, _) {
+          final openSubtitlesAsync = ref.watch(availableSubtitlesProvider);
+          final currentExternalSub = ref.watch(currentExternalSubtitleProvider);
+          final hasSubtitleContext = ref.watch(subtitleContextProvider) != null;
+          final preferredLang = ref.watch(preferredSubtitleLanguageProvider);
+          final openSubtitles = openSubtitlesAsync.value ?? [];
+          final isLoadingOpenSubs =
+              openSubtitlesAsync.isLoading && hasSubtitleContext;
+          final groupedSubs = _groupSubtitlesByLanguage(
+            openSubtitles,
+            preferredLang: preferredLang,
+          );
+          final offSelected =
+              currentEmbeddedTrack == SubtitleTrack.no() &&
+              currentExternalSub == null;
+
           return Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -607,11 +616,11 @@ class _SubtitleButton extends ConsumerWidget {
                     AppSpacing.xxl,
                     AppSpacing.md,
                     AppSpacing.xxl,
-                    AppSpacing.xs,
+                    AppSpacing.sm,
                   ),
                   child: Row(
                     children: [
-                      MonoLabel(
+                      const MonoLabel(
                         'OPENSUBTITLES',
                         color: AppColors.fg3,
                         letterSpacing: 0.12,
@@ -619,8 +628,8 @@ class _SubtitleButton extends ConsumerWidget {
                       if (isLoadingOpenSubs) ...[
                         const SizedBox(width: AppSpacing.sm),
                         const SizedBox(
-                          width: 12,
-                          height: 12,
+                          width: 10,
+                          height: 10,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
                             valueColor: AlwaysStoppedAnimation(
@@ -633,44 +642,54 @@ class _SubtitleButton extends ConsumerWidget {
                   ),
                 ),
                 if (openSubtitles.isNotEmpty)
-                  ...groupedSubs.entries.map((entry) {
-                    final langName = entry.key;
-                    final subs = entry.value;
-                    final firstSub = subs.first;
-
-                    if (subs.length == 1) {
-                      return _SubtitleLanguageTile(
-                        flag: firstSub.flagEmoji,
-                        title: langName,
-                        selected: currentExternalSub?.id == firstSub.id,
-                        onTap: () =>
-                            _loadExternalSubtitle(ref, firstSub, context),
-                      );
-                    }
-
-                    return _SubtitleLanguageExpansion(
-                      flag: firstSub.flagEmoji,
-                      title: '$langName (${subs.length})',
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.xxl,
+                      0,
+                      AppSpacing.xxl,
+                      AppSpacing.md,
+                    ),
+                    child: Wrap(
+                      spacing: AppSpacing.sm,
+                      runSpacing: AppSpacing.sm,
                       children: [
-                        for (var i = 0; i < subs.length; i++)
-                          PickerSheetTile(
-                            icon: Icons.subtitles_rounded,
-                            title: '$langName #${i + 1}',
-                            selected: currentExternalSub?.id == subs[i].id,
-                            onTap: () =>
-                                _loadExternalSubtitle(ref, subs[i], context),
+                        for (final entry in groupedSubs.entries)
+                          MediaHubFilterChip(
+                            label: entry.key,
+                            selected:
+                                currentExternalSub != null &&
+                                entry.value.any(
+                                  (s) => s.id == currentExternalSub.id,
+                                ),
+                            onTap: () {
+                              final alreadyOn = entry.value.any(
+                                (s) => s.id == currentExternalSub?.id,
+                              );
+                              if (alreadyOn) {
+                                Navigator.pop(context);
+                                return;
+                              }
+                              _loadExternalSubtitle(
+                                ref,
+                                entry.value.first,
+                                context,
+                              );
+                            },
                           ),
                       ],
-                    );
-                  }),
-                if (openSubtitles.isEmpty && isLoadingOpenSubs)
+                    ),
+                  )
+                else
                   Padding(
-                    padding: const EdgeInsets.all(AppSpacing.lg),
-                    child: Center(
-                      child: Text(
-                        'Loading subtitles…',
-                        style: AppType.ui(size: 13, color: AppColors.fg2),
-                      ),
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.xxl,
+                      0,
+                      AppSpacing.xxl,
+                      AppSpacing.md,
+                    ),
+                    child: Text(
+                      'Loading subtitles…',
+                      style: AppType.ui(size: 12, color: AppColors.fg2),
                     ),
                   ),
               ],
@@ -680,9 +699,9 @@ class _SubtitleButton extends ConsumerWidget {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(
                     AppSpacing.xxl,
-                    AppSpacing.md,
+                    AppSpacing.sm,
                     AppSpacing.xxl,
-                    AppSpacing.lg,
+                    AppSpacing.md,
                   ),
                   child: Text(
                     'No subtitles found on OpenSubtitles',
@@ -696,17 +715,37 @@ class _SubtitleButton extends ConsumerWidget {
     );
   }
 
+  /// One entry per language. Preferred language, then English, then A–Z.
+  /// Multiple OpenSubtitles files for the same language collapse to the first.
   Map<String, List<Subtitle>> _groupSubtitlesByLanguage(
-    List<Subtitle> subtitles,
-  ) {
-    final Map<String, List<Subtitle>> grouped = {};
+    List<Subtitle> subtitles, {
+    String? preferredLang,
+  }) {
+    final grouped = <String, List<Subtitle>>{};
     for (final sub in subtitles) {
       final lang = sub.langName ?? sub.lang;
       grouped.putIfAbsent(lang, () => []).add(sub);
     }
-    // Sort by language name
-    final sortedKeys = grouped.keys.toList()..sort();
-    return {for (final key in sortedKeys) key: grouped[key]!};
+
+    int rank(String name) {
+      final lower = name.toLowerCase();
+      final preferred = preferredLang?.toLowerCase();
+      if (preferred != null &&
+          preferred.isNotEmpty &&
+          (lower == preferred || lower.startsWith(preferred))) {
+        return 0;
+      }
+      if (lower == 'english' || lower == 'en' || lower == 'eng') return 1;
+      return 2;
+    }
+
+    final keys = grouped.keys.toList()
+      ..sort((a, b) {
+        final byRank = rank(a).compareTo(rank(b));
+        if (byRank != 0) return byRank;
+        return a.toLowerCase().compareTo(b.toLowerCase());
+      });
+    return {for (final key in keys) key: grouped[key]!};
   }
 
   Future<void> _loadExternalSubtitle(
@@ -797,107 +836,6 @@ class _AudioTrackButton extends ConsumerWidget {
               },
             ),
         ],
-      ),
-    );
-  }
-}
-
-/// Subtitle-list row variant — flag emoji leading instead of an icon.
-/// Used for OpenSubtitles language rows where the leading is a country
-/// flag, not a Material icon.
-class _SubtitleLanguageTile extends StatelessWidget {
-  const _SubtitleLanguageTile({
-    required this.flag,
-    required this.title,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String flag;
-  final String title;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final fg = selected ? AppColors.accent : AppColors.fg;
-    return Material(
-      color: selected ? AppColors.accent.withValues(alpha: 0.08) : null,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.xxl,
-            vertical: AppSpacing.md,
-          ),
-          child: Row(
-            children: [
-              Text(flag, style: const TextStyle(fontSize: 20)),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: Text(
-                  title,
-                  style: AppType.ui(
-                    size: 14,
-                    color: fg,
-                    weight: selected ? FontWeight.w600 : FontWeight.w500,
-                  ),
-                ),
-              ),
-              if (selected)
-                const Icon(
-                  Icons.check_rounded,
-                  color: AppColors.accent,
-                  size: AppIconSize.sm,
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Expandable group of subtitle variants under one language. Rendered
-/// inside [MediaHubPickerSheet] when OpenSubtitles returns multiple
-/// alternates for the same language.
-class _SubtitleLanguageExpansion extends StatelessWidget {
-  const _SubtitleLanguageExpansion({
-    required this.flag,
-    required this.title,
-    required this.children,
-  });
-
-  final String flag;
-  final String title;
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    return Theme(
-      data: Theme.of(context).copyWith(
-        dividerColor: Colors.transparent,
-        splashColor: Colors.transparent,
-        highlightColor: Colors.transparent,
-      ),
-      child: ExpansionTile(
-        tilePadding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.xxl,
-          vertical: 2,
-        ),
-        leading: Text(flag, style: const TextStyle(fontSize: 20)),
-        title: Text(
-          title,
-          style: AppType.ui(
-            size: 14,
-            color: AppColors.fg,
-            weight: FontWeight.w500,
-          ),
-        ),
-        iconColor: AppColors.fg2,
-        collapsedIconColor: AppColors.fg2,
-        childrenPadding: const EdgeInsets.only(left: AppSpacing.lg),
-        children: children,
       ),
     );
   }
@@ -1004,10 +942,13 @@ class _BottomTrackControls extends StatelessWidget {
   /// the auto-download immediately when the user opts in.
   final VoidCallback? onContinueWatchingActivated;
 
+  final NextEpisodePrefetch? nextEpisodePrefetch;
+
   const _BottomTrackControls({
     required this.showId,
     required this.isCompact,
     this.onContinueWatchingActivated,
+    this.nextEpisodePrefetch,
   });
 
   @override
@@ -1041,34 +982,159 @@ class _BottomTrackControls extends StatelessWidget {
               iconSize: iconSize,
               onActivated: onContinueWatchingActivated,
             ),
+          _NextEpisodePrefetchIndicator(
+            prefetch: nextEpisodePrefetch,
+            compact: isCompact,
+          ),
         ],
       ),
     );
   }
 }
 
+/// Thin spinner (and optional episode code) that sits beside the Continue
+/// Watching pill while the next episode prefetches. Replaces the old card
+/// that sat on top of the video.
+class _NextEpisodePrefetchIndicator extends StatelessWidget {
+  const _NextEpisodePrefetchIndicator({
+    required this.prefetch,
+    required this.compact,
+  });
+
+  final NextEpisodePrefetch? prefetch;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final data = prefetch;
+    final spinnerSize = compact ? 12.0 : 14.0;
+
+    return AnimatedSize(
+      duration: AppDuration.fast,
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.centerLeft,
+      child: data == null
+          ? const SizedBox.shrink()
+          : Tooltip(
+              message: _tooltip(data),
+              child: Padding(
+                padding: const EdgeInsets.only(
+                  left: AppSpacing.xs,
+                  right: AppSpacing.sm,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: spinnerSize,
+                      height: spinnerSize,
+                      child: _glyph(data, spinnerSize),
+                    ),
+                    if (!compact) ...[
+                      if (data.episodeCode != null) ...[
+                        const SizedBox(width: AppSpacing.xs),
+                        MonoLabel(
+                          data.episodeCode!,
+                          size: 9,
+                          color: Colors.white70,
+                          letterSpacing: 0.08,
+                        ),
+                      ],
+                      if (data.isBusy &&
+                          data.progress != null &&
+                          data.progress! > 0) ...[
+                        const SizedBox(width: AppSpacing.xs),
+                        MonoLabel(
+                          Formatters.formatProgress(
+                            data.progress!,
+                            decimals: 0,
+                          ),
+                          size: 9,
+                          color: Colors.white70,
+                          letterSpacing: 0.04,
+                          uppercase: false,
+                        ),
+                      ],
+                    ],
+                  ],
+                ),
+              ),
+            ),
+    );
+  }
+
+  Widget _glyph(NextEpisodePrefetch data, double size) {
+    switch (data.status) {
+      case StreamingStatus.searching:
+      case StreamingStatus.found:
+        return CircularProgressIndicator(
+          strokeWidth: 1.6,
+          color: Colors.white.withValues(alpha: 0.85),
+          backgroundColor: Colors.white.withValues(alpha: 0.2),
+        );
+      case StreamingStatus.buffering:
+        return CircularProgressIndicator(
+          strokeWidth: 1.6,
+          value: data.progress,
+          color: Colors.white.withValues(alpha: 0.85),
+          backgroundColor: Colors.white.withValues(alpha: 0.2),
+        );
+      case StreamingStatus.ready:
+        return Icon(Icons.check_rounded, size: size, color: AppColors.ok);
+      case StreamingStatus.error:
+        return Icon(
+          Icons.error_outline_rounded,
+          size: size,
+          color: AppColors.err,
+        );
+    }
+  }
+
+  String _tooltip(NextEpisodePrefetch data) {
+    final prefix = data.episodeCode ?? 'Next episode';
+    switch (data.status) {
+      case StreamingStatus.searching:
+      case StreamingStatus.found:
+        return '$prefix · finding source';
+      case StreamingStatus.buffering:
+        final parts = <String>[prefix];
+        if (data.progress != null && data.progress! > 0) {
+          parts.add(Formatters.formatProgress(data.progress!));
+        }
+        if (data.downloadRateBytesPerSec > 0) {
+          parts.add(Formatters.formatSpeed(data.downloadRateBytesPerSec));
+        } else if (data.progress == null || data.progress! <= 0) {
+          parts.add('buffering');
+        }
+        return parts.join(' · ');
+      case StreamingStatus.ready:
+        return '$prefix · ready';
+      case StreamingStatus.error:
+        return data.message ?? '$prefix · failed';
+    }
+  }
+}
+
 /// Per-show "Continue Watching" pill in the bottom bar.
 ///
 /// Three states:
-///   • **Auto** (default, override absent) — outlined pill, follows the
-///     global auto-download setting. Tooltip explains.
-///   • **On**   — explicit override, force auto-download for this show
-///     even if the global toggle is off.
-///   • **Off**  — explicit override, never auto-download for this show
-///     even if the global toggle is on.
+///   • **Auto** (default) — Up Next card near the end; you confirm. Does
+///     not cover the player. Follows Settings → Auto-Download for prefetch.
+///   • **On** — prefetch the next episode at the watch threshold (default
+///     70%, set in Settings) so it is ready, then play it only when this
+///     episode actually ends.
+///   • **Off** — never prefetch, never auto-play this show.
 ///
 /// Tap cycles `Auto → On → Off → Auto`. Persisted in [AutoDownloadState]
-/// via `setShowAutoDownloadOverride`. Edge: if the user toggles On
-/// mid-episode after the playback already crossed the threshold, the
-/// existing one-shot `_autoDownloadTriggered` guard means the trigger
-/// won't back-fire for *this* episode — applies from the next.
+/// via `setShowAutoDownloadOverride`. Turning On mid-episode only starts
+/// the prefetch if playback is already past the threshold.
 class _ContinueWatchingToggle extends ConsumerWidget {
   final int showId;
   final double iconSize;
 
-  /// Fired only on the `null → true` and `false → true` transitions, so the
-  /// player can kick off auto-download for the next episode immediately
-  /// without waiting for the progress threshold.
+  /// Fired only on the `null → true` and `false → true` transitions.
+  /// If playback is already past the auto-download threshold, the player
+  /// prefetches the next episode in the background without switching to it.
   final VoidCallback? onActivated;
 
   const _ContinueWatchingToggle({
@@ -1098,14 +1164,15 @@ class _ContinueWatchingToggle extends ConsumerWidget {
       bgColor = scheme.primaryContainer;
       borderColor = Colors.transparent;
       fgColor = scheme.onPrimaryContainer;
-      tooltip = 'Continue Watching: On for this show';
+      tooltip =
+          'On — prefetch at ${((state.progressThreshold) * 100).toInt()}%, play when this episode ends';
     } else if (override == false) {
       icon = Icons.playlist_remove_rounded;
       label = 'Off';
       bgColor = scheme.surfaceContainerHigh;
       borderColor = Colors.transparent;
       fgColor = scheme.onSurfaceVariant;
-      tooltip = 'Continue Watching: Off for this show';
+      tooltip = 'Off — do not prefetch the next episode';
     } else {
       icon = Icons.playlist_play_rounded;
       label = 'Auto';
@@ -1114,7 +1181,7 @@ class _ContinueWatchingToggle extends ConsumerWidget {
         alpha: AppOpacity.semi / 255.0,
       );
       fgColor = scheme.onSurfaceVariant;
-      tooltip = 'Continue Watching: Auto (follows global setting)';
+      tooltip = 'Auto — Up Next card near the end, player stays usable';
     }
 
     return Tooltip(

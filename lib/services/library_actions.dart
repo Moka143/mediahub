@@ -461,7 +461,7 @@ Future<void> reconcileWatchedWithTmdb(
     // every time, an unmark on another device would be reversed.
     if (pushLocalFirst) {
       for (final p in progressMap.values) {
-        if (!p.isCompleted) continue;
+        if (!p.isEffectivelyWatched) continue;
         final season = p.seasonNumber;
         final episode = p.episodeNumber;
         if (season == null || episode == null) continue;
@@ -524,7 +524,7 @@ Future<void> reconcileWatchedWithTmdb(
       final k = keyFor(showId, season, episode);
       coveredKeys.add(k);
       final ratedOnTmdb = ratedKeys.contains(k);
-      final localWatched = existing?.isCompleted == true;
+      final localWatched = existing?.isEffectivelyWatched == true;
 
       if (ratedOnTmdb && !localWatched) {
         await progressNotifier.markCompleted(
@@ -536,8 +536,12 @@ Future<void> reconcileWatchedWithTmdb(
           posterPath: file?.posterPath ?? existing?.posterPath,
         );
       } else if (!ratedOnTmdb && localWatched) {
-        // TMDB says not watched — another device unwatched it. Follow.
-        await progressNotifier.markNotCompleted(path);
+        // Explicit marks follow a remote unwatch. Playback that reached
+        // credits stays local — otherwise a 95% watch whose rating never
+        // posted (no show id, failed POST) is wiped on every startup.
+        if (existing!.followsRemoteUnwatch) {
+          await progressNotifier.markNotCompleted(path);
+        }
       }
     }
 
@@ -576,7 +580,7 @@ Future<void> reconcileWatchedWithTmdb(
     // Push step (sign-in only) for movies.
     if (pushLocalFirst) {
       for (final p in progressMap.values) {
-        if (!p.isCompleted) continue;
+        if (!p.isEffectivelyWatched) continue;
         if (p.seasonNumber != null || p.episodeNumber != null) continue;
         var movieId = p.movieId;
         if (movieId == null) {
@@ -625,7 +629,7 @@ Future<void> reconcileWatchedWithTmdb(
       coveredMovieIds.add(movieId);
 
       final ratedOnTmdb = ratedMovieIds.contains(movieId);
-      final localWatched = existing?.isCompleted == true;
+      final localWatched = existing?.isEffectivelyWatched == true;
 
       if (ratedOnTmdb && !localWatched) {
         await progressNotifier.markCompleted(
@@ -635,7 +639,9 @@ Future<void> reconcileWatchedWithTmdb(
           posterPath: file?.posterPath ?? existing?.posterPath,
         );
       } else if (!ratedOnTmdb && localWatched) {
-        await progressNotifier.markNotCompleted(path);
+        if (existing!.followsRemoteUnwatch) {
+          await progressNotifier.markNotCompleted(path);
+        }
       }
     }
 

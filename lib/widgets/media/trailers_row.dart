@@ -59,7 +59,7 @@ class TrailersRow extends StatelessWidget {
           ),
         ),
         SizedBox(
-          height: 160,
+          height: 172,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             physics: const ClampingScrollPhysics(),

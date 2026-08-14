@@ -156,13 +156,13 @@ class MediaHubBackdropHero extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Wrap(
-                        spacing: AppSpacing.xs,
-                        runSpacing: AppSpacing.xs,
+                        spacing: AppSpacing.sm,
+                        runSpacing: AppSpacing.sm,
                         children: [
                           for (final p in metaPills)
                             EditorialBadge(
                               p.label,
-                              compact: true,
+                              prominent: true,
                               tone: p.color,
                               icon: p.icon,
                             ),
@@ -256,8 +256,8 @@ class MediaHubBackdropHero extends StatelessWidget {
   }
 }
 
-/// A metadata pill rendered in the hero — small mono uppercase pill,
-/// auto-tinted from `color` (foreground) with a soft alpha background.
+/// A metadata pill rendered in the hero — runtime, rating, genres.
+/// Sized for the cinematic title block, not the compact row badges.
 class MediaHubMetaPill {
   const MediaHubMetaPill({required this.label, required this.color, this.icon});
 
