@@ -1,29 +1,39 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
 import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
-import '../models/local_media_file.dart';
+import '../design/app_typography.dart';
 import 'editorial/editorial.dart';
 
-/// Overlay widget shown near the end of an episode to prompt
-/// the user to play the next episode (binge watching feature).
+/// Compact "Up Next" prompt over the player.
+///
+/// Expanded: episode line plus three actions — Minimize, Dismiss, Play/Stream.
+/// Minimized: countdown + code chip; tap restores. Countdown pauses while
+/// collapsed so restoring does not instantly auto-play.
 class NextEpisodeOverlay extends StatefulWidget {
-  final LocalMediaFile nextEpisode;
-  final int countdownSeconds;
-  final VoidCallback onPlayNext;
-  final VoidCallback onCancel;
-  final VoidCallback? onWatchCredits;
+  final String episodeCode;
+  final String title;
+  final int? countdownSeconds;
+  final bool minimized;
+  final String playLabel;
+  final VoidCallback? onPlay;
+  final VoidCallback onMinimize;
+  final VoidCallback onDismiss;
+  final VoidCallback onRestore;
 
   const NextEpisodeOverlay({
     super.key,
-    required this.nextEpisode,
-    required this.countdownSeconds,
-    required this.onPlayNext,
-    required this.onCancel,
-    this.onWatchCredits,
+    required this.episodeCode,
+    required this.title,
+    this.countdownSeconds,
+    required this.minimized,
+    this.playLabel = 'Play',
+    this.onPlay,
+    required this.onMinimize,
+    required this.onDismiss,
+    required this.onRestore,
   });
 
   @override
@@ -37,18 +47,19 @@ class _NextEpisodeOverlayState extends State<NextEpisodeOverlay>
   late AnimationController _animationController;
   late Animation<Offset> _slideAnimation;
 
+  bool get _hasCountdown => widget.countdownSeconds != null;
+
   @override
   void initState() {
     super.initState();
-    _secondsRemaining = widget.countdownSeconds;
+    _secondsRemaining = widget.countdownSeconds ?? 0;
 
-    // Slide in from the right
     _animationController = AnimationController(
-      duration: AppDuration.slow,
+      duration: AppDuration.normal,
       vsync: this,
     );
     _slideAnimation =
-        Tween<Offset>(begin: const Offset(1.0, 0.0), end: Offset.zero).animate(
+        Tween<Offset>(begin: const Offset(0.12, 0.0), end: Offset.zero).animate(
           CurvedAnimation(
             parent: _animationController,
             curve: Curves.easeOutCubic,
@@ -56,16 +67,35 @@ class _NextEpisodeOverlayState extends State<NextEpisodeOverlay>
         );
     _animationController.forward();
 
-    _startCountdown();
+    if (_hasCountdown && !widget.minimized) {
+      _startCountdown();
+    }
+  }
+
+  @override
+  void didUpdateWidget(NextEpisodeOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.minimized == widget.minimized) return;
+    if (widget.minimized) {
+      _countdownTimer?.cancel();
+      _countdownTimer = null;
+    } else if (_hasCountdown) {
+      _startCountdown();
+    }
   }
 
   void _startCountdown() {
+    _countdownTimer?.cancel();
+    if (_secondsRemaining <= 0) {
+      widget.onPlay?.call();
+      return;
+    }
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) return;
+      if (!mounted || widget.minimized) return;
       setState(() => _secondsRemaining--);
       if (_secondsRemaining <= 0) {
         timer.cancel();
-        widget.onPlayNext();
+        widget.onPlay?.call();
       }
     });
   }
@@ -77,151 +107,135 @@ class _NextEpisodeOverlayState extends State<NextEpisodeOverlay>
     super.dispose();
   }
 
-  /// Fraction of countdown that has elapsed (0.0 → 1.0).
-  double get _progress =>
-      (_secondsRemaining / widget.countdownSeconds).clamp(0.0, 1.0);
-
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final episode = widget.nextEpisode;
+    return SlideTransition(
+      position: _slideAnimation,
+      child: Material(
+        color: Colors.transparent,
+        child: AnimatedSize(
+          duration: AppDuration.fast,
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.centerRight,
+          child: widget.minimized ? _buildMinimized() : _buildExpanded(),
+        ),
+      ),
+    );
+  }
 
-    return Align(
-      alignment: Alignment.bottomRight,
-      child: Padding(
-        padding: const EdgeInsets.only(right: AppSpacing.xl, bottom: 110),
-        child: SlideTransition(
-          position: _slideAnimation,
-          child: Material(
-            color: Colors.transparent,
-            child: Container(
-              width: 360,
-              decoration: BoxDecoration(
-                color: AppColors.bgSurface.withValues(alpha: 0.92),
-                borderRadius: BorderRadius.circular(AppRadius.sm),
-                border: Border.all(color: AppColors.lineStrong, width: 1),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x80000000),
-                    blurRadius: 28,
-                    offset: Offset(0, 10),
-                  ),
-                ],
+  BoxDecoration _glass({double radius = AppRadius.full}) => BoxDecoration(
+    color: Colors.black.withValues(alpha: 0.58),
+    borderRadius: BorderRadius.circular(radius),
+    border: Border.all(color: AppColors.lineStrong, width: 1),
+  );
+
+  Widget _buildMinimized() {
+    return GestureDetector(
+      onTap: widget.onRestore,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(10, 6, 8, 6),
+          decoration: _glass(),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_hasCountdown) ...[
+                MonoLabel(
+                  '${_secondsRemaining}s',
+                  color: AppColors.accent,
+                  letterSpacing: 0.08,
+                ),
+                const SizedBox(width: 8),
+              ],
+              if (widget.episodeCode.isNotEmpty)
+                MonoLabel(
+                  widget.episodeCode,
+                  color: AppColors.fg1,
+                  uppercase: false,
+                  letterSpacing: 0.06,
+                ),
+              const SizedBox(width: 2),
+              Icon(
+                Icons.keyboard_arrow_up_rounded,
+                size: AppIconSize.sm,
+                color: AppColors.fg2,
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Header
-                  _buildHeader(theme),
-                  // Episode info
-                  _buildEpisodeInfo(theme, episode),
-                  // Action buttons
-                  _buildActions(theme),
-                ],
-              ),
-            ),
+            ],
           ),
         ),
       ),
     );
   }
 
-  Widget _buildHeader(ThemeData theme) {
+  Widget _buildExpanded() {
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 14, 14, 6),
-      child: Row(
-        children: [
-          Expanded(
-            child: MonoLabel(
-              'UP NEXT IN ${_secondsRemaining}s',
-              color: AppColors.accent,
-              letterSpacing: 0.14,
-            ),
-          ),
-          _CircularCountdown(
-            secondsRemaining: _secondsRemaining,
-            progress: _progress,
-            color: AppColors.accent,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEpisodeInfo(ThemeData theme, LocalMediaFile episode) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+      width: 268,
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+      decoration: _glass(radius: AppRadius.sm),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (episode.episodeCode != null)
-            MonoLabel(
-              episode.episodeCode!,
-              color: AppColors.fg2,
-              letterSpacing: 0.12,
-            ),
-          const SizedBox(height: 6),
-          SerifTitle(
-            episode.showName ?? episode.fileName,
-            size: 22,
-            height: 1.1,
-            color: AppColors.fg,
-            maxLines: 2,
-          ),
-          if (episode.quality != null) ...[
-            const SizedBox(height: 8),
-            MonoLabel(
-              '${episode.quality!} · STREAMING',
-              color: AppColors.fg3,
-              letterSpacing: 0.1,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActions(ThemeData theme) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.md,
-        0,
-        AppSpacing.md,
-        AppSpacing.md,
-      ),
-      child: Row(
-        children: [
-          // Cancel
-          Expanded(
-            child: OutlinedButton(
-              onPressed: widget.onCancel,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.white70,
-                side: const BorderSide(color: Colors.white24),
-                padding: const EdgeInsets.symmetric(vertical: 11),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppRadius.md),
+          Row(
+            children: [
+              if (_hasCountdown) ...[
+                MonoLabel(
+                  '${_secondsRemaining}s',
+                  color: AppColors.accent,
+                  letterSpacing: 0.08,
+                ),
+                const SizedBox(width: 8),
+              ],
+              if (widget.episodeCode.isNotEmpty) ...[
+                MonoLabel(
+                  widget.episodeCode,
+                  color: AppColors.fg1,
+                  uppercase: false,
+                  letterSpacing: 0.06,
+                ),
+                const SizedBox(width: 8),
+              ],
+              Expanded(
+                child: Text(
+                  widget.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppType.ui(
+                    size: 12,
+                    color: AppColors.fg,
+                    weight: FontWeight.w500,
+                    height: 1.2,
+                  ),
                 ),
               ),
-              child: const Text('Cancel'),
-            ),
+            ],
           ),
-          const SizedBox(width: AppSpacing.sm),
-          // Play Now (primary)
-          Expanded(
-            flex: 2,
-            child: FilledButton.icon(
-              onPressed: widget.onPlayNext,
-              icon: const Icon(Icons.play_arrow_rounded, size: 20),
-              label: const Text('Play Now'),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 11),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppRadius.md),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _OverlayButton(
+                  label: 'Minimize',
+                  onTap: widget.onMinimize,
                 ),
               ),
-            ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: _OverlayButton(
+                  label: 'Dismiss',
+                  onTap: widget.onDismiss,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: _OverlayButton(
+                  label: widget.playLabel,
+                  onTap: widget.onPlay,
+                  emphasized: true,
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -229,94 +243,51 @@ class _NextEpisodeOverlayState extends State<NextEpisodeOverlay>
   }
 }
 
-// ---------------------------------------------------------------------------
-// Circular countdown ring widget
-// ---------------------------------------------------------------------------
-
-class _CircularCountdown extends StatelessWidget {
-  final int secondsRemaining;
-  final double progress; // 1.0 = full, 0.0 = empty
-  final Color color;
-  static const double _size = 38.0;
-  static const double _strokeWidth = 3.0;
-
-  const _CircularCountdown({
-    required this.secondsRemaining,
-    required this.progress,
-    required this.color,
+class _OverlayButton extends StatelessWidget {
+  const _OverlayButton({
+    required this.label,
+    required this.onTap,
+    this.emphasized = false,
   });
+
+  final String label;
+  final VoidCallback? onTap;
+  final bool emphasized;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: _size,
-      height: _size,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          // Background track
-          CustomPaint(
-            size: const Size(_size, _size),
-            painter: _RingPainter(
-              progress: 1.0,
-              color: Colors.white.withValues(alpha: 0.12),
-              strokeWidth: _strokeWidth,
+    final enabled = onTap != null;
+    final fg = !enabled
+        ? AppColors.fg3
+        : emphasized
+        ? AppColors.bgPage
+        : AppColors.fg1;
+    final bg = !enabled
+        ? AppColors.bgSurface.withValues(alpha: 0.4)
+        : emphasized
+        ? AppColors.accent
+        : Colors.white.withValues(alpha: 0.08);
+
+    return Material(
+      color: bg,
+      borderRadius: BorderRadius.circular(AppRadius.xs),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.xs),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 7),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: AppType.ui(
+              size: 11,
+              color: fg,
+              weight: emphasized ? FontWeight.w600 : FontWeight.w500,
+              height: 1.0,
             ),
           ),
-          // Progress arc
-          CustomPaint(
-            size: const Size(_size, _size),
-            painter: _RingPainter(
-              progress: progress,
-              color: color,
-              strokeWidth: _strokeWidth,
-            ),
-          ),
-          // Countdown number
-          Text(
-            '$secondsRemaining',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              height: 1,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
-}
-
-class _RingPainter extends CustomPainter {
-  final double progress;
-  final Color color;
-  final double strokeWidth;
-
-  const _RingPainter({
-    required this.progress,
-    required this.color,
-    required this.strokeWidth,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = strokeWidth
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    final rect = Rect.fromCircle(
-      center: Offset(size.width / 2, size.height / 2),
-      radius: (size.width - strokeWidth) / 2,
-    );
-
-    // Start from the top (−π/2) and sweep clockwise
-    canvas.drawArc(rect, -math.pi / 2, 2 * math.pi * progress, false, paint);
-  }
-
-  @override
-  bool shouldRepaint(_RingPainter old) =>
-      old.progress != progress || old.color != color;
 }

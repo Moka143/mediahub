@@ -132,6 +132,13 @@ class StreamingSession {
   /// is stuck waiting on metadata.
   int downloadRateBytesPerSec;
 
+  /// When true, [assessBuffering] outcomes of `tooSlow` / `stalled` do
+  /// **not** fail the session. Used for background next-episode prefetch:
+  /// that torrent shares the pipe with the episode currently playing, so
+  /// a 10-minute projected wait is expected — aborting would freeze the
+  /// pill on "Too slow to stream" and never update again.
+  final bool allowSlowBuffer;
+
   StreamingSession({
     required this.id,
     required this.request,
@@ -151,6 +158,7 @@ class StreamingSession {
     this.videoFile,
     this.streamUrl,
     this.downloadRateBytesPerSec = 0,
+    this.allowSlowBuffer = false,
     DateTime? createdAt,
   }) : createdAt = createdAt ?? DateTime.now();
 
@@ -194,6 +202,7 @@ class StreamingSession {
       streamUrl: streamUrl ?? this.streamUrl,
       downloadRateBytesPerSec:
           downloadRateBytesPerSec ?? this.downloadRateBytesPerSec,
+      allowSlowBuffer: allowSlowBuffer,
       // Preserved deliberately — see the field doc.
       createdAt: createdAt,
     );
@@ -245,13 +254,6 @@ class StreamingService {
     'ts',
     'm2ts',
   };
-
-  /// Minimum contiguous piece percentage at the start of the file.
-  /// The piece-level check verifies these are actually downloaded in order.
-  /// Tracks the higher byte floor below — 5% of pieces matches the ~10%
-  /// byte target without overshooting on tiny files where each piece is
-  /// a big fraction of the whole.
-  static const double minPiecePercent = 0.05;
 
   /// Pre-play buffer model: max(absolute floor, 10% of file), clamped to a
   /// cap so a 50 GB UHD rip doesn't demand 5 GB before opening. Matches the
@@ -395,6 +397,7 @@ class StreamingService {
     int? episode,
     String? episodeCode,
     String? savePath,
+    bool allowSlowBuffer = false,
   }) async {
     // Generate unique session ID
     final sessionId =
@@ -411,6 +414,7 @@ class StreamingService {
       episode: episode,
       episodeCode: episodeCode,
       state: StreamingState.addingTorrent,
+      allowSlowBuffer: allowSlowBuffer,
     );
 
     _sessions[sessionId] = session;
@@ -747,17 +751,21 @@ class StreamingService {
           '[StreamingService] Disabling non-target files in season pack',
         );
         try {
-          // Set all files to skip (priority 0)
-          final allFileIds = List.generate(files.length, (i) => i);
-          await _qbtService.setFilePriority(torrent.hash, allFileIds, 0);
-
-          // Set target file to high priority
+          // Skip only incomplete extras. Zeroing already-finished episodes
+          // can kick qBittorrent into a recheck and leaves sequential
+          // download parked on pieces that will never be requested.
+          final skipIds = [
+            for (var i = 0; i < files.length; i++)
+              if (i != targetFileIndex && files[i].progress < 0.999) i,
+          ];
+          if (skipIds.isNotEmpty) {
+            await _qbtService.setFilePriority(torrent.hash, skipIds, 0);
+          }
           await _qbtService.setFilePriority(torrent.hash, [targetFileIndex], 7);
 
           AppLog.d('[StreamingService] File priorities set successfully');
         } catch (e) {
           AppLog.e('[StreamingService] Error setting file priorities: $e');
-          // Continue anyway - might already be set
         }
       }
 
@@ -780,6 +788,16 @@ class StreamingService {
           AppLog.e('[StreamingService] Failed to resume torrent: $e');
         }
       }
+
+      // Sequential is only set on addTorrent. Re-streaming a season pack
+      // (E04 after E03) reuses the existing torrent — often with sequential
+      // off from a prior seek — so pieces arrive randomly and the player
+      // cannot open. Re-apply in-order download and bump the file's prefix.
+      await _prepareInOrderDownload(
+        torrent: torrent,
+        files: files,
+        targetFileIndex: targetFileIndex,
+      );
     }
 
     // Surface a real percentage in the overlay even before buffering kicks
@@ -826,21 +844,31 @@ class StreamingService {
     }
 
     String? streamUrl;
-    try {
-      final server = LocalStreamingServer(
-        qbt: _qbtService,
-        filePath: videoFile.path,
-        torrentHash: torrent.hash,
-        fileIndex: session.selectedFileIndex!,
-        logTag: 'main',
+    // A finished file should be opened from disk. Feeding mpv a 2 GB HTTP
+    // body makes it try (and fail) to create a demuxer file cache — the
+    // "download finished but it still didn't play" case.
+    final fileComplete = session.bufferProgress >= 0.999;
+    if (!fileComplete) {
+      try {
+        final server = LocalStreamingServer(
+          qbt: _qbtService,
+          filePath: videoFile.path,
+          torrentHash: torrent.hash,
+          fileIndex: session.selectedFileIndex!,
+          logTag: 'main',
+        );
+        await server.start();
+        await _streamingServers[sessionId]?.stop();
+        _streamingServers[sessionId] = server;
+        streamUrl = server.url;
+        AppLog.d('[StreamingService] Local stream URL: $streamUrl');
+      } catch (e) {
+        AppLog.e('[StreamingService] Failed to start local proxy: $e');
+      }
+    } else {
+      AppLog.d(
+        '[StreamingService] File complete — opening ${videoFile.path} directly',
       );
-      await server.start();
-      await _streamingServers[sessionId]?.stop();
-      _streamingServers[sessionId] = server;
-      streamUrl = server.url;
-      AppLog.d('[StreamingService] Local stream URL: $streamUrl');
-    } catch (e) {
-      AppLog.e('[StreamingService] Failed to start local proxy: $e');
     }
 
     _updateSession(
@@ -858,22 +886,21 @@ class StreamingService {
 
   /// Handle buffering state for a streaming session.
   ///
-  /// Uses TWO checks before declaring ready:
-  /// 1. Overall file progress → enough bytes buffered (scales with file size).
-  /// 2. Piece-level contiguous check → the selected file's first N pieces are
-  ///    actually downloaded in order, so the player won't hit gaps.
+  /// Readiness is a *contiguous prefix* of the selected file (piece states
+  /// from the start), not overall file progress. 30% scattered across a
+  /// season-pack episode still leaves mpv unable to parse the header.
+  /// [assessBuffering] still drives stalled / too-slow give-up.
   Future<void> _handleBuffering(String sessionId, Torrent torrent) async {
     final session = _sessions[sessionId];
     if (session == null || session.selectedFileIndex == null) return;
 
     double fileProgress = 0;
     int fileSizeBytes = 0;
-    TorrentFile? selectedFile;
 
     try {
       final files = await _qbtService.getTorrentFiles(torrent.hash);
       if (session.selectedFileIndex! < files.length) {
-        selectedFile = files[session.selectedFileIndex!];
+        final selectedFile = files[session.selectedFileIndex!];
         fileProgress = selectedFile.progress;
         fileSizeBytes = selectedFile.size.round();
       }
@@ -887,7 +914,7 @@ class StreamingService {
     AppLog.d(
       '[StreamingService] Buffer progress: ${(fileProgress * 100).toStringAsFixed(1)}% '
       '(${Formatters.formatBytesCompact(bufferedBytes)} / ${Formatters.formatBytesCompact(fileSizeBytes)}) '
-      '[need ${Formatters.formatBytesCompact(minBytes)}]',
+      '[need ${Formatters.formatBytesCompact(LocalStreamingServer.prefixProbeBytes)} contiguous from start]',
     );
 
     _updateSession(sessionId, bufferProgress: fileProgress);
@@ -898,14 +925,38 @@ class StreamingService {
       () => _BufferWatch(session.createdAt),
     )..observe(bufferedBytes, now);
 
-    // Completion short-circuit: if qBit reports the torrent fully done,
-    // promote immediately even if our local byte threshold isn't met
-    // (small files can be done at <50 MB).
+    final prefixReady = await _prefixIsPlayable(
+      session,
+      torrent,
+      minBytes: LocalStreamingServer.prefixProbeBytes,
+    );
+
+    if (!prefixReady && !torrent.sequentialDownload) {
+      AppLog.d(
+        '[StreamingService] sequential is off while waiting for the file '
+        'start — re-enabling',
+      );
+      await _qbtService.ensureInOrderDownload(torrent.hash);
+    }
+
+    // Completion short-circuit: if qBit reports the file fully done,
+    // promote even if piece-state lookup failed.
     final torrentDone = torrent.isCompleted || torrent.progress >= 0.99;
     if (torrentDone && fileProgress >= 0.95) {
+      if (prefixReady || fileProgress >= 0.999) {
+        AppLog.d(
+          '[StreamingService] Buffer ready (torrent complete)! '
+          '${Formatters.formatBytesCompact(bufferedBytes)} buffered.',
+        );
+        await _promoteToReady(sessionId, torrent);
+        return;
+      }
+    }
+
+    if (prefixReady) {
       AppLog.d(
-        '[StreamingService] Buffer ready (torrent complete)! '
-        '${Formatters.formatBytesCompact(bufferedBytes)} buffered.',
+        '[StreamingService] Buffer ready (contiguous prefix)! '
+        '${Formatters.formatBytesCompact(bufferedBytes)} on disk.',
       );
       await _promoteToReady(sessionId, torrent);
       return;
@@ -922,15 +973,16 @@ class StreamingService {
     switch (outcome) {
       case BufferOutcome.ready:
         AppLog.d(
-          '[StreamingService] Buffer ready! '
-          '${Formatters.formatBytesCompact(bufferedBytes)} buffered.',
+          '[StreamingService] ${Formatters.formatBytesCompact(bufferedBytes)} '
+          'buffered but the start of the file is not contiguous yet — '
+          'waiting for sequential pieces',
         );
-        await _promoteToReady(sessionId, torrent);
 
       case BufferOutcome.waiting:
         break;
 
       case BufferOutcome.stalled:
+        if (session.allowSlowBuffer) break;
         AppLog.w(
           '[StreamingService] Giving up — no bytes for '
           '${bufferStallWindow.inSeconds}s at '
@@ -942,6 +994,7 @@ class StreamingService {
         );
 
       case BufferOutcome.tooSlow:
+        if (session.allowSlowBuffer) break;
         final rate = Formatters.formatSpeed(watch.bytesPerSecond.round());
         AppLog.w(
           '[StreamingService] Giving up — $rate is too slow to reach '
@@ -952,6 +1005,144 @@ class StreamingService {
           'Too slow to stream ($rate). Download it instead, or pick another '
           'source.',
         );
+    }
+  }
+
+  /// Sequential download + high priority on the selected file's leading
+  /// pieces so mpv can open before the rest of the torrent arrives.
+  Future<void> _prepareInOrderDownload({
+    required Torrent torrent,
+    required List<TorrentFile> files,
+    required int targetFileIndex,
+  }) async {
+    try {
+      final seqOk = await _qbtService.ensureInOrderDownload(
+        torrent.hash,
+        resetPicker: true,
+      );
+      AppLog.d(
+        '[StreamingService] in-order download '
+        '${seqOk ? "applied" : "failed"} for ${torrent.hash}',
+      );
+    } catch (e) {
+      AppLog.e('[StreamingService] ensureInOrderDownload: $e');
+    }
+
+    var pieceSize = torrent.pieceSize;
+    if (pieceSize <= 0) {
+      pieceSize = await _qbtService.getPieceSize(torrent.hash);
+    }
+    final range = _pieceRangeFor(
+      torrent,
+      files,
+      targetFileIndex,
+      pieceSize: pieceSize,
+    );
+    if (range == null) {
+      AppLog.d(
+        '[StreamingService] no piece range for file $targetFileIndex — '
+        'cannot prioritize prefix pieces',
+      );
+      return;
+    }
+    final ids = LocalStreamingServer.prefixPieceIds(
+      firstPiece: range.$1,
+      lastPiece: range.$2,
+      pieceSize: pieceSize,
+      minBytes: LocalStreamingServer.prefixProbeBytes,
+    );
+    if (ids.isEmpty) {
+      AppLog.d(
+        '[StreamingService] prefix piece ids empty '
+        '(pieceSize=$pieceSize range=${range.$1}-${range.$2})',
+      );
+      return;
+    }
+    try {
+      final ok = await _qbtService.setPiecePriority(torrent.hash, ids, 7);
+      AppLog.d(
+        '[StreamingService] prefix piece prio ${ok ? "set" : "failed"} '
+        'for pieces ${ids.first}-${ids.last}',
+      );
+    } catch (e) {
+      AppLog.e('[StreamingService] setPiecePriority: $e');
+    }
+  }
+
+  (int first, int last)? _pieceRangeFor(
+    Torrent torrent,
+    List<TorrentFile> files,
+    int fileIndex, {
+    int pieceSize = 0,
+  }) {
+    if (fileIndex < 0 || fileIndex >= files.length) return null;
+    final listed = files[fileIndex].pieceRange;
+    if (listed != null && listed.length >= 2) {
+      return (listed[0], listed[1]);
+    }
+    final size = pieceSize > 0 ? pieceSize : torrent.pieceSize;
+    if (size <= 0) return null;
+    return LocalStreamingServer.pieceRangeForFile(
+      fileSizes: files.map((f) => f.size.round()).toList(),
+      fileIndex: fileIndex,
+      pieceSize: size,
+    );
+  }
+
+  /// True when a contiguous prefix of [minBytes] at the start of the
+  /// selected file is fully downloaded — not merely that the on-disk
+  /// magic bytes look like a container (a half-written first piece can
+  /// pass that check while the proxy still blocks at byte 0).
+  Future<bool> _prefixIsPlayable(
+    StreamingSession session,
+    Torrent torrent, {
+    required int minBytes,
+  }) async {
+    final idx = session.selectedFileIndex;
+    if (idx == null) return false;
+    try {
+      final files = await _qbtService.getTorrentFiles(torrent.hash);
+      if (idx < 0 || idx >= files.length) return false;
+      if (files[idx].progress >= 0.999) return true;
+
+      var pieceSize = torrent.pieceSize;
+      if (pieceSize <= 0) {
+        pieceSize = await _qbtService.getPieceSize(torrent.hash);
+      }
+      final range = _pieceRangeFor(torrent, files, idx, pieceSize: pieceSize);
+      if (range == null) {
+        AppLog.d('[StreamingService] prefix: no piece range for file $idx');
+        return false;
+      }
+
+      final states = await _qbtService.getPieceStates(torrent.hash);
+      if (states == null || states.isEmpty) {
+        AppLog.d('[StreamingService] prefix: no piece states');
+        return false;
+      }
+
+      final ready = LocalStreamingServer.prefixPiecesReady(
+        pieceStates: states,
+        firstPiece: range.$1,
+        lastPiece: range.$2,
+        pieceSize: pieceSize,
+        minBytes: minBytes,
+      );
+      if (!ready) {
+        final first = range.$1;
+        final firstState = (first >= 0 && first < states.length)
+            ? states[first]
+            : -1;
+        AppLog.d(
+          '[StreamingService] prefix not ready: pieceSize=$pieceSize '
+          'range=${range.$1}-${range.$2} firstState=$firstState '
+          'seq=${torrent.sequentialDownload}',
+        );
+      }
+      return ready;
+    } catch (e) {
+      AppLog.d('[StreamingService] prefix check failed: $e');
+      return false;
     }
   }
 

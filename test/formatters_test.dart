@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:flutter_torrent_client/utils/formatters.dart';
+import 'package:mediahub/utils/formatters.dart';
 
 void main() {
   group('formatBytesCompact', () {

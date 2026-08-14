@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:flutter_torrent_client/services/local_streaming_server.dart';
+import 'package:mediahub/services/local_streaming_server.dart';
 
 /// Matches the private `_tailProbeWindow` on the server (64 MB).
 const _tailProbeWindow = 64 * 1024 * 1024;
@@ -340,6 +340,173 @@ void main() {
       expect(
         LocalStreamingServer.guessContentType('archive.zip'),
         'application/octet-stream',
+      );
+    });
+  });
+
+  group('looksLikeContainerHeader', () {
+    test('accepts Matroska EBML magic', () {
+      expect(
+        LocalStreamingServer.looksLikeContainerHeader([
+          0x1A,
+          0x45,
+          0xDF,
+          0xA3,
+          0x01,
+          0x00,
+        ]),
+        isTrue,
+      );
+    });
+
+    test('rejects qBittorrent sparse zeros', () {
+      expect(
+        LocalStreamingServer.looksLikeContainerHeader([0, 0, 0, 0, 0, 0, 0, 0]),
+        isFalse,
+      );
+    });
+
+    test('accepts an MP4 ftyp box', () {
+      expect(
+        LocalStreamingServer.looksLikeContainerHeader([
+          0x00,
+          0x00,
+          0x00,
+          0x20,
+          ...'ftyp'.codeUnits,
+        ]),
+        isTrue,
+      );
+    });
+  });
+
+  group('pieceRangeForFile', () {
+    test('maps the middle file of a season pack onto its pieces', () {
+      // 32 MB pieces, three files: 40 MB, 100 MB, 60 MB.
+      const piece = 32 * 1024 * 1024;
+      final sizes = [40 * 1024 * 1024, 100 * 1024 * 1024, 60 * 1024 * 1024];
+
+      expect(
+        LocalStreamingServer.pieceRangeForFile(
+          fileSizes: sizes,
+          fileIndex: 1,
+          pieceSize: piece,
+        ),
+        (1, 4),
+      );
+    });
+
+    test('returns null when piece size or index is unusable', () {
+      expect(
+        LocalStreamingServer.pieceRangeForFile(
+          fileSizes: [100],
+          fileIndex: 0,
+          pieceSize: 0,
+        ),
+        isNull,
+      );
+      expect(
+        LocalStreamingServer.pieceRangeForFile(
+          fileSizes: [100],
+          fileIndex: 3,
+          pieceSize: 16,
+        ),
+        isNull,
+      );
+    });
+  });
+
+  group('prefixPiecesReady', () {
+    const piece = 16 * 1024 * 1024; // 16 MB pieces
+
+    test('is false until the leading pieces are fully downloaded', () {
+      // File starts at piece 10. 36% of the file can be state-2 while
+      // piece 10 is still empty — that must not look ready.
+      final states = List<int>.filled(20, 0);
+      for (var i = 12; i < 18; i++) {
+        states[i] = 2;
+      }
+
+      expect(
+        LocalStreamingServer.prefixPiecesReady(
+          pieceStates: states,
+          firstPiece: 10,
+          lastPiece: 19,
+          pieceSize: piece,
+        ),
+        isFalse,
+      );
+    });
+
+    test('is true once the first piece of the file is downloaded', () {
+      final states = List<int>.filled(20, 0);
+      states[10] = 2;
+
+      expect(
+        LocalStreamingServer.prefixPiecesReady(
+          pieceStates: states,
+          firstPiece: 10,
+          lastPiece: 19,
+          pieceSize: piece,
+        ),
+        isTrue,
+      );
+    });
+
+    test('does not wait for a second piece that may never complete', () {
+      final states = List<int>.filled(20, 0);
+      states[10] = 2;
+
+      expect(
+        LocalStreamingServer.prefixPiecesReady(
+          pieceStates: states,
+          firstPiece: 10,
+          lastPiece: 19,
+          pieceSize: 4 * 1024 * 1024,
+          minBytes: 8 * 1024 * 1024,
+        ),
+        isTrue,
+      );
+    });
+
+    test('a downloading first piece (state 1) is not ready', () {
+      final states = List<int>.filled(5, 1);
+      expect(
+        LocalStreamingServer.prefixPiecesReady(
+          pieceStates: states,
+          firstPiece: 0,
+          lastPiece: 4,
+          pieceSize: piece,
+        ),
+        isFalse,
+      );
+    });
+
+    test(
+      'prefixPieceIds still returns leading pieces when piece size is unknown',
+      () {
+        expect(
+          LocalStreamingServer.prefixPieceIds(
+            firstPiece: 10,
+            lastPiece: 19,
+            pieceSize: 0,
+          ),
+          [10, 11, 12, 13],
+        );
+      },
+    );
+
+    test('unknown piece size is ready once the first piece is state 2', () {
+      final states = List<int>.filled(20, 0);
+      states[10] = 2;
+      expect(
+        LocalStreamingServer.prefixPiecesReady(
+          pieceStates: states,
+          firstPiece: 10,
+          lastPiece: 19,
+          pieceSize: 0,
+        ),
+        isTrue,
       );
     });
   });

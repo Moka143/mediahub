@@ -8,6 +8,29 @@ import '../utils/formatters.dart';
 /// Status types for the streaming indicator
 enum StreamingStatus { searching, found, buffering, ready, error }
 
+/// Background next-episode prefetch, shown as a stealth spinner beside
+/// the in-player Continue Watching pill — not as a card over the video.
+class NextEpisodePrefetch {
+  const NextEpisodePrefetch({
+    required this.status,
+    this.episodeCode,
+    this.progress,
+    this.message,
+    this.downloadRateBytesPerSec = 0,
+  });
+
+  final StreamingStatus status;
+  final String? episodeCode;
+  final double? progress;
+  final String? message;
+  final int downloadRateBytesPerSec;
+
+  bool get isBusy =>
+      status == StreamingStatus.searching ||
+      status == StreamingStatus.found ||
+      status == StreamingStatus.buffering;
+}
+
 /// Modern, integrated streaming status indicator for the video player.
 ///
 /// All visual values come from `app_tokens.dart` and the M3 theme — no

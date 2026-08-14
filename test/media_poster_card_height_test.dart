@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_torrent_client/widgets/media/media_poster_card.dart';
+import 'package:mediahub/widgets/media/media_poster_card.dart';
 
 /// Build a context with a given text scale so the calculator can be probed
 /// the way a real row would use it.

@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:flutter_torrent_client/models/torrentio_stream.dart';
-import 'package:flutter_torrent_client/services/torrentio_api_service.dart';
+import 'package:mediahub/models/torrentio_stream.dart';
+import 'package:mediahub/services/torrentio_api_service.dart';
 
 // Torrentio encodes seeders, size and source site as emoji-tagged fields in
 // the stream title. Written as escapes because the gear is U+2699 followed by

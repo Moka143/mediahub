@@ -34,6 +34,7 @@ class EditorialBadge extends StatelessWidget {
     this.icon,
     this.iconSize = 9,
     this.compact = false,
+    this.prominent = false,
     this.tone,
   });
 
@@ -44,6 +45,10 @@ class EditorialBadge extends StatelessWidget {
 
   /// Reduces padding for use inside dense rows.
   final bool compact;
+
+  /// Larger type and padding for cinematic heroes, where the compact
+  /// 9px tags disappear against a backdrop next to an 80px title.
+  final bool prominent;
 
   /// Escape hatch for tinted-but-still-mono badges (quality colors,
   /// torrent-state colors, rating colors). When non-null, this color
@@ -62,29 +67,41 @@ class EditorialBadge extends StatelessWidget {
             BadgeKind.err => (AppColors.err, const Color(0x80FF5F5B)),
           };
 
+    final fontSize = prominent
+        ? 13.0
+        : compact
+        ? 9.0
+        : 10.0;
+    final resolvedIconSize = prominent ? 14.0 : iconSize;
+    final padding = prominent
+        ? const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: 6)
+        : EdgeInsets.symmetric(
+            horizontal: compact ? AppSpacing.xs : AppSpacing.sm,
+            vertical: compact ? AppSpacing.xxs : AppSpacing.xs,
+          );
+
     return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: compact ? AppSpacing.xs : AppSpacing.sm,
-        vertical: compact ? AppSpacing.xxs : AppSpacing.xs,
-      ),
+      padding: padding,
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(AppRadius.xxs),
+        color: Colors.black.withValues(alpha: prominent ? 0.55 : 0.4),
+        borderRadius: BorderRadius.circular(
+          prominent ? AppRadius.xs : AppRadius.xxs,
+        ),
         border: Border.all(color: borderColor, width: 1),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[
-            Icon(icon, size: iconSize, color: textColor),
+            Icon(icon, size: resolvedIconSize, color: textColor),
             const SizedBox(width: 4),
           ],
           Text(
             label.toUpperCase(),
             style: AppType.mono(
-              size: compact ? 9 : 10,
+              size: fontSize,
               color: textColor,
-              weight: FontWeight.w500,
+              weight: prominent ? FontWeight.w600 : FontWeight.w500,
               letterSpacing: 0.05,
               height: 1.1,
             ),

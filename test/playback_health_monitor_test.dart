@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:flutter_torrent_client/services/playback_health_monitor.dart';
+import 'package:mediahub/services/playback_health_monitor.dart';
 
 void main() {
   group('shouldRecoverFromStall', () {

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_torrent_client/screens/main_navigation_screen.dart';
+import '../screens/main_navigation_screen.dart';
 import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
 import '../providers/settings_provider.dart';

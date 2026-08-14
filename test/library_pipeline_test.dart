@@ -3,12 +3,12 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_torrent_client/models/local_media_file.dart';
-import 'package:flutter_torrent_client/models/watch_progress.dart';
-import 'package:flutter_torrent_client/providers/local_media_provider.dart';
-import 'package:flutter_torrent_client/providers/settings_provider.dart';
-import 'package:flutter_torrent_client/providers/watch_progress_provider.dart';
-import 'package:flutter_torrent_client/utils/platform_utils.dart';
+import 'package:mediahub/models/local_media_file.dart';
+import 'package:mediahub/models/watch_progress.dart';
+import 'package:mediahub/providers/local_media_provider.dart';
+import 'package:mediahub/providers/settings_provider.dart';
+import 'package:mediahub/providers/watch_progress_provider.dart';
+import 'package:mediahub/utils/platform_utils.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// End-to-end over the real provider graph: a directory on disk → the
@@ -202,6 +202,30 @@ void main() {
       await library(container);
 
       expect(container.read(continueWatchingProvider), isEmpty);
+    });
+
+    test('90%+ without the completed flag is not Continue Watching', () async {
+      final f = await makeFile('Severance.S02E01.mkv', bytes: 2 * 1024 * 1024);
+      final container = await makeContainer(
+        prefs: {'watch_progress': progressJson(f.path, 0.95)},
+      );
+      await library(container);
+
+      expect(container.read(continueWatchingProvider), isEmpty);
+      expect(
+        container
+            .read(watchedIndexProvider)
+            .isEpisodeWatched(
+              showId: 95396,
+              season: 2,
+              episode: 1,
+              showName: 'Severance',
+            ),
+        isTrue,
+      );
+      final files = container.read(localMediaFilesProvider).value ?? [];
+      expect(files, isNotEmpty);
+      expect(files.first.isWatched, isTrue);
     });
 
     test('a finished file is not Continue Watching, but is watched', () async {

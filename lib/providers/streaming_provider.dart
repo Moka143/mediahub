@@ -84,6 +84,13 @@ class StreamingSessionsNotifier extends Notifier<StreamingSessionsState> {
   /// Start a new streaming session from a normalised [StreamRequest] —
   /// used by the next-episode / binge flow, which resolves torrents through
   /// `AutoDownloadService` rather than Torrentio's stream list.
+  ///
+  /// [makeActive] controls whether this session becomes [activeSessionId].
+  /// Leave it true for user-picked sources (details screens): the global
+  /// safety-net in `MainNavigationScreen` opens the player when that
+  /// session turns ready. Pass false for background next-episode prefetch
+  /// — otherwise the safety-net would push a new player on top of the
+  /// episode still playing.
   Future<StreamingSession?> startStreamingRequest({
     required StreamRequest request,
     String? showImdbId,
@@ -93,6 +100,8 @@ class StreamingSessionsNotifier extends Notifier<StreamingSessionsState> {
     int? episode,
     String? episodeCode,
     String? savePath,
+    bool makeActive = true,
+    bool allowSlowBuffer = false,
   }) async {
     final streamingService = ref.read(streamingServiceProvider);
 
@@ -106,23 +115,28 @@ class StreamingSessionsNotifier extends Notifier<StreamingSessionsState> {
       episode: episode,
       episodeCode: episodeCode,
       savePath: savePath,
+      allowSlowBuffer: allowSlowBuffer,
     );
 
     // Add to state
     final newSessions = Map<String, StreamingSession>.from(state.sessions);
     newSessions[session.id] = session;
 
-    state = state.copyWith(sessions: newSessions, activeSessionId: session.id);
-
-    // Subscribe to session updates
-    _activeSubscription?.cancel();
-    _activeSubscription = streamingService.getSessionStream(session.id)?.listen(
-      (updatedSession) {
-        final newSessions = Map<String, StreamingSession>.from(state.sessions);
-        newSessions[updatedSession.id] = updatedSession;
-        state = state.copyWith(sessions: newSessions);
-      },
+    state = state.copyWith(
+      sessions: newSessions,
+      activeSessionId: makeActive ? session.id : state.activeSessionId,
     );
+
+    if (makeActive) {
+      _activeSubscription?.cancel();
+      _activeSubscription = streamingService
+          .getSessionStream(session.id)
+          ?.listen((updatedSession) {
+            final updated = Map<String, StreamingSession>.from(state.sessions);
+            updated[updatedSession.id] = updatedSession;
+            state = state.copyWith(sessions: updated);
+          });
+    }
 
     return session;
   }

@@ -122,27 +122,6 @@ final availableSubtitlesProvider = FutureProvider<List<Subtitle>>((ref) async {
   }
 });
 
-/// Groups subtitles by language for easier display
-final subtitlesByLanguageProvider = Provider<Map<String, List<Subtitle>>>((
-  ref,
-) {
-  final subtitlesAsync = ref.watch(availableSubtitlesProvider);
-  return subtitlesAsync.when(
-    data: (subtitles) {
-      final Map<String, List<Subtitle>> grouped = {};
-      for (final sub in subtitles) {
-        final lang = sub.langName ?? sub.lang;
-        grouped.putIfAbsent(lang, () => []).add(sub);
-      }
-      // Sort by language name
-      final sortedKeys = grouped.keys.toList()..sort();
-      return {for (final key in sortedKeys) key: grouped[key]!};
-    },
-    loading: () => {},
-    error: (_, _) => {},
-  );
-});
-
 /// Build a SharedPreferences key for persisting the user's chosen subtitle
 /// against a video file. Order of preference:
 ///   1. `movie:<imdbId>` when we have an IMDB id and no episode info.

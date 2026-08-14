@@ -94,6 +94,19 @@ class WatchProgress {
   /// Check if should mark as completed (> 90% watched)
   bool get shouldMarkCompleted => progress >= 0.90;
 
+  /// Finished this title — the persisted flag **or** playback reached
+  /// the credits threshold. Library / season-browser watched marks use
+  /// this so a 95% watch still counts when `isCompleted` never flipped.
+  bool get isEffectivelyWatched => isCompleted || shouldMarkCompleted;
+
+  /// TMDB "not rated" may clear an explicit local mark (synthetics,
+  /// "mark watched" on an unopened file). It must not clear a title
+  /// we actually played — the rating often never reached TMDB (missing
+  /// show id). Zeroing position after a delete used to make a finished
+  /// episode look like an explicit mark and get wiped on the next sync.
+  bool get followsRemoteUnwatch =>
+      isCompleted && duration.inMilliseconds == 0 && !shouldMarkCompleted;
+
   /// Get display title
   String get displayTitle {
     if (showName != null && episodeCode != null) {

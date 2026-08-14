@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:flutter_torrent_client/models/torrent.dart';
-import 'package:flutter_torrent_client/utils/constants.dart';
+import 'package:mediahub/models/torrent.dart';
+import 'package:mediahub/utils/constants.dart';
 
 Torrent _torrentWithState(String state) => Torrent.fromJson({
   'hash': 'deadbeef',

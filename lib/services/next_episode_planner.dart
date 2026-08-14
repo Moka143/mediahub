@@ -5,10 +5,6 @@ enum NextEpisodeAction {
   /// Nothing to do on this tick.
   none,
 
-  /// Continue Watching is on for this show — hand straight off to the next
-  /// episode without a countdown.
-  autoPlay,
-
   /// Surface the "Up Next" countdown overlay.
   showOverlay,
 }
@@ -47,14 +43,20 @@ class NextEpisodePlanner {
   /// and too late on short.
   static const double finalStretchRatio = 0.90;
 
-  bool _overlayVisible = false;
-  bool _overlayDismissed = false;
-  bool _autoPlayFired = false;
+  bool _overlayOffered = false;
+  bool _overlayMinimized = false;
+  bool _overlayConsumed = false;
   bool _autoDownloadTriggered = false;
 
-  bool get overlayVisible => _overlayVisible;
-  bool get overlayDismissed => _overlayDismissed;
-  bool get autoPlayFired => _autoPlayFired;
+  /// The prompt has been offered this episode (expanded or minimized).
+  bool get overlayOffered => _overlayOffered;
+
+  bool get overlayMinimized => _overlayMinimized;
+
+  /// Prompt is on screen — chip or expanded row — and has not been consumed
+  /// by Play / Stream.
+  bool get overlayActive => _overlayOffered && !_overlayConsumed;
+
   bool get autoDownloadTriggered => _autoDownloadTriggered;
 
   // ---------------------------------------------------------------------
@@ -88,37 +90,35 @@ class NextEpisodePlanner {
 
   /// Map the current situation onto an action.
   ///
-  /// [hasPlayableNextEpisode] means a real file (or a ready stream proxy) is
-  /// in hand. [hasAnyNextEpisode] is looser — it includes an episode TMDB
-  /// knows about but which isn't downloaded yet, which is enough to show the
-  /// overlay (it offers a download) but not enough to auto-play.
+  /// [hasAnyNextEpisode] includes an episode TMDB knows about but which
+  /// isn't downloaded yet — enough to show the overlay (it offers a
+  /// download). Continue Watching On never overlays; it prefetches in
+  /// the background and hands off when playback completes.
+  ///
+  /// Once offered, later ticks stay quiet even if playback leaves and
+  /// re-enters the trigger window. Minimize / restore are UI state on
+  /// that same offer — they do not re-fire [NextEpisodeAction.showOverlay].
   @visibleForTesting
   static NextEpisodeAction decideAction({
     required bool inTriggerWindow,
     required bool resumePromptVisible,
     required bool continueWatchingOn,
-    required bool hasPlayableNextEpisode,
     required bool hasAnyNextEpisode,
-    required bool overlayVisible,
-    required bool overlayDismissed,
-    required bool autoPlayFired,
+    required bool overlayOffered,
   }) {
     // The resume prompt owns the screen while it's up — stacking a countdown
     // on top of "resume from 12:34?" would be two modal decisions at once.
     if (resumePromptVisible || !inTriggerWindow) return NextEpisodeAction.none;
 
     if (continueWatchingOn) {
-      if (!autoPlayFired && hasPlayableNextEpisode) {
-        return NextEpisodeAction.autoPlay;
-      }
-      // Deliberately does not fall through to the overlay. Flipping on
-      // Continue Watching IS the consent to skip the prompt, so showing a
-      // countdown card here — because the next episode happens to still be
-      // buffering — would be a regression from what the user asked for.
+      // On prefetches in the background (progress threshold) and hands
+      // off when the current episode *completes* — not here in the
+      // credits window, and not via the overlay. Jumping at 90% felt
+      // like the next episode taking over mid-watch.
       return NextEpisodeAction.none;
     }
 
-    if (overlayDismissed || overlayVisible) return NextEpisodeAction.none;
+    if (overlayOffered) return NextEpisodeAction.none;
     if (!hasAnyNextEpisode) return NextEpisodeAction.none;
     return NextEpisodeAction.showOverlay;
   }
@@ -153,7 +153,6 @@ class NextEpisodePlanner {
     required int countdownSeconds,
     required bool resumePromptVisible,
     required bool continueWatchingOn,
-    required bool hasPlayableNextEpisode,
     required bool hasAnyNextEpisode,
   }) {
     if (!bingeEnabled) return NextEpisodeAction.none;
@@ -166,18 +165,14 @@ class NextEpisodePlanner {
       ),
       resumePromptVisible: resumePromptVisible,
       continueWatchingOn: continueWatchingOn,
-      hasPlayableNextEpisode: hasPlayableNextEpisode,
       hasAnyNextEpisode: hasAnyNextEpisode,
-      overlayVisible: _overlayVisible,
-      overlayDismissed: _overlayDismissed,
-      autoPlayFired: _autoPlayFired,
+      overlayOffered: _overlayOffered,
     );
 
     switch (action) {
-      case NextEpisodeAction.autoPlay:
-        _autoPlayFired = true;
       case NextEpisodeAction.showOverlay:
-        _overlayVisible = true;
+        _overlayOffered = true;
+        _overlayMinimized = false;
       case NextEpisodeAction.none:
         break;
     }
@@ -203,21 +198,24 @@ class NextEpisodePlanner {
     return should;
   }
 
-  /// Claim the auto-download one-shot immediately, ignoring the threshold.
-  ///
-  /// Used when the user flips Continue Watching on mid-episode: waiting for
-  /// 70% would mean the download starts too late to be seamless. Returns
-  /// false when a download is already in flight.
-  bool claimAutoDownloadNow() {
-    if (_autoDownloadTriggered) return false;
-    _autoDownloadTriggered = true;
-    return true;
+  /// Collapse the prompt to a restore chip. Stays available for the rest
+  /// of the episode, including after playback leaves the trigger window.
+  void minimizeOverlay() {
+    if (!_overlayOffered || _overlayConsumed) return;
+    _overlayMinimized = true;
   }
 
-  /// User dismissed the countdown. Latches so it does not reappear for the
-  /// rest of this episode.
-  void dismissOverlay() {
-    _overlayVisible = false;
-    _overlayDismissed = true;
+  /// Expand the prompt again. Safe to call after the trigger percentage
+  /// has already passed — the offer is latched for the episode, not the
+  /// window.
+  void restoreOverlay() {
+    if (!_overlayOffered || _overlayConsumed) return;
+    _overlayMinimized = false;
+  }
+
+  /// Play / Stream took over. The prompt leaves and does not return.
+  void consumeOverlay() {
+    _overlayConsumed = true;
+    _overlayMinimized = false;
   }
 }

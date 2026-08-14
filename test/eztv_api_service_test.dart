@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:flutter_torrent_client/models/eztv_torrent.dart';
-import 'package:flutter_torrent_client/services/eztv_api_service.dart';
+import 'package:mediahub/models/eztv_torrent.dart';
+import 'package:mediahub/services/eztv_api_service.dart';
 
 /// EztvTorrent equality compares only `id` and `hash`, so every fixture needs
 /// a distinct id or list-order assertions pass vacuously.

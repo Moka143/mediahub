@@ -2,10 +2,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:flutter_torrent_client/models/local_media_file.dart';
-import 'package:flutter_torrent_client/providers/settings_provider.dart';
-import 'package:flutter_torrent_client/providers/subtitle_provider.dart';
-import 'package:flutter_torrent_client/services/opensubtitles_service.dart';
+import 'package:mediahub/models/local_media_file.dart';
+import 'package:mediahub/providers/settings_provider.dart';
+import 'package:mediahub/providers/subtitle_provider.dart';
+import 'package:mediahub/services/opensubtitles_service.dart';
 
 void main() {
   group('computeSubtitleCacheKey', () {

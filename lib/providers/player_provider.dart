@@ -215,6 +215,9 @@ class PlayerService {
         // The proxy can be slow to respond when we're at the download edge
         // — give libavformat time before it gives up.
         await nativePlayer.setProperty('network-timeout', '60');
+        // Don't try to spill a multi-GB HTTP body onto disk. That fails
+        // with `mkv: Failed to create file cache` and leaves playback stuck.
+        await nativePlayer.setProperty('cache-on-disk', 'no');
 
         // Stop mpv from probing the end of the file. By default mpv reads
         // the very last region of an MKV to:

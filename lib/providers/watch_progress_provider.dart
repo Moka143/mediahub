@@ -11,6 +11,7 @@ import '../services/tmdb_account_service.dart';
 import '../utils/formatters.dart';
 import 'local_media_provider.dart';
 import 'settings_provider.dart';
+import 'shows_provider.dart';
 import 'tmdb_account_provider.dart';
 import '../services/app_logger.dart';
 
@@ -186,7 +187,11 @@ final continueWatchingProvider = Provider<List<WatchProgress>>((ref) {
   final libraryPaths = ref.watch(libraryPathsProvider);
 
   final validProgress = progress.values.where((p) {
-    if (p.isCompleted || p.progress <= 0.05) return false;
+    // 90%+ is credits — same bar as `shouldMarkCompleted`. Don't keep
+    // a row around just because the completed flag never got persisted.
+    if (p.isEffectivelyWatched || p.progress <= 0.05) {
+      return false;
+    }
     return isProgressPlayable(p.filePath, libraryPaths);
   }).toList();
 
@@ -205,7 +210,9 @@ final watchedItemsProvider = Provider<List<WatchProgress>>((ref) {
   final libraryPaths = ref.watch(libraryPathsProvider);
   return progress.values
       .where(
-        (p) => p.isCompleted && isProgressPlayable(p.filePath, libraryPaths),
+        (p) =>
+            p.isEffectivelyWatched &&
+            isProgressPlayable(p.filePath, libraryPaths),
       )
       .toList()
     ..sort((a, b) => b.lastWatched.compareTo(a.lastWatched));
@@ -226,23 +233,39 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
   @override
   Map<String, WatchProgress> build() {
     final prefs = ref.watch(sharedPreferencesProvider);
-    return _loadProgress(prefs);
+    var promoted = false;
+    final map = _loadProgress(prefs, promoted: (v) => promoted = v);
+    if (promoted) {
+      Future.microtask(() {
+        _saveProgress();
+      });
+    }
+    return map;
   }
 
   /// Load progress from SharedPreferences
-  Map<String, WatchProgress> _loadProgress(SharedPreferences prefs) {
+  Map<String, WatchProgress> _loadProgress(
+    SharedPreferences prefs, {
+    void Function(bool promoted)? promoted,
+  }) {
     try {
       final jsonString = prefs.getString(_watchProgressKey);
       if (jsonString == null) return {};
 
       final jsonList = jsonDecode(jsonString) as List<dynamic>;
       final map = <String, WatchProgress>{};
+      var didPromote = false;
 
       for (final item in jsonList) {
-        final progress = WatchProgress.fromJson(item as Map<String, dynamic>);
+        var progress = WatchProgress.fromJson(item as Map<String, dynamic>);
+        if (!progress.isCompleted && progress.shouldMarkCompleted) {
+          progress = progress.copyWith(isCompleted: true);
+          didPromote = true;
+        }
         map[progress.fileHash] = progress;
       }
 
+      promoted?.call(didPromote);
       return map;
     } catch (e) {
       AppLog.e('[WatchProgress] Error loading watch progress: $e');
@@ -288,10 +311,21 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
     if (!ref.read(isTmdbSignedInProvider)) return;
     final acct = ref.read(tmdbAccountServiceProvider);
     try {
-      final showId = p.showId;
+      var showId = p.showId;
       final season = p.seasonNumber;
       final episode = p.episodeNumber;
       final movieId = p.movieId;
+
+      if (showId == null &&
+          season != null &&
+          episode != null &&
+          p.showName != null &&
+          p.showName!.isNotEmpty) {
+        final shows = await ref
+            .read(tmdbApiServiceProvider)
+            .searchShows(p.showName!);
+        if (shows.isNotEmpty) showId = shows.first.id;
+      }
 
       if (showId != null && season != null && episode != null) {
         await acct.rateEpisode(
@@ -300,18 +334,38 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
           episodeNumber: episode,
           value: TmdbAccountService.watchedRatingValue,
         );
+        if (p.showId == null) {
+          final hash = p.fileHash;
+          final existing = state[hash];
+          if (existing != null) {
+            state = {...state, hash: existing.copyWith(showId: showId)};
+            await _saveProgress();
+          }
+        }
       } else if (movieId != null) {
         await acct.rateMovie(
           movieId: movieId,
           value: TmdbAccountService.watchedRatingValue,
         );
       }
-      // Items without enough metadata to push (no movieId, no
-      // showId/season/episode) are picked up by the next
-      // reconcileWatchedWithTmdb pass once the filename → TMDB id
-      // lookup resolves.
     } catch (e) {
       AppLog.e('[WatchProgress] auto-push to TMDB failed: $e');
+    }
+  }
+
+  /// Persist a TMDB show id onto an existing progress row once playback
+  /// resolves it. Also retries the watched rating POST if this title is
+  /// already finished — Lioness rows were saved with `showId: null`, so
+  /// the original auto-push was a no-op.
+  Future<void> attachShowId(String filePath, int showId) async {
+    final hash = WatchProgress.generateHash(filePath);
+    final existing = state[hash];
+    if (existing == null || existing.showId == showId) return;
+    final updated = existing.copyWith(showId: showId);
+    state = {...state, hash: updated};
+    await _saveProgress();
+    if (updated.isEffectivelyWatched) {
+      _pushWatchedToTmdb(updated);
     }
   }
 
@@ -431,6 +485,7 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
     if (existing != null) {
       final updated = existing.copyWith(
         isCompleted: false,
+        position: Duration.zero,
         lastWatched: DateTime.now(),
       );
       state = {...state, hash: updated};
@@ -449,31 +504,31 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
 
   /// Remove watch progress entries whose files no longer exist on disk.
   ///
-  /// Entries marked completed (`isCompleted = true`) survive cleanup so that
-  /// the user's "watched" mark persists across file deletes / re-downloads —
-  /// the entry stays as a watched-only record (position is zeroed since it
-  /// no longer refers to a real file). Non-completed stale entries are
-  /// dropped as before.
+  /// Finished watches survive so the tag outlives delete / re-download.
+  /// Position is left alone — zeroing it made a 90%+ episode look like
+  /// an unplayed explicit mark, and the next TMDB pull wiped the tag.
   Future<void> cleanupStaleEntries() async {
     final newState = <String, WatchProgress>{};
     var changed = false;
 
     for (final entry in state.entries) {
-      if (File(entry.value.filePath).existsSync()) {
-        newState[entry.key] = entry.value;
+      final p = entry.value;
+      final keepFile =
+          WatchProgress.isSyntheticPath(p.filePath) ||
+          File(p.filePath).existsSync();
+      if (keepFile) {
+        newState[entry.key] = p;
         continue;
       }
-      if (!entry.value.isCompleted) {
-        // Stale + not watched → drop.
+      if (!p.isEffectivelyWatched) {
         changed = true;
         continue;
       }
-      // Stale + watched → keep, zeroed position.
-      if (entry.value.position == Duration.zero) {
-        newState[entry.key] = entry.value;
+      if (!p.isCompleted) {
+        newState[entry.key] = p.copyWith(isCompleted: true);
+        changed = true;
       } else {
-        newState[entry.key] = entry.value.copyWith(position: Duration.zero);
-        changed = true;
+        newState[entry.key] = p;
       }
     }
 

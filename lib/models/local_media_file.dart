@@ -83,8 +83,9 @@ class LocalMediaFile {
   /// Check if file has watch progress
   bool get hasProgress => progress != null && progress!.progress > 0;
 
-  /// Check if file is completed (watched)
-  bool get isWatched => progress?.isCompleted ?? false;
+  /// Check if file is completed (watched). 90%+ counts even when the
+  /// persisted `isCompleted` flag never flipped.
+  bool get isWatched => progress != null && progress!.isEffectivelyWatched;
 
   /// Get watch progress value (0.0 - 1.0)
   double get watchProgress => progress?.progress ?? 0.0;

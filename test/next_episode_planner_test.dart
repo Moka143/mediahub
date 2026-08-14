@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_torrent_client/services/next_episode_planner.dart';
+import 'package:mediahub/services/next_episode_planner.dart';
 
 /// A 45-minute episode — the shape most of these rules were tuned for.
 const _episode = Duration(minutes: 45);
@@ -11,21 +11,15 @@ NextEpisodeAction _decide({
   bool inTriggerWindow = true,
   bool resumePromptVisible = false,
   bool continueWatchingOn = false,
-  bool hasPlayableNextEpisode = true,
   bool hasAnyNextEpisode = true,
-  bool overlayVisible = false,
-  bool overlayDismissed = false,
-  bool autoPlayFired = false,
+  bool overlayOffered = false,
 }) {
   return NextEpisodePlanner.decideAction(
     inTriggerWindow: inTriggerWindow,
     resumePromptVisible: resumePromptVisible,
     continueWatchingOn: continueWatchingOn,
-    hasPlayableNextEpisode: hasPlayableNextEpisode,
     hasAnyNextEpisode: hasAnyNextEpisode,
-    overlayVisible: overlayVisible,
-    overlayDismissed: overlayDismissed,
-    autoPlayFired: autoPlayFired,
+    overlayOffered: overlayOffered,
   );
 }
 
@@ -100,26 +94,15 @@ void main() {
     });
 
     test('a TMDB-only next episode is enough to offer the overlay', () {
-      // Not downloaded yet — the overlay offers to fetch it.
-      expect(
-        _decide(hasPlayableNextEpisode: false, hasAnyNextEpisode: true),
-        NextEpisodeAction.showOverlay,
-      );
+      expect(_decide(hasAnyNextEpisode: true), NextEpisodeAction.showOverlay);
     });
 
     test('no next episode at all means no overlay', () {
-      expect(
-        _decide(hasPlayableNextEpisode: false, hasAnyNextEpisode: false),
-        NextEpisodeAction.none,
-      );
+      expect(_decide(hasAnyNextEpisode: false), NextEpisodeAction.none);
     });
 
-    test('does not re-show once dismissed', () {
-      expect(_decide(overlayDismissed: true), NextEpisodeAction.none);
-    });
-
-    test('does not re-show while already visible', () {
-      expect(_decide(overlayVisible: true), NextEpisodeAction.none);
+    test('does not re-show once already offered', () {
+      expect(_decide(overlayOffered: true), NextEpisodeAction.none);
     });
 
     test('yields to the resume prompt', () {
@@ -130,27 +113,21 @@ void main() {
   });
 
   group('decideAction — Continue Watching flow', () {
-    test('auto-plays without a countdown', () {
-      expect(_decide(continueWatchingOn: true), NextEpisodeAction.autoPlay);
+    test('does not overlay or jump mid-episode', () {
+      // Prefetch is a separate watcher. Handoff is on playback completion.
+      expect(_decide(continueWatchingOn: true), NextEpisodeAction.none);
     });
 
-    test('fires only once', () {
+    test('does not auto-play before the credits window', () {
       expect(
-        _decide(continueWatchingOn: true, autoPlayFired: true),
+        _decide(continueWatchingOn: true, inTriggerWindow: false),
         NextEpisodeAction.none,
       );
     });
 
-    test('waits for a playable episode rather than showing the overlay', () {
-      // The explicit toggle IS consent to skip the prompt, so falling back
-      // to a countdown card while the next episode buffers would be a
-      // regression from what the user asked for.
+    test('does not show the overlay while On', () {
       expect(
-        _decide(
-          continueWatchingOn: true,
-          hasPlayableNextEpisode: false,
-          hasAnyNextEpisode: true,
-        ),
+        _decide(continueWatchingOn: true, hasAnyNextEpisode: true),
         NextEpisodeAction.none,
       );
     });
@@ -228,7 +205,6 @@ void main() {
       countdownSeconds: 10,
       resumePromptVisible: false,
       continueWatchingOn: continueWatchingOn,
-      hasPlayableNextEpisode: true,
       hasAnyNextEpisode: true,
     );
 
@@ -241,27 +217,44 @@ void main() {
     test('overlay shows once, then stays quiet on later ticks', () {
       final p = planner();
       expect(tick(p), NextEpisodeAction.showOverlay);
-      expect(p.overlayVisible, isTrue);
+      expect(p.overlayOffered, isTrue);
+      expect(p.overlayActive, isTrue);
       expect(tick(p), NextEpisodeAction.none);
       expect(tick(p), NextEpisodeAction.none);
     });
 
-    test('dismissing latches so the overlay never returns', () {
+    test('minimize keeps the offer; restore works past the trigger window', () {
       final p = planner();
       expect(tick(p), NextEpisodeAction.showOverlay);
-      p.dismissOverlay();
-      expect(p.overlayVisible, isFalse);
-      expect(p.overlayDismissed, isTrue);
+      p.minimizeOverlay();
+      expect(p.overlayMinimized, isTrue);
+      expect(p.overlayActive, isTrue);
+      expect(tick(p, ratio: 0.5), NextEpisodeAction.none);
+      expect(p.overlayOffered, isTrue);
+      expect(p.overlayActive, isTrue);
+      p.restoreOverlay();
+      expect(p.overlayMinimized, isFalse);
+      expect(p.overlayActive, isTrue);
       expect(tick(p), NextEpisodeAction.none);
     });
 
-    test('auto-play fires exactly once across many position ticks', () {
+    test('consume hides the prompt for the rest of the episode', () {
       final p = planner();
-      expect(tick(p, continueWatchingOn: true), NextEpisodeAction.autoPlay);
-      expect(p.autoPlayFired, isTrue);
+      expect(tick(p), NextEpisodeAction.showOverlay);
+      p.consumeOverlay();
+      expect(p.overlayActive, isFalse);
+      expect(p.overlayOffered, isTrue);
+      expect(tick(p), NextEpisodeAction.none);
+      p.restoreOverlay();
+      expect(p.overlayActive, isFalse);
+    });
+
+    test('On never overlays or auto-plays from the position watcher', () {
+      final p = planner();
       for (var i = 0; i < 20; i++) {
         expect(tick(p, continueWatchingOn: true), NextEpisodeAction.none);
       }
+      expect(p.overlayOffered, isFalse);
     });
 
     test('auto-download threshold claim is one-shot', () {
@@ -277,16 +270,20 @@ void main() {
       expect(claim(), isFalse);
     });
 
-    test('claimAutoDownloadNow bypasses the threshold but not the guard', () {
+    test('claim before the threshold does not latch', () {
+      // Turning Continue Watching On at 20% must not start prefetch, and
+      // must not burn the one-shot so the 70% crossing can still fire.
       final p = planner();
-      expect(p.claimAutoDownloadNow(), isTrue);
-      expect(p.claimAutoDownloadNow(), isFalse);
-    });
-
-    test('an in-flight threshold download blocks the immediate claim', () {
-      // Flipping Continue Watching on after auto-download already fired must
-      // not start a second download of the same episode.
-      final p = planner();
+      expect(
+        p.claimAutoDownloadAtThreshold(
+          gateOpen: true,
+          position: _at(0.2),
+          duration: _episode,
+          threshold: 0.7,
+        ),
+        isFalse,
+      );
+      expect(p.autoDownloadTriggered, isFalse);
       expect(
         p.claimAutoDownloadAtThreshold(
           gateOpen: true,
@@ -295,21 +292,6 @@ void main() {
           threshold: 0.7,
         ),
         isTrue,
-      );
-      expect(p.claimAutoDownloadNow(), isFalse);
-    });
-
-    test('an immediate claim blocks the later threshold crossing', () {
-      final p = planner();
-      expect(p.claimAutoDownloadNow(), isTrue);
-      expect(
-        p.claimAutoDownloadAtThreshold(
-          gateOpen: true,
-          position: _at(0.9),
-          duration: _episode,
-          threshold: 0.7,
-        ),
-        isFalse,
       );
     });
   });

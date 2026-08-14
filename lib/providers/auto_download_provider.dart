@@ -9,10 +9,11 @@ import '../models/eztv_torrent.dart';
 import '../services/auto_download_service.dart';
 import '../utils/formatters.dart';
 import 'auto_download_events_provider.dart';
-import '../services/eztv_api_service.dart';
 import 'connection_provider.dart';
+import 'eztv_provider.dart';
 import 'local_media_provider.dart';
 import 'settings_provider.dart';
+import 'shows_provider.dart';
 import 'torrentio_provider.dart';
 import '../services/app_logger.dart';
 
@@ -20,7 +21,7 @@ const _autoDownloadStateKey = 'auto_download_state';
 
 /// Provider for AutoDownloadService
 final autoDownloadServiceProvider = Provider<AutoDownloadService>((ref) {
-  final tmdbService = ref.watch(tmdbServiceProvider);
+  final tmdbService = ref.watch(tmdbApiServiceProvider);
   final eztvService = ref.watch(eztvApiServiceProvider);
   final qbtService = ref.watch(qbApiServiceProvider);
   final torrentioService = ref.watch(torrentioApiServiceProvider);
@@ -31,11 +32,6 @@ final autoDownloadServiceProvider = Provider<AutoDownloadService>((ref) {
     qbtService: qbtService,
     torrentioService: torrentioService,
   );
-});
-
-/// Provider for EZTV API service
-final eztvApiServiceProvider = Provider<EztvApiService>((ref) {
-  return EztvApiService();
 });
 
 /// State for auto-download feature

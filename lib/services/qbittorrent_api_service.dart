@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -36,6 +35,8 @@ class QBittorrentApiService {
   String? _sid;
   bool _isAuthenticated = false;
   int _syncRid = 0;
+  final Map<String, int> _pieceSizeCache = {};
+  bool? _piecePrioSupported;
 
   /// True when the HTTP status code is in the 2xx success range.
   ///
@@ -334,6 +335,22 @@ class QBittorrentApiService {
     } catch (e) {
       _log('Get torrent properties error: $e');
       return null;
+    }
+  }
+
+  /// Piece size is not on `/torrents/info` — only on `/torrents/properties`.
+  /// Cached because it never changes for a given hash.
+  Future<int> getPieceSize(String hash) async {
+    final cached = _pieceSizeCache[hash];
+    if (cached != null && cached > 0) return cached;
+    try {
+      final props = await getTorrentProperties(hash);
+      final size = (props?['piece_size'] as num?)?.toInt() ?? 0;
+      if (size > 0) _pieceSizeCache[hash] = size;
+      return size;
+    } catch (e) {
+      _log('Get piece size error: $e');
+      return 0;
     }
   }
 
@@ -773,30 +790,82 @@ class QBittorrentApiService {
     }
   }
 
-  /// Enable streaming mode for a torrent (sequential + first/last piece priority)
-  Future<bool> enableStreamingMode(String hash) async {
+  /// Sequential on, first/last piece priority off.
+  ///
+  /// qBittorrent only exposes toggles. [resetPicker] turns sequential off
+  /// then on so the piece picker starts at the first wanted piece of this
+  /// file instead of wherever a previous session left it — without that,
+  /// season-pack streaming fills random pieces and the player waits until
+  /// ~99%.
+  Future<bool> ensureInOrderDownload(
+    String hash, {
+    bool resetPicker = false,
+  }) async {
     if (!await _ensureAuthenticated()) return false;
 
     try {
-      // Get current torrent state
-      final torrents = await getTorrents(hashes: [hash]);
+      var torrents = await getTorrents(hashes: [hash]);
       if (torrents.isEmpty) return false;
+      var torrent = torrents.first;
 
-      final torrent = torrents.first;
-
-      // Enable sequential download if not already enabled
-      if (!torrent.sequentialDownload) {
+      if (resetPicker) {
+        if (torrent.sequentialDownload) {
+          await toggleSequentialDownload(hash);
+        }
         await toggleSequentialDownload(hash);
+        _log('sequential download reset on for $hash');
+      } else if (!torrent.sequentialDownload) {
+        await toggleSequentialDownload(hash);
+        _log('sequential download enabled for $hash');
       }
 
-      // Enable first/last piece priority if not already enabled
-      if (!torrent.firstLastPiecePriority) {
+      torrents = await getTorrents(hashes: [hash]);
+      if (torrents.isNotEmpty) torrent = torrents.first;
+
+      if (torrent.firstLastPiecePriority) {
         await toggleFirstLastPiecePrio(hash);
+        _log('first/last piece prio disabled for $hash');
+        torrents = await getTorrents(hashes: [hash]);
+        if (torrents.isNotEmpty) torrent = torrents.first;
       }
 
-      return true;
+      _log(
+        'in-order seq=${torrent.sequentialDownload} '
+        'fl_prio=${torrent.firstLastPiecePriority} for $hash',
+      );
+      return torrent.sequentialDownload;
     } catch (e) {
-      _log('Enable streaming mode error: $e');
+      _log('Ensure in-order download error: $e');
+      return false;
+    }
+  }
+
+  /// Raise (or lower) piece priorities. Used to pull the start of the
+  /// selected file first so mpv can open before the rest of the torrent.
+  Future<bool> setPiecePriority(
+    String hash,
+    List<int> pieceIds,
+    int priority,
+  ) async {
+    if (pieceIds.isEmpty) return true;
+    if (_piecePrioSupported == false) return false;
+    if (!await _ensureAuthenticated()) return false;
+
+    try {
+      final response = await _dio.post(
+        '/api/v2/torrents/piecePrio',
+        data: 'hash=$hash&id=${pieceIds.join('|')}&priority=$priority',
+        options: Options(contentType: 'application/x-www-form-urlencoded'),
+      );
+      if (response.statusCode == 404) {
+        _piecePrioSupported = false;
+        _log('piecePrio not supported by this qBittorrent — skipping');
+        return false;
+      }
+      _piecePrioSupported = true;
+      return isSuccessStatus(response.statusCode);
+    } catch (e) {
+      _log('Set piece priority error: $e');
       return false;
     }
   }
@@ -812,124 +881,13 @@ class QBittorrentApiService {
       );
 
       if (isSuccessStatus(response.statusCode) && response.data is List) {
-        return (response.data as List).cast<int>();
+        return (response.data as List).map((e) => (e as num).toInt()).toList();
       }
       return null;
     } catch (e) {
       _log('Get piece states error: $e');
       return null;
     }
-  }
-
-  /// Check if beginning of torrent is ready for streaming (first 5% pieces downloaded)
-  Future<bool> isReadyForStreaming(
-    String hash, {
-    double minProgress = 0.05,
-  }) async {
-    try {
-      final pieceStates = await getPieceStates(hash);
-      if (pieceStates == null || pieceStates.isEmpty) return false;
-
-      // Calculate how many pieces we need at the start
-      final minPieces = (pieceStates.length * minProgress).ceil().clamp(
-        1,
-        pieceStates.length,
-      );
-
-      // Check if the first N pieces are downloaded (state == 2)
-      for (int i = 0; i < minPieces; i++) {
-        if (pieceStates[i] != 2) return false;
-      }
-
-      return true;
-    } catch (e) {
-      _log('Check streaming ready error: $e');
-      return false;
-    }
-  }
-
-  /// Check whether the selected file has enough contiguous pieces at its own
-  /// beginning to start playback.
-  ///
-  /// qBittorrent's `pieceStates` response is torrent-wide, while `files`
-  /// exposes each file's inclusive `piece_range`. Streaming a season pack must
-  /// check the selected episode's range, not piece 0 of the whole torrent.
-  Future<bool> isFileReadyForStreaming(
-    String hash,
-    TorrentFile file, {
-    double minProgress = 0.05,
-    int? minBufferBytes,
-  }) async {
-    try {
-      final pieceStates = await getPieceStates(hash);
-      if (pieceStates == null || pieceStates.isEmpty) return false;
-
-      final range = file.pieceRange;
-      if (range == null || range.length < 2) {
-        // Older qBittorrent versions may omit piece_range. Keep the previous
-        // torrent-level behavior as a compatibility fallback.
-        return isReadyForStreaming(hash, minProgress: minProgress);
-      }
-
-      return isPieceRangeReadyForStreaming(
-        pieceStates: pieceStates,
-        pieceRange: range,
-        fileSizeBytes: file.size,
-        minProgress: minProgress,
-        minBufferBytes: minBufferBytes,
-      );
-    } catch (e) {
-      _log('Check file streaming ready error: $e');
-      return false;
-    }
-  }
-
-  @visibleForTesting
-  static bool isPieceRangeReadyForStreaming({
-    required List<int> pieceStates,
-    required List<int> pieceRange,
-    required int fileSizeBytes,
-    required double minProgress,
-    int? minBufferBytes,
-  }) {
-    if (pieceStates.isEmpty || pieceRange.length < 2) return false;
-
-    final start = pieceRange[0].clamp(0, pieceStates.length - 1).toInt();
-    final end = pieceRange[1].clamp(0, pieceStates.length - 1).toInt();
-    if (end < start) return false;
-
-    final filePieceCount = end - start + 1;
-    final requiredPieces = requiredContiguousPiecesForStreaming(
-      filePieceCount: filePieceCount,
-      fileSizeBytes: fileSizeBytes,
-      minProgress: minProgress,
-      minBufferBytes: minBufferBytes,
-    );
-
-    for (var i = start; i < start + requiredPieces; i++) {
-      if (pieceStates[i] != 2) return false;
-    }
-
-    return true;
-  }
-
-  @visibleForTesting
-  static int requiredContiguousPiecesForStreaming({
-    required int filePieceCount,
-    required int fileSizeBytes,
-    required double minProgress,
-    int? minBufferBytes,
-  }) {
-    if (filePieceCount <= 0) return 0;
-
-    final progress = minProgress.clamp(0.0, 1.0);
-    final byProgress = (filePieceCount * progress).ceil();
-    final byBytes =
-        minBufferBytes != null && minBufferBytes > 0 && fileSizeBytes > 0
-        ? (filePieceCount * (minBufferBytes / fileSizeBytes)).ceil()
-        : 0;
-
-    return math.max(1, math.min(filePieceCount, math.max(byProgress, byBytes)));
   }
 
   /// Check connection to qBittorrent

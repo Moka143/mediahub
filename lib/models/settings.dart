@@ -1,5 +1,3 @@
-import 'package:flutter/material.dart';
-
 import '../utils/constants.dart';
 import '../utils/platform_utils.dart';
 
@@ -19,7 +17,6 @@ class AppSettings {
   final int uploadSpeedLimit; // bytes per second, 0 = unlimited
 
   // App settings
-  final ThemeMode themeMode;
   final int updateIntervalSeconds; // Polling interval when downloads are active
   final int
   idlePollingIntervalSeconds; // Polling interval when no active downloads
@@ -47,7 +44,6 @@ class AppSettings {
     String? defaultSavePath,
     this.downloadSpeedLimit = 0,
     this.uploadSpeedLimit = 0,
-    this.themeMode = ThemeMode.system,
     this.updateIntervalSeconds = 2,
     this.idlePollingIntervalSeconds = 10,
     this.useAdaptivePolling = true,
@@ -67,8 +63,8 @@ class AppSettings {
   String get apiBaseUrl => 'http://$host:$port';
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
-    // Note: legacy `max_connections` key is silently dropped — the
-    // field was never wired up and is gone in this version.
+    // Note: legacy `max_connections` and `theme_mode` keys are silently
+    // dropped — neither was wired to UI. MediaHub is dark-only.
     return AppSettings(
       host: json['host'] as String? ?? AppConstants.defaultHost,
       port: json['port'] as int? ?? AppConstants.defaultPort,
@@ -79,7 +75,6 @@ class AppSettings {
       defaultSavePath: json['default_save_path'] as String?,
       downloadSpeedLimit: json['download_speed_limit'] as int? ?? 0,
       uploadSpeedLimit: json['upload_speed_limit'] as int? ?? 0,
-      themeMode: ThemeMode.values[json['theme_mode'] as int? ?? 0],
       updateIntervalSeconds: json['update_interval_seconds'] as int? ?? 2,
       idlePollingIntervalSeconds:
           json['idle_polling_interval_seconds'] as int? ?? 10,
@@ -106,7 +101,6 @@ class AppSettings {
       'default_save_path': defaultSavePath,
       'download_speed_limit': downloadSpeedLimit,
       'upload_speed_limit': uploadSpeedLimit,
-      'theme_mode': themeMode.index,
       'update_interval_seconds': updateIntervalSeconds,
       'idle_polling_interval_seconds': idlePollingIntervalSeconds,
       'use_adaptive_polling': useAdaptivePolling,
@@ -130,7 +124,6 @@ class AppSettings {
     String? defaultSavePath,
     int? downloadSpeedLimit,
     int? uploadSpeedLimit,
-    ThemeMode? themeMode,
     int? updateIntervalSeconds,
     int? idlePollingIntervalSeconds,
     bool? useAdaptivePolling,
@@ -152,7 +145,6 @@ class AppSettings {
       defaultSavePath: defaultSavePath ?? this.defaultSavePath,
       downloadSpeedLimit: downloadSpeedLimit ?? this.downloadSpeedLimit,
       uploadSpeedLimit: uploadSpeedLimit ?? this.uploadSpeedLimit,
-      themeMode: themeMode ?? this.themeMode,
       updateIntervalSeconds:
           updateIntervalSeconds ?? this.updateIntervalSeconds,
       idlePollingIntervalSeconds:
@@ -184,7 +176,6 @@ class AppSettings {
           defaultSavePath == other.defaultSavePath &&
           downloadSpeedLimit == other.downloadSpeedLimit &&
           uploadSpeedLimit == other.uploadSpeedLimit &&
-          themeMode == other.themeMode &&
           updateIntervalSeconds == other.updateIntervalSeconds &&
           idlePollingIntervalSeconds == other.idlePollingIntervalSeconds &&
           useAdaptivePolling == other.useAdaptivePolling &&
@@ -207,7 +198,6 @@ class AppSettings {
     defaultSavePath,
     downloadSpeedLimit,
     uploadSpeedLimit,
-    themeMode,
     updateIntervalSeconds,
     idlePollingIntervalSeconds,
     useAdaptivePolling,

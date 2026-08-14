@@ -84,7 +84,7 @@ Future<void> _bootstrap() async {
       overrides: [
         sharedPreferencesProvider.overrideWithValue(sharedPreferences),
       ],
-      child: const TorrentClientApp(),
+      child: const MediaHubApp(),
     ),
   );
 }
