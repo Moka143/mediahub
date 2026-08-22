@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import '../models/torrentio_stream.dart';
+import '../utils/media_quality.dart';
 
 /// Service for interacting with Torrentio Stremio addon API
 class TorrentioApiService {
@@ -225,7 +226,7 @@ class TorrentioApiService {
     List<TorrentioStream> streams,
     String quality,
   ) {
-    return streams.where((s) => s.quality == quality).toList();
+    return streams.where((s) => qualityMatches(s.quality, quality)).toList();
   }
 }
 

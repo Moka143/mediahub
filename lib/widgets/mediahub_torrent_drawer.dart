@@ -8,6 +8,7 @@ import '../services/torrentio_api_service.dart';
 import 'common/mediahub_drawer_header.dart';
 import 'editorial/editorial.dart';
 import 'mediahub_drawer.dart';
+import '../utils/media_quality.dart';
 
 /// Result from a stream-picker presentation. Returned by
 /// [MediaHubTorrentDrawer.show] when the user selects a source.
@@ -193,22 +194,17 @@ class _GroupedSourceList extends StatelessWidget {
   final List<TorrentioStream> filtered;
   final void Function(TorrentioStream, bool isStreaming) onPick;
 
-  String _tier(TorrentioStream s) {
-    final q = (s.quality).toUpperCase();
-    if (q.contains('2160') || q.contains('4K') || q.contains('UHD')) {
-      return '4K';
-    }
-    if (q.contains('1080')) return '1080p';
-    if (q.contains('720')) return '720p';
-    if (q.contains('480') || q.contains('360') || q.contains('SD')) return 'SD';
-    return 'Other';
-  }
+  /// Resolution tier, or "Other" for source-only tags (BluRay, WEB-DL…)
+  /// and anything unrecognised. Delegates to [MediaQuality] so the picker
+  /// groups by the same rules the sorter ranks by.
+  String _tier(TorrentioStream s) =>
+      s.mediaQuality.isResolution ? s.mediaQuality.label : 'Other';
 
   @override
   Widget build(BuildContext context) {
     // Preserve filter ordering within each tier; the tier order itself
     // follows the canonical 4K → 1080p → 720p → SD → Other.
-    const tierOrder = ['4K', '1080p', '720p', 'SD', 'Other'];
+    const tierOrder = ['2160p', '1080p', '720p', '480p', 'Other'];
     final groups = <String, List<TorrentioStream>>{};
     for (final s in filtered) {
       groups.putIfAbsent(_tier(s), () => <TorrentioStream>[]).add(s);
@@ -281,7 +277,7 @@ class _TierHeader extends StatelessWidget {
   Color _accent(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     switch (label) {
-      case '4K':
+      case '2160p':
         return scheme.tertiary;
       case '1080p':
         return scheme.primary;
@@ -429,9 +425,9 @@ class _FilterBar extends StatelessWidget {
                   ),
                   const SizedBox(width: AppSpacing.xs),
                   pill(
-                    label: '4K',
-                    selected: qualityFilter == '4K',
-                    onTap: () => onQualityChange('4K'),
+                    label: '2160p',
+                    selected: qualityFilter == '2160p',
+                    onTap: () => onQualityChange('2160p'),
                   ),
                   const SizedBox(width: AppSpacing.xs),
                   pill(
@@ -500,7 +496,7 @@ class _SourceRowState extends State<_SourceRow> {
   @override
   Widget build(BuildContext context) {
     final s = widget.stream;
-    final quality = s.quality.isEmpty ? 'SD' : s.quality;
+    final quality = qualityBadgeLabel(s.name);
     final source = s.sourceSite;
     final size = s.sizeFormatted;
 

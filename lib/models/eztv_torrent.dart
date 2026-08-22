@@ -1,4 +1,5 @@
 import '../utils/formatters.dart';
+import '../utils/media_quality.dart';
 
 /// Represents a torrent from EZTV API or converted from Torrentio
 class EztvTorrent {
@@ -55,6 +56,10 @@ class EztvTorrent {
       episode: _parseInt(json['episode']),
       smallScreenshot: json['small_screenshot'] as String?,
       largeScreenshot: json['large_screenshot'] as String?,
+      // EZTV itself never sends this; a converted Torrentio result does, and
+      // it is the one field that picks an episode out of a season pack.
+      // Dropping it on a round-trip would silently stream the wrong file.
+      fileIdx: _parseInt(json['file_idx']),
     );
   }
 
@@ -88,28 +93,20 @@ class EztvTorrent {
       'episode': episode,
       'small_screenshot': smallScreenshot,
       'large_screenshot': largeScreenshot,
+      'file_idx': fileIdx,
     };
   }
 
   /// Get formatted file size
   String get sizeFormatted => Formatters.formatBytesCompact(sizeBytes);
 
-  /// Extract quality from filename (1080p, 720p, 480p, etc.)
-  String get quality {
-    final filename_ = filename.toLowerCase();
-    if (filename_.contains('2160p') || filename_.contains('4k')) return '4K';
-    if (filename_.contains('1080p')) return '1080p';
-    if (filename_.contains('720p')) return '720p';
-    if (filename_.contains('480p')) return '480p';
-    if (filename_.contains('hdtv')) return 'HDTV';
-    if (filename_.contains('webrip') || filename_.contains('web-rip')) {
-      return 'WEBRip';
-    }
-    if (filename_.contains('webdl') || filename_.contains('web-dl')) {
-      return 'WEB-DL';
-    }
-    return 'Unknown';
-  }
+  /// Release quality derived from the filename. See [MediaQuality] — this
+  /// used to be a private ladder that checked `hdtv` before `web-dl`, which
+  /// classified `HDTV.WEB-DL` differently from [TorrentioStream].
+  MediaQuality get mediaQuality => MediaQuality.fromText(filename);
+
+  /// Canonical quality label, e.g. `1080p`.
+  String get quality => mediaQuality.label;
 
   /// Get episode code (S01E01)
   String? get episodeCode {
@@ -128,24 +125,7 @@ class EztvTorrent {
   }
 
   /// Get quality priority for sorting (higher is better)
-  int get qualityPriority {
-    switch (quality) {
-      case '4K':
-        return 4;
-      case '1080p':
-        return 3;
-      case '720p':
-        return 2;
-      case 'WEB-DL':
-        return 2;
-      case 'WEBRip':
-        return 1;
-      case 'HDTV':
-        return 1;
-      default:
-        return 0;
-    }
-  }
+  int get qualityPriority => mediaQuality.rank;
 
   @override
   bool operator ==(Object other) =>

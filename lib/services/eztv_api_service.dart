@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/eztv_torrent.dart';
+import '../utils/media_quality.dart';
 
 /// Service for interacting with EZTV API to get torrent links
 class EztvApiService {
@@ -154,8 +155,11 @@ class EztvApiService {
     torrents.sort((a, b) {
       // If preferred quality specified, prioritize it
       if (preferredQuality != null) {
-        final aMatches = a.quality == preferredQuality;
-        final bMatches = b.quality == preferredQuality;
+        // qualityMatches, not `==`: the preference is persisted from
+        // LocalMediaFile.quality and older builds wrote `1080P` / `4K`,
+        // neither of which ever compared equal to the indexer's label.
+        final aMatches = qualityMatches(a.quality, preferredQuality);
+        final bMatches = qualityMatches(b.quality, preferredQuality);
         if (aMatches && !bMatches) return -1;
         if (!aMatches && bMatches) return 1;
       }
@@ -176,7 +180,7 @@ class EztvApiService {
     List<EztvTorrent> torrents,
     String quality,
   ) {
-    return torrents.where((t) => t.quality == quality).toList();
+    return torrents.where((t) => qualityMatches(t.quality, quality)).toList();
   }
 
   /// Sort torrents by seeds (descending)

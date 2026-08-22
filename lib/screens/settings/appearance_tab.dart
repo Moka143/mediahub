@@ -10,6 +10,7 @@ import '../../services/app_logger.dart';
 import '../../utils/feedback_utils.dart';
 import '../../widgets/common/section_header.dart';
 import 'settings_tiles.dart';
+import '../../utils/media_quality.dart';
 
 class SettingsAppearanceTab extends ConsumerWidget {
   const SettingsAppearanceTab({super.key});
@@ -345,14 +346,25 @@ class _AutoDownloadCard extends ConsumerWidget {
                     ),
                   ),
                   DropdownButton<String>(
-                    value: autoDownloadState.defaultQuality,
+                    // Normalised, not raw: a preference persisted as `4K` by
+                    // an older build is not in `items`, and DropdownButton
+                    // asserts on a value it cannot find.
+                    value: MediaQuality.labelFor(
+                      autoDownloadState.defaultQuality,
+                    ),
                     borderRadius: BorderRadius.circular(AppRadius.md),
-                    items: ['4K', '1080p', '720p', '480p'].map((quality) {
-                      return DropdownMenuItem(
-                        value: quality,
-                        child: Text(quality),
-                      );
-                    }).toList(),
+                    items:
+                        [
+                          MediaQuality.uhd.label,
+                          MediaQuality.fullHd.label,
+                          MediaQuality.hd.label,
+                          MediaQuality.sd.label,
+                        ].map((quality) {
+                          return DropdownMenuItem(
+                            value: quality,
+                            child: Text(quality),
+                          );
+                        }).toList(),
                     onChanged: (value) {
                       if (value != null) {
                         ref

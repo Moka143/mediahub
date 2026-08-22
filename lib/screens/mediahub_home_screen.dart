@@ -23,6 +23,7 @@ import '../screens/video_player_screen.dart';
 import '../utils/feedback_utils.dart';
 import '../utils/formatters.dart';
 import '../widgets/editorial/editorial.dart';
+import '../utils/media_quality.dart';
 
 /// Build a TMDB image URL from a poster path (e.g. `/abc.jpg`).
 /// Returns null if the path is null or empty. If the input already
@@ -1191,7 +1192,7 @@ class _FreshTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final hue = t.name.codeUnits.fold<int>(0, (a, b) => a + b) % 360;
-    final quality = _qualityFromName(t.name);
+    final quality = qualityBadgeLabel(t.name);
     String? url = _tmdbPoster(posterPath, size: 'w500');
 
     // No poster from local progress / library — fall back to a live
@@ -1264,14 +1265,6 @@ class _FreshTile extends ConsumerWidget {
 String _shortName(String n) {
   final cleaned = n.split(RegExp(r'[\.\s]')).take(4).join(' ');
   return cleaned.isEmpty ? n : cleaned;
-}
-
-String _qualityFromName(String name) {
-  final l = name.toLowerCase();
-  if (l.contains('2160') || l.contains('uhd') || l.contains('4k')) return '4K';
-  if (l.contains('1080')) return '1080p';
-  if (l.contains('720')) return '720p';
-  return 'SD';
 }
 
 class _MiniPanel extends StatelessWidget {

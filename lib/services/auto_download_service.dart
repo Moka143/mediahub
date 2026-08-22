@@ -4,6 +4,7 @@ import '../models/episode.dart';
 import '../models/eztv_torrent.dart';
 import '../models/local_media_file.dart';
 import '../utils/formatters.dart';
+import '../utils/media_quality.dart';
 import 'eztv_api_service.dart';
 import 'qbittorrent_api_service.dart';
 import 'tmdb_api_service.dart';
@@ -151,24 +152,6 @@ class AutoDownloadService {
        _eztvService = eztvService,
        _qbtService = qbtService,
        _torrentioService = torrentioService;
-
-  /// Detect quality from a torrent filename or current download
-  String detectQualityFromFilename(String filename) {
-    final lower = filename.toLowerCase();
-    if (lower.contains('2160p') ||
-        lower.contains('4k') ||
-        lower.contains('uhd')) {
-      return '4K';
-    }
-    if (lower.contains('1080p')) return '1080p';
-    if (lower.contains('720p')) return '720p';
-    if (lower.contains('480p')) return '480p';
-    if (lower.contains('web-dl') || lower.contains('webdl')) return 'WEB-DL';
-    if (lower.contains('webrip')) return 'WEBRip';
-    if (lower.contains('hdtv')) return 'HDTV';
-    if (lower.contains('bluray') || lower.contains('bdrip')) return 'BluRay';
-    return 'Unknown';
-  }
 
   /// Get the next episode for a show after the given season/episode
   Future<NextEpisodeResult> getNextEpisode({
@@ -354,10 +337,18 @@ class AutoDownloadService {
       if (eztvTorrents.isNotEmpty) {
         // Sort by quality and seeds
         eztvTorrents.sort((a, b) {
-          // If preferred quality specified, prioritize it
+          // If preferred quality specified, prioritize it.
+          //
+          // qualityMatches, not `==`. The preference arrives from
+          // LocalMediaFile.quality, which older builds uppercased to `1080P`
+          // and normalised 4K to `2160p`, while EztvTorrent.quality emitted
+          // `1080p` / `4K`. The comparison could therefore never be true and
+          // the per-show preference was silently ignored on this path —
+          // Torrentio's branch below lowercased both and worked, so the two
+          // indexers honoured the same setting differently.
           if (preferredQuality != null) {
-            final aMatches = a.quality == preferredQuality;
-            final bMatches = b.quality == preferredQuality;
+            final aMatches = qualityMatches(a.quality, preferredQuality);
+            final bMatches = qualityMatches(b.quality, preferredQuality);
             if (aMatches && !bMatches) return -1;
             if (!aMatches && bMatches) return 1;
           }
@@ -447,10 +438,8 @@ class AutoDownloadService {
       // Sort by quality and seeders, respecting preferred quality if set
       preferredStreams.sort((a, b) {
         if (preferredQuality != null) {
-          final aMatches =
-              a.quality.toLowerCase() == preferredQuality.toLowerCase();
-          final bMatches =
-              b.quality.toLowerCase() == preferredQuality.toLowerCase();
+          final aMatches = qualityMatches(a.quality, preferredQuality);
+          final bMatches = qualityMatches(b.quality, preferredQuality);
           if (aMatches && !bMatches) return -1;
           if (!aMatches && bMatches) return 1;
         }

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -256,6 +257,17 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
     await _saveState();
   }
 
+  /// Key for [AutoDownloadState.downloadQueue].
+  ///
+  /// One producer so every writer and reader agrees byte for byte. They did
+  /// not: `onWatchProgress` guarded on a guessed `episode + 1` while
+  /// `_downloadNextEpisode` registered whatever TMDB actually resolved, so at
+  /// a season boundary the guard checked `S01E11` against a stored `S02E01`
+  /// and never matched.
+  @visibleForTesting
+  static String queueKeyFor(int showId, int season, int episode) =>
+      '${showId}_${Formatters.episodeCode(season, episode)}';
+
   /// Get quality preference for a show (falls back to default)
   String getQualityPreference(int showId) {
     return state.showQualityPreferences[showId] ?? state.defaultQuality;
@@ -340,22 +352,11 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
       );
     }
 
-    // Generate queue key
-    final nextEpNum = episode + 1;
-    final queueKey = '${showId}_${Formatters.episodeCode(season, nextEpNum)}';
-
-    // Check if already in queue
-    if (state.downloadQueue.contains(queueKey)) {
-      AppLog.d('[AutoDownload] $queueKey already in download queue — skipping');
-      return;
-    }
-
     // Update show quality preference from current episode
     await setShowQualityPreference(showId, currentQuality);
 
-    AppLog.d('[AutoDownload] queueing download for $queueKey');
-
-    // Trigger next episode download
+    // No dedupe guard here on purpose. It needs the episode TMDB actually
+    // resolves, which only `_downloadNextEpisode` knows — see [_queueKeyFor].
     await _downloadNextEpisode(
       showId: showId,
       imdbId: imdbId,
@@ -374,11 +375,9 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
     _isRunning = true;
 
     state = state.copyWith(isProcessing: true);
+    String? failure;
 
     try {
-      final service = ref.read(autoDownloadServiceProvider);
-      final downloadedFiles = ref.read(localMediaFilesProvider).value ?? [];
-
       // Check each tracked show's last downloaded episode
       for (final entry in state.lastDownloadedEpisodes.entries) {
         final showId = entry.key;
@@ -391,71 +390,29 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
         // downloads — the periodic check just retries failed/missing ones.
         if (tracking.status == EpisodeDownloadStatus.downloading) continue;
 
-        // Get next episode info
-        final nextResult = await service.getNextEpisode(
+        // Shares the one implementation with the progress-triggered path.
+        // This loop used to carry its own copy of resolve → is-it-downloaded
+        // → find-torrent → add → update-tracking, and that copy never wrote
+        // to `downloadQueue` — so the Calendar badge and the dedupe guard
+        // only ever saw half the downloads the app started.
+        await _downloadNextEpisode(
           showId: showId,
+          imdbId: tracking.imdbId,
+          showName: tracking.showName,
           currentSeason: tracking.season,
           currentEpisode: tracking.episode,
+          quality: getQualityPreference(showId),
         );
-
-        if (!nextResult.hasNextEpisode) continue;
-
-        final nextEp = nextResult.nextEpisode!;
-
-        // Check if already downloaded
-        final isDownloaded = service.isEpisodeDownloaded(
-          downloadedFiles: downloadedFiles,
-          showName: tracking.showName,
-          season: nextEp.seasonNumber,
-          episode: nextEp.episodeNumber,
-        );
-
-        if (isDownloaded) continue;
-
-        // Check if currently downloading
-        final isDownloading = await service.isEpisodeCurrentlyDownloading(
-          showName: tracking.showName,
-          season: nextEp.seasonNumber,
-          episode: nextEp.episodeNumber,
-        );
-
-        if (isDownloading) continue;
-
-        // Find and download torrent
-        final quality = getQualityPreference(showId);
-        final torrent = await service.findTorrentForEpisode(
-          imdbId: tracking.imdbId!,
-          season: nextEp.seasonNumber,
-          episode: nextEp.episodeNumber,
-          preferredQuality: quality,
-        );
-
-        if (torrent != null) {
-          final settings = ref.read(settingsProvider);
-          await service.downloadNextEpisode(
-            magnetLink: torrent.magnetUrl,
-            savePath: settings.defaultSavePath,
-            infoHash: torrent.hash,
-            fileIdx: torrent.fileIdx,
-          );
-
-          // Update tracking
-          await _updateTracking(
-            showId,
-            tracking.copyWith(
-              season: nextEp.seasonNumber,
-              episode: nextEp.episodeNumber,
-              status: EpisodeDownloadStatus.downloading,
-              torrentHash: torrent.hash,
-            ),
-          );
-        }
       }
     } catch (e) {
-      state = state.copyWith(error: e.toString());
+      failure = e.toString();
+      AppLog.e('[AutoDownload] periodic check failed: $e');
     } finally {
       _isRunning = false;
-      state = state.copyWith(isProcessing: false);
+      // `error` is clear-on-copy, so it has to be carried through this last
+      // copy explicitly — otherwise the `finally` wipes the `catch` above it
+      // and the periodic check can fail forever with nothing to show for it.
+      state = state.copyWith(isProcessing: false, error: failure);
     }
   }
 
@@ -505,6 +462,16 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
     }
 
     final nextEp = nextResult.nextEpisode!;
+    final queueKey = queueKeyFor(
+      showId,
+      nextEp.seasonNumber,
+      nextEp.episodeNumber,
+    );
+
+    if (state.downloadQueue.contains(queueKey)) {
+      AppLog.d('[AutoDownload] $queueKey already in download queue — skipping');
+      return false;
+    }
 
     // Check if already downloaded
     if (service.isEpisodeDownloaded(
@@ -513,6 +480,18 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
       season: nextEp.seasonNumber,
       episode: nextEp.episodeNumber,
     )) {
+      return false;
+    }
+
+    // Already in qBittorrent — e.g. queued by a previous run whose queue entry
+    // was cleared, or added by hand. Was previously checked only on the
+    // periodic path; it belongs to both.
+    if (await service.isEpisodeCurrentlyDownloading(
+      showName: showName,
+      season: nextEp.seasonNumber,
+      episode: nextEp.episodeNumber,
+    )) {
+      AppLog.d('[AutoDownload] $queueKey is already downloading — skipping');
       return false;
     }
 
@@ -562,7 +541,6 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
 
     if (success) {
       // Add to queue and update tracking
-      final queueKey = '${showId}_${nextEp.episodeCode}';
       state = state.copyWith(downloadQueue: {...state.downloadQueue, queueKey});
 
       await _updateTracking(
@@ -662,9 +640,10 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
           tracking.copyWith(status: EpisodeDownloadStatus.downloaded),
         );
 
-        // Clear the queue entry
-        final queueKey = '${entry.key}_${tracking.episodeCode}';
-        await clearQueueEntry(queueKey);
+        // Clear the queue entry — same producer as the writer above.
+        await clearQueueEntry(
+          queueKeyFor(entry.key, tracking.season, tracking.episode),
+        );
 
         // Log the event
         ref

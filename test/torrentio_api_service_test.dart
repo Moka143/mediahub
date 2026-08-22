@@ -57,8 +57,11 @@ void main() {
 
   group('TorrentioStream.quality', () {
     test('derives quality from the name', () {
-      expect(_stream(infoHash: 'a', name: 'T\n4k').quality, '4K');
-      expect(_stream(infoHash: 'b', name: 'T\n2160p').quality, '4K');
+      // Canonical labels come from MediaQuality, so `4k` and `2160p` are the
+      // same string here — they were not before, and the auto-download
+      // preference compared one against the other.
+      expect(_stream(infoHash: 'a', name: 'T\n4k').quality, '2160p');
+      expect(_stream(infoHash: 'b', name: 'T\n2160p').quality, '2160p');
       expect(_stream(infoHash: 'c', name: 'T\n1080p').quality, '1080p');
       expect(_stream(infoHash: 'd', name: 'T\n720p').quality, '720p');
       expect(_stream(infoHash: 'e', name: 'T\n480p').quality, '480p');
@@ -67,10 +70,16 @@ void main() {
     });
 
     test('ranks the recognised qualities', () {
-      expect(_stream(infoHash: 'a', name: 'T\n4k').qualityPriority, 5);
-      expect(_stream(infoHash: 'b', name: 'T\n1080p').qualityPriority, 4);
-      expect(_stream(infoHash: 'c', name: 'T\n720p').qualityPriority, 3);
-      expect(_stream(infoHash: 'd', name: 'T\nBluRay').qualityPriority, 3);
+      // Ordering is the contract; the absolute numbers are MediaQuality's.
+      final ranked = [
+        _stream(infoHash: 'a', name: 'T\n4k'),
+        _stream(infoHash: 'b', name: 'T\n1080p'),
+        _stream(infoHash: 'c', name: 'T\n720p'),
+        _stream(infoHash: 'd', name: 'T\nBluRay'),
+        _stream(infoHash: 'e', name: 'T\n480p'),
+      ].map((s) => s.qualityPriority).toList();
+
+      expect(ranked, [6, 5, 4, 3, 0]);
     });
 
     test('480p shares the lowest priority with unknown quality', () {
@@ -190,10 +199,28 @@ void main() {
       );
     });
 
-    test('is case-sensitive', () {
+    test('is case-insensitive and tolerates legacy spellings', () {
+      final streams = [
+        _stream(infoHash: 'a', name: 'T\n1080p'),
+        _stream(infoHash: 'b', name: 'T\n2160p'),
+      ];
+
+      expect(
+        TorrentioApiService.filterByQuality(streams, '1080P').single.infoHash,
+        'a',
+      );
+      // A preference persisted as `4K` by an older build still selects the
+      // stream now labelled `2160p`.
+      expect(
+        TorrentioApiService.filterByQuality(streams, '4K').single.infoHash,
+        'b',
+      );
+    });
+
+    test('an unrecognised filter matches nothing', () {
       final streams = [_stream(infoHash: 'a', name: 'T\n1080p')];
 
-      expect(TorrentioApiService.filterByQuality(streams, '1080P'), isEmpty);
+      expect(TorrentioApiService.filterByQuality(streams, 'nonsense'), isEmpty);
     });
   });
 
