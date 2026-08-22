@@ -410,12 +410,16 @@ class LocalStreamingServer {
   /// One complete leading piece is enough to open; the HTTP proxy waits on
   /// the rest. Requiring an 8 MB run blocked real streams: sequential had
   /// finished piece 1613 while 1614 never completed, so we sat until 99%.
+  ///
+  /// Took `pieceSize` and `minBytes` until callers were audited and neither
+  /// was ever read — the doc promised a contiguous `minBytes` prefix while
+  /// the body checked one piece, and `StreamingService` was resolving the
+  /// piece size purely to hand it over. The behaviour was right; the
+  /// signature was describing a different function.
   static bool prefixPiecesReady({
     required List<int> pieceStates,
     required int firstPiece,
     required int lastPiece,
-    required int pieceSize,
-    int minBytes = prefixProbeBytes,
   }) {
     if (firstPiece < 0 || firstPiece > lastPiece) return false;
     if (firstPiece >= pieceStates.length) return false;
@@ -576,8 +580,9 @@ class LocalStreamingServer {
       final start = range.start;
       final partial = range.partial;
 
-      // Tail-probe fast-fail. If the request lands in the last 64 MB of the
-      // file AND those bytes haven't been downloaded yet, return 416 so
+      // Tail-probe fast-fail. If the request lands in the last
+      // [_tailProbeWindow] of the file AND those bytes haven't been
+      // downloaded yet, return 416 so
       // mpv's demuxer skips the probe instead of blocking. User seeks into
       // the middle of the file fall outside the tail window and drop into
       // the blocking-read path below.

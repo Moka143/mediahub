@@ -935,11 +935,7 @@ class StreamingService {
       () => _BufferWatch(session.createdAt),
     )..observe(bufferedBytes, now);
 
-    final prefixReady = await _prefixIsPlayable(
-      session,
-      torrent,
-      minBytes: LocalStreamingServer.prefixProbeBytes,
-    );
+    final prefixReady = await _prefixIsPlayable(session, torrent);
 
     if (!prefixReady && !torrent.sequentialDownload) {
       AppLog.d(
@@ -1114,15 +1110,13 @@ class StreamingService {
     );
   }
 
-  /// True when a contiguous prefix of [minBytes] at the start of the
-  /// selected file is fully downloaded — not merely that the on-disk
-  /// magic bytes look like a container (a half-written first piece can
-  /// pass that check while the proxy still blocks at byte 0).
+  /// True when the first piece of the selected file is fully downloaded —
+  /// not merely that the on-disk magic bytes look like a container, which a
+  /// half-written first piece can pass while the proxy still blocks at byte 0.
   Future<bool> _prefixIsPlayable(
     StreamingSession session,
-    Torrent torrent, {
-    required int minBytes,
-  }) async {
+    Torrent torrent,
+  ) async {
     final idx = session.selectedFileIndex;
     if (idx == null) return false;
     try {
@@ -1150,8 +1144,6 @@ class StreamingService {
         pieceStates: states,
         firstPiece: range.$1,
         lastPiece: range.$2,
-        pieceSize: pieceSize,
-        minBytes: minBytes,
       );
       if (!ready) {
         final first = range.$1;

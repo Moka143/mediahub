@@ -506,11 +506,15 @@ class AutoDownloadService {
         '[AutoDownload] downloadNextEpisode called - infoHash: $infoHash, fileIdx: $fileIdx',
       );
 
+      // Same flags StreamingService uses. `firstLastPiecePrio` was true
+      // here, which prioritises the LAST piece as well and so breaks the
+      // strict in-order delivery sequential mode exists to provide — the two
+      // add paths were configuring qBittorrent to do opposite things.
       final success = await _qbtService.addTorrent(
         magnetLink: magnetLink,
         savePath: savePath,
-        sequentialDownload: true, // Enable sequential for faster playback
-        firstLastPiecePrio: true,
+        sequentialDownload: true,
+        firstLastPiecePrio: false,
       );
 
       AppLog.d('[AutoDownload] Torrent added: $success');
@@ -537,18 +541,29 @@ class AutoDownloadService {
               AppLog.d('[AutoDownload] File $i: ${files[i].name}');
             }
 
-            // Set all files to "do not download" (priority 0)
-            final allFileIds = List.generate(files.length, (i) => i);
-            await _qbtService.setFilePriority(infoHash, allFileIds, 0);
+            // Skip only the INCOMPLETE extras, matching StreamingService.
+            // Zeroing an already-finished file can flip qBittorrent into a
+            // recheck, which briefly reports progress=0 and leaves sequential
+            // download parked on pieces nothing will request.
+            final skipIds = [
+              for (var i = 0; i < files.length; i++)
+                if (i != fileIdx && files[i].progress < 0.999) i,
+            ];
+            if (skipIds.isNotEmpty) {
+              await _qbtService.setFilePriority(infoHash, skipIds, 0);
+            }
             AppLog.d(
-              '[AutoDownload] Set all ${files.length} files to priority 0 (skip)',
+              '[AutoDownload] Skipped ${skipIds.length} of ${files.length} '
+              'files (already-complete extras left alone)',
             );
 
-            // Set the specific file to normal priority (1) or high (6)
+            // Max priority on the target, as StreamingService does — 6 here
+            // and 7 there meant the same request produced different piece
+            // ordering depending on which path added the torrent.
             if (fileIdx >= 0 && fileIdx < files.length) {
-              await _qbtService.setFilePriority(infoHash, [fileIdx], 6);
+              await _qbtService.setFilePriority(infoHash, [fileIdx], 7);
               AppLog.d(
-                '[AutoDownload] Selected file $fileIdx: ${files[fileIdx].name} (priority 6)',
+                '[AutoDownload] Selected file $fileIdx: ${files[fileIdx].name} (priority 7)',
               );
             } else {
               AppLog.d(

@@ -51,6 +51,7 @@ final qbProcessServiceProvider = Provider<QBittorrentProcessService>((ref) {
   return QBittorrentProcessService(
     qbittorrentPath: settings.qbittorrentPath,
     port: settings.port,
+    host: settings.host,
     // The service already writes tagged lines to AppLog; this callback only
     // feeds the in-app connection log, so it must not log again.
     onLog: (_) {},
@@ -120,7 +121,9 @@ class ConnectionNotifier extends Notifier<ConnectionState> {
       // Check if already running
       final isRunning = await _processService.isRunning();
 
-      if (!isRunning && _autoStart) {
+      // Only attempt a launch for a qBittorrent we could actually launch.
+      // A remote host is somebody else's process.
+      if (!isRunning && _autoStart && _processService.managesLocalProcess) {
         // Try to start qBittorrent
         final started = await _processService.start();
         if (!started) {

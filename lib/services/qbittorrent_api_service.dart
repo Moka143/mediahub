@@ -50,6 +50,28 @@ class QBittorrentApiService {
   /// Callback for logging
   final void Function(String message)? onLog;
 
+  /// Form-encode a request body.
+  ///
+  /// Every value goes through [Uri.encodeQueryComponent]. The login body used
+  /// to interpolate the username and password raw, so a password containing
+  /// `&`, `=`, `+`, `%` or a space produced a malformed body — and the only
+  /// symptom was the generic "Failed to authenticate. Check username/password
+  /// in Settings." The hash and id parameters are hex and integers today, but
+  /// they go through the same door so the next parameter added cannot
+  /// reintroduce this.
+  @visibleForTesting
+  static String formEncode(Map<String, String> fields) => fields.entries
+      .map(
+        (e) =>
+            '${Uri.encodeQueryComponent(e.key)}='
+            '${Uri.encodeQueryComponent(e.value)}',
+      )
+      .join('&');
+
+  static final Options _formOptions = Options(
+    contentType: 'application/x-www-form-urlencoded',
+  );
+
   QBittorrentApiService({
     String host = AppConstants.defaultHost,
     int port = AppConstants.defaultPort,
@@ -158,8 +180,8 @@ class QBittorrentApiService {
     try {
       final response = await _dio.post(
         '/api/v2/auth/login',
-        data: 'username=$_username&password=$_password',
-        options: Options(contentType: 'application/x-www-form-urlencoded'),
+        data: formEncode({'username': _username, 'password': _password}),
+        options: _formOptions,
       );
 
       if (isSuccessStatus(response.statusCode)) {
@@ -269,8 +291,8 @@ class QBittorrentApiService {
       final prefsJson = jsonEncode(prefs);
       final response = await _dio.post(
         '/api/v2/app/setPreferences',
-        data: 'json=${Uri.encodeComponent(prefsJson)}',
-        options: Options(contentType: 'application/x-www-form-urlencoded'),
+        data: formEncode({'json': prefsJson}),
+        options: _formOptions,
       );
       return isSuccessStatus(response.statusCode);
     } catch (e) {
@@ -501,16 +523,16 @@ class QBittorrentApiService {
       // Try v5.x API first (stop), fall back to v4.x (pause)
       var response = await _dio.post(
         '/api/v2/torrents/stop',
-        data: 'hashes=${hashes.join('|')}',
-        options: Options(contentType: 'application/x-www-form-urlencoded'),
+        data: formEncode({'hashes': hashes.join('|')}),
+        options: _formOptions,
       );
 
       // If stop endpoint doesn't exist (404), try legacy pause
       if (response.statusCode == 404) {
         response = await _dio.post(
           '/api/v2/torrents/pause',
-          data: 'hashes=${hashes.join('|')}',
-          options: Options(contentType: 'application/x-www-form-urlencoded'),
+          data: formEncode({'hashes': hashes.join('|')}),
+          options: _formOptions,
         );
       }
 
@@ -529,16 +551,16 @@ class QBittorrentApiService {
       // Try v5.x API first (start), fall back to v4.x (resume)
       var response = await _dio.post(
         '/api/v2/torrents/start',
-        data: 'hashes=${hashes.join('|')}',
-        options: Options(contentType: 'application/x-www-form-urlencoded'),
+        data: formEncode({'hashes': hashes.join('|')}),
+        options: _formOptions,
       );
 
       // If start endpoint doesn't exist (404), try legacy resume
       if (response.statusCode == 404) {
         response = await _dio.post(
           '/api/v2/torrents/resume',
-          data: 'hashes=${hashes.join('|')}',
-          options: Options(contentType: 'application/x-www-form-urlencoded'),
+          data: formEncode({'hashes': hashes.join('|')}),
+          options: _formOptions,
         );
       }
 
@@ -559,8 +581,11 @@ class QBittorrentApiService {
     try {
       final response = await _dio.post(
         '/api/v2/torrents/delete',
-        data: 'hashes=${hashes.join('|')}&deleteFiles=$deleteFiles',
-        options: Options(contentType: 'application/x-www-form-urlencoded'),
+        data: formEncode({
+          'hashes': hashes.join('|'),
+          'deleteFiles': '$deleteFiles',
+        }),
+        options: _formOptions,
       );
       final ok = isSuccessStatus(response.statusCode);
       if (ok) {
@@ -582,8 +607,8 @@ class QBittorrentApiService {
     try {
       final response = await _dio.post(
         '/api/v2/torrents/recheck',
-        data: 'hashes=${hashes.join('|')}',
-        options: Options(contentType: 'application/x-www-form-urlencoded'),
+        data: formEncode({'hashes': hashes.join('|')}),
+        options: _formOptions,
       );
       return isSuccessStatus(response.statusCode);
     } catch (e) {
@@ -599,8 +624,8 @@ class QBittorrentApiService {
     try {
       final response = await _dio.post(
         '/api/v2/torrents/reannounce',
-        data: 'hashes=${hashes.join('|')}',
-        options: Options(contentType: 'application/x-www-form-urlencoded'),
+        data: formEncode({'hashes': hashes.join('|')}),
+        options: _formOptions,
       );
       return isSuccessStatus(response.statusCode);
     } catch (e) {
@@ -634,8 +659,8 @@ class QBittorrentApiService {
 
       final response = await _dio.post(
         endpoint,
-        data: 'hashes=${hashes.join('|')}',
-        options: Options(contentType: 'application/x-www-form-urlencoded'),
+        data: formEncode({'hashes': hashes.join('|')}),
+        options: _formOptions,
       );
       return isSuccessStatus(response.statusCode);
     } catch (e) {
@@ -655,8 +680,12 @@ class QBittorrentApiService {
     try {
       final response = await _dio.post(
         '/api/v2/torrents/filePrio',
-        data: 'hash=$hash&id=${fileIds.join('|')}&priority=$priority',
-        options: Options(contentType: 'application/x-www-form-urlencoded'),
+        data: formEncode({
+          'hash': hash,
+          'id': fileIds.join('|'),
+          'priority': '$priority',
+        }),
+        options: _formOptions,
       );
       return isSuccessStatus(response.statusCode);
     } catch (e) {
@@ -687,8 +716,8 @@ class QBittorrentApiService {
     try {
       final response = await _dio.post(
         '/api/v2/transfer/setDownloadLimit',
-        data: 'limit=$limit',
-        options: Options(contentType: 'application/x-www-form-urlencoded'),
+        data: formEncode({'limit': '$limit'}),
+        options: _formOptions,
       );
       return isSuccessStatus(response.statusCode);
     } catch (e) {
@@ -704,8 +733,8 @@ class QBittorrentApiService {
     try {
       final response = await _dio.post(
         '/api/v2/transfer/setUploadLimit',
-        data: 'limit=$limit',
-        options: Options(contentType: 'application/x-www-form-urlencoded'),
+        data: formEncode({'limit': '$limit'}),
+        options: _formOptions,
       );
       return isSuccessStatus(response.statusCode);
     } catch (e) {
@@ -762,8 +791,8 @@ class QBittorrentApiService {
     try {
       final response = await _dio.post(
         '/api/v2/torrents/toggleSequentialDownload',
-        data: 'hashes=$hash',
-        options: Options(contentType: 'application/x-www-form-urlencoded'),
+        data: formEncode({'hashes': hash}),
+        options: _formOptions,
       );
       return isSuccessStatus(response.statusCode);
     } catch (e) {
@@ -780,8 +809,8 @@ class QBittorrentApiService {
     try {
       final response = await _dio.post(
         '/api/v2/torrents/toggleFirstLastPiecePrio',
-        data: 'hashes=$hash',
-        options: Options(contentType: 'application/x-www-form-urlencoded'),
+        data: formEncode({'hashes': hash}),
+        options: _formOptions,
       );
       return isSuccessStatus(response.statusCode);
     } catch (e) {
@@ -854,8 +883,12 @@ class QBittorrentApiService {
     try {
       final response = await _dio.post(
         '/api/v2/torrents/piecePrio',
-        data: 'hash=$hash&id=${pieceIds.join('|')}&priority=$priority',
-        options: Options(contentType: 'application/x-www-form-urlencoded'),
+        data: formEncode({
+          'hash': hash,
+          'id': pieceIds.join('|'),
+          'priority': '$priority',
+        }),
+        options: _formOptions,
       );
       if (response.statusCode == 404) {
         _piecePrioSupported = false;

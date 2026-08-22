@@ -82,12 +82,28 @@ class PlatformUtils {
     return [];
   }
 
+  /// Hosts that mean "this machine".
+  ///
+  /// Matters because [QBittorrentProcessService] decides whether to *launch*
+  /// qBittorrent from whether its port answers. Probing localhost while the
+  /// user has pointed the app at a remote qBittorrent means the local port is
+  /// always free, and the health check tries to spawn a local instance every
+  /// few seconds.
+  static bool isLocalHost(String host) {
+    final h = host.trim().toLowerCase();
+    return h.isEmpty ||
+        h == 'localhost' ||
+        h == '127.0.0.1' ||
+        h == '::1' ||
+        h == '0.0.0.0';
+  }
+
   /// Check if a port is in use by trying to connect to it
-  static Future<bool> isPortInUse(int port) async {
+  static Future<bool> isPortInUse(int port, {String host = 'localhost'}) async {
     // Try to connect to the port - if successful, something is listening
     try {
       final socket = await Socket.connect(
-        'localhost',
+        host,
         port,
         timeout: const Duration(seconds: 2),
       );

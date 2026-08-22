@@ -377,12 +377,15 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
     await Future.delayed(const Duration(seconds: 3));
 
     try {
-      final files = await apiService.getTorrentFiles(stream.infoHash);
+      var files = await apiService.getTorrentFiles(stream.infoHash);
       if (files.isEmpty) {
-        // Retry after more delay
+        // Retry after more delay. The retry result used to be assigned to a
+        // local that nothing below then read, so the whole block below ran
+        // against the empty first list: `allFileIds` was empty and the
+        // bounds check `fileIdx < 0` failed. The retry did nothing at all.
         await Future.delayed(const Duration(seconds: 3));
-        final retryFiles = await apiService.getTorrentFiles(stream.infoHash);
-        if (retryFiles.isEmpty) {
+        files = await apiService.getTorrentFiles(stream.infoHash);
+        if (files.isEmpty) {
           AppLog.d(
             '[ShowDetails] No files found in torrent, cannot select specific file',
           );
@@ -390,9 +393,15 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
         }
       }
 
-      // Set all files to skip (priority 0)
-      final allFileIds = List.generate(files.length, (i) => i);
-      await apiService.setFilePriority(stream.infoHash, allFileIds, 0);
+      // Skip only the incomplete extras — same rule as StreamingService.
+      // Zeroing an already-finished file can flip qBittorrent into a recheck.
+      final skipIds = [
+        for (var i = 0; i < files.length; i++)
+          if (i != stream.fileIdx && files[i].progress < 0.999) i,
+      ];
+      if (skipIds.isNotEmpty) {
+        await apiService.setFilePriority(stream.infoHash, skipIds, 0);
+      }
 
       // Set target file to high priority
       if (stream.fileIdx! < files.length) {

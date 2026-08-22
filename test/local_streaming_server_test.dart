@@ -596,8 +596,9 @@ void main() {
   });
 
   group('prefixPiecesReady', () {
-    const piece = 16 * 1024 * 1024; // 16 MB pieces
-
+    // Deliberately takes no piece size and no byte threshold: one complete
+    // leading piece is the whole condition. It used to accept both and read
+    // neither, so the signature described a function that did not exist.
     test('is false until the leading pieces are fully downloaded', () {
       // File starts at piece 10. 36% of the file can be state-2 while
       // piece 10 is still empty — that must not look ready.
@@ -611,7 +612,6 @@ void main() {
           pieceStates: states,
           firstPiece: 10,
           lastPiece: 19,
-          pieceSize: piece,
         ),
         isFalse,
       );
@@ -626,13 +626,15 @@ void main() {
           pieceStates: states,
           firstPiece: 10,
           lastPiece: 19,
-          pieceSize: piece,
         ),
         isTrue,
       );
     });
 
     test('does not wait for a second piece that may never complete', () {
+      // The regression this shape exists for: sequential had finished piece
+      // 1613 while 1614 never completed, and an 8 MB run requirement sat
+      // there until 99%.
       final states = List<int>.filled(20, 0);
       states[10] = 2;
 
@@ -641,8 +643,6 @@ void main() {
           pieceStates: states,
           firstPiece: 10,
           lastPiece: 19,
-          pieceSize: 4 * 1024 * 1024,
-          minBytes: 8 * 1024 * 1024,
         ),
         isTrue,
       );
@@ -655,7 +655,6 @@ void main() {
           pieceStates: states,
           firstPiece: 0,
           lastPiece: 4,
-          pieceSize: piece,
         ),
         isFalse,
       );
@@ -675,7 +674,7 @@ void main() {
       },
     );
 
-    test('unknown piece size is ready once the first piece is state 2', () {
+    test('a later gap in the file does not hold the open back', () {
       final states = List<int>.filled(20, 0);
       states[10] = 2;
       expect(
@@ -683,7 +682,6 @@ void main() {
           pieceStates: states,
           firstPiece: 10,
           lastPiece: 19,
-          pieceSize: 0,
         ),
         isTrue,
       );

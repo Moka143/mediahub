@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -139,7 +140,9 @@ class AppLog {
       if (_bytesWritten >= maxBytes) await _rotate();
       final payload = '$line\n';
       await file.writeAsString(payload, mode: FileMode.append, flush: flush);
-      _bytesWritten += payload.length;
+      // Byte length, not `payload.length` — that counts UTF-16 code units, so
+      // a log full of non-ASCII release names rotated late.
+      _bytesWritten += utf8.encode(payload).length;
     } catch (_) {
       // Disk full, permissions, file removed underneath us — all non-fatal.
     }

@@ -21,7 +21,6 @@ import '../providers/settings_provider.dart';
 import '../providers/subtitle_provider.dart';
 import '../providers/watch_progress_provider.dart';
 import '../providers/streaming_provider.dart';
-import '../services/auto_download_service.dart';
 import '../services/local_streaming_server.dart';
 import '../services/next_episode_planner.dart';
 import '../services/playback_health_monitor.dart';
@@ -135,7 +134,6 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   late final NextEpisodePlanner _planner;
   LocalMediaFile? _nextEpisode;
   Episode? _nextEpisodeFromTmdb; // Next episode from TMDB (not downloaded yet)
-  NextEpisodeResult? _nextEpisodeResult; // Full result with availability info
   int? _currentShowId;
   String? _currentImdbId;
   StreamSubscription<Duration>? _positionSubscription;
@@ -423,6 +421,11 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   /// • Once shown, keep it visible for at least 1 s after buffering clears
   ///   (prevents rapid on/off flicker).
   void _setupStreamingBufferingDebounce() {
+    // Restart-safe: _handleResume calls this a second time after the resume
+    // prompt, and a second listener on the same stream would double every
+    // buffering transition.
+    _bufferingSubscription?.cancel();
+
     // Grace period — suppress indicator until mpv actually starts playing,
     // rather than using a fixed timer that may expire too early for large files.
     _streamBufferingGrace = true;
@@ -625,10 +628,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       );
 
       if (mounted) {
-        setState(() {
-          _nextEpisodeResult = result;
-          _nextEpisodeFromTmdb = result.nextEpisode;
-        });
+        setState(() => _nextEpisodeFromTmdb = result.nextEpisode);
       }
     } catch (e) {
       AppLog.e('[AutoDownload] Failed to check TMDB for next episode: $e');

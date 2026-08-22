@@ -4,6 +4,10 @@ class AppConstants {
 
   // App Info
   static const String appName = 'MediaHub';
+
+  /// Shown in Settings → About. Keep in sync with `version:` in pubspec.yaml —
+  /// reading the real one needs `package_info_plus`, which is not worth a
+  /// dependency for a single string.
   static const String appVersion = '1.0.0';
 
   // qBittorrent API defaults

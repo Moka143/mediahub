@@ -277,10 +277,10 @@ class TmdbApiService {
       final params = {
         ..._defaultParams,
         'page': page,
-        if (sortBy != null) 'sort_by': sortBy,
-        if (year != null) 'first_air_date_year': year,
-        if (withGenres != null) 'with_genres': withGenres,
-        if (voteAverageGte != null) 'vote_average.gte': voteAverageGte,
+        'sort_by': ?sortBy,
+        'first_air_date_year': ?year,
+        'with_genres': ?withGenres,
+        'vote_average.gte': ?voteAverageGte,
       };
 
       final response = await _dio.get('/discover/tv', queryParameters: params);
@@ -525,12 +525,12 @@ class TmdbApiService {
       final params = {
         ..._defaultParams,
         'page': page,
-        if (sortBy != null) 'sort_by': sortBy,
-        if (year != null) 'primary_release_year': year,
-        if (withGenres != null) 'with_genres': withGenres,
-        if (voteAverageGte != null) 'vote_average.gte': voteAverageGte,
-        if (runtimeGte != null) 'with_runtime.gte': runtimeGte,
-        if (runtimeLte != null) 'with_runtime.lte': runtimeLte,
+        'sort_by': ?sortBy,
+        'primary_release_year': ?year,
+        'with_genres': ?withGenres,
+        'vote_average.gte': ?voteAverageGte,
+        'with_runtime.gte': ?runtimeGte,
+        'with_runtime.lte': ?runtimeLte,
       };
 
       final response = await _dio.get(
