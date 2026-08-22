@@ -52,19 +52,26 @@ class QBittorrentApiService {
 
   /// Form-encode a request body.
   ///
-  /// Every value goes through [Uri.encodeQueryComponent]. The login body used
-  /// to interpolate the username and password raw, so a password containing
-  /// `&`, `=`, `+`, `%` or a space produced a malformed body — and the only
-  /// symptom was the generic "Failed to authenticate. Check username/password
-  /// in Settings." The hash and id parameters are hex and integers today, but
-  /// they go through the same door so the next parameter added cannot
-  /// reintroduce this.
+  /// The login body used to interpolate the username and password raw, so a
+  /// password containing `&`, `=`, `+`, `%` or a space produced a malformed
+  /// body — and the only symptom was the generic "Failed to authenticate.
+  /// Check username/password in Settings." The hash and id parameters are hex
+  /// and integers today, but they go through the same door so the next
+  /// parameter added cannot reintroduce it.
+  ///
+  /// [Uri.encodeComponent], **not** [Uri.encodeQueryComponent]: the two differ
+  /// only on the space, which the latter writes as `+`. That is an HTML-form
+  /// convention, and qBittorrent parses these bodies with Qt's `QUrlQuery`,
+  /// which percent-decodes but does not turn `+` back into a space — so a
+  /// password with a space in it would arrive with a literal `+`. The
+  /// pre-existing `setPreferences` call already used `encodeComponent` against
+  /// this same server, which is the evidence for which one it understands.
   @visibleForTesting
   static String formEncode(Map<String, String> fields) => fields.entries
       .map(
         (e) =>
-            '${Uri.encodeQueryComponent(e.key)}='
-            '${Uri.encodeQueryComponent(e.value)}',
+            '${Uri.encodeComponent(e.key)}='
+            '${Uri.encodeComponent(e.value)}',
       )
       .join('&');
 

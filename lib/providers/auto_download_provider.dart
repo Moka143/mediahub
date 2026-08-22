@@ -402,6 +402,12 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
           currentSeason: tracking.season,
           currentEpisode: tracking.episode,
           quality: getQualityPreference(showId),
+          // This runs every 5 minutes over every tracked show. A finished
+          // series has no next episode and never will, so logging that fact
+          // on each pass would flush the 50-entry event list — including the
+          // download-started and download-completed entries the user
+          // actually wants — within the hour.
+          announceMisses: false,
         );
       }
     } catch (e) {
@@ -424,6 +430,7 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
     required int currentSeason,
     required int currentEpisode,
     required String quality,
+    bool announceMisses = true,
   }) async {
     AppLog.d(
       '[AutoDownload] _downloadNextEpisode: showId=$showId imdbId=$imdbId '
@@ -445,6 +452,7 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
     );
 
     if (!nextResult.hasNextEpisode) {
+      if (!announceMisses) return false;
       ref
           .read(autoDownloadEventsProvider.notifier)
           .addEvent(
@@ -508,6 +516,7 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
         '[AutoDownload] no torrent found for $showName ${nextEp.episodeCode} '
         '(quality=$quality)',
       );
+      if (!announceMisses) return false;
       ref
           .read(autoDownloadEventsProvider.notifier)
           .addEvent(

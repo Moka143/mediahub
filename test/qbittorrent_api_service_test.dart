@@ -17,10 +17,20 @@ void main() {
       );
     });
 
-    test('encodes a space the way a form body wants it', () {
+    test('percent-encodes a space rather than writing a plus', () {
+      // `+` is the HTML-form convention. qBittorrent parses these bodies with
+      // Qt's QUrlQuery, which percent-decodes but does not read `+` as a
+      // space — so `+` would arrive as a literal plus inside the password.
       expect(
         QBittorrentApiService.formEncode({'password': 'two words'}),
-        'password=two+words',
+        'password=two%20words',
+      );
+    });
+
+    test('a literal plus survives the round trip', () {
+      expect(
+        QBittorrentApiService.formEncode({'password': 'a+b'}),
+        'password=a%2Bb',
       );
     });
 

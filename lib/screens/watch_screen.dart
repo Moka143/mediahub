@@ -52,6 +52,12 @@ class _WatchScreenState extends ConsumerState<WatchScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // The raw scanner stream, preferred over localMediaFilesProvider so a
+    // refresh doesn't drop the whole library into its loading state. Note it
+    // carries NO watch progress — the join happens downstream in
+    // localMediaFilesProvider — so this list is only ever counted and
+    // emptiness-checked here. Anything that renders a card must come from
+    // the derived providers below, which are joined.
     final localFilesStream = ref.watch(localMediaStreamProvider);
     final localFilesAsync = localFilesStream.hasValue
         ? AsyncValue.data(localFilesStream.value!)

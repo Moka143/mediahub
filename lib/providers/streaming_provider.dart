@@ -147,18 +147,26 @@ class StreamingSessionsNotifier extends Notifier<StreamingSessionsState> {
     return session;
   }
 
-  /// Cancel a streaming session
+  /// Cancel a streaming session and forget it.
   Future<void> cancelSession(String sessionId) async {
-    final streamingService = ref.read(streamingServiceProvider);
-    await streamingService.cancelSession(sessionId);
+    final wasActive = state.activeSessionId == sessionId;
+
+    // Drop the listener first. `StreamingService.cancelSession` emits a final
+    // `cancelled` event before closing the controller, and a broadcast
+    // listener is notified in a later microtask — after the removal below —
+    // so leaving it attached puts the cancelled session straight back into
+    // the map, where nothing would ever clean it up again.
+    if (wasActive) {
+      _activeSubscription?.cancel();
+      _activeSubscription = null;
+    }
+
+    await ref.read(streamingServiceProvider).cancelSession(sessionId);
 
     final newSessions = Map<String, StreamingSession>.from(state.sessions);
     newSessions.remove(sessionId);
 
-    state = state.copyWith(
-      sessions: newSessions,
-      clearActive: state.activeSessionId == sessionId,
-    );
+    state = state.copyWith(sessions: newSessions, clearActive: wasActive);
   }
 
   /// Clear the active session ID so global listeners (e.g. the safety-net in

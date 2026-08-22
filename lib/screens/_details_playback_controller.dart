@@ -137,6 +137,12 @@ mixin DetailsPlaybackController<T extends ConsumerStatefulWidget>
           savePath: savePath,
         );
 
+    // The add is an HTTP round trip and the user can leave during it. Past
+    // this point `ref` may be disposed — `listenManual` throws on a disposed
+    // ref, and `OverlayEntry.remove()` asserts if the overlay is already
+    // gone. Both screens had this hole before the orchestration was shared.
+    if (!mounted) return;
+
     if (session == null) {
       dismissPlaybackOverlay();
       target.onSettled?.call();
