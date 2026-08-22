@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/eztv_torrent.dart';
 import '../utils/media_quality.dart';
+import 'http_client.dart';
 
 /// Service for interacting with EZTV API to get torrent links
 class EztvApiService {
@@ -11,16 +12,11 @@ class EztvApiService {
   final Dio _dio;
 
   EztvApiService()
-    : _dio = Dio(
-        BaseOptions(
-          baseUrl: _baseUrl,
-          connectTimeout: const Duration(seconds: 15),
-          receiveTimeout: const Duration(seconds: 15),
-          headers: {
-            'Accept': 'application/json',
-            'User-Agent': 'Mozilla/5.0 (compatible; TorrentClient/1.0)',
-          },
-        ),
+    : _dio = buildJsonDio(
+        baseUrl: _baseUrl,
+        connectTimeout: const Duration(seconds: 15),
+        receiveTimeout: const Duration(seconds: 15),
+        headers: {'User-Agent': 'Mozilla/5.0 (compatible; TorrentClient/1.0)'},
       );
 
   /// Get torrents by IMDB ID

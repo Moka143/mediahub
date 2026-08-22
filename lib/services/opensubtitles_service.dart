@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'app_logger.dart';
+import 'http_client.dart';
 
 /// Service for fetching subtitles from OpenSubtitles v3 Stremio addon
 class OpenSubtitlesService {
@@ -9,12 +10,10 @@ class OpenSubtitlesService {
   final Dio _dio;
 
   OpenSubtitlesService()
-    : _dio = Dio(
-        BaseOptions(
-          baseUrl: _baseUrl,
-          connectTimeout: const Duration(seconds: 10),
-          receiveTimeout: const Duration(seconds: 15),
-        ),
+    : _dio = buildJsonDio(
+        baseUrl: _baseUrl,
+        connectTimeout: const Duration(seconds: 10),
+        receiveTimeout: const Duration(seconds: 15),
       );
 
   /// Fetch subtitles for a movie by IMDB ID

@@ -3,6 +3,7 @@ import '../models/movie.dart';
 import '../models/show.dart';
 import '../models/season.dart';
 import '../models/episode.dart';
+import 'http_client.dart';
 
 /// Service for interacting with TMDB (The Movie Database) API.
 ///
@@ -23,16 +24,11 @@ class TmdbApiService {
   final String accessToken;
 
   TmdbApiService({required this.accessToken})
-    : _dio = Dio(
-        BaseOptions(
-          baseUrl: _baseUrl,
-          connectTimeout: const Duration(seconds: 10),
-          receiveTimeout: const Duration(seconds: 10),
-          headers: {
-            'Authorization': 'Bearer $accessToken',
-            'Accept': 'application/json',
-          },
-        ),
+    : _dio = buildJsonDio(
+        baseUrl: _baseUrl,
+        connectTimeout: const Duration(seconds: 10),
+        receiveTimeout: const Duration(seconds: 10),
+        headers: {'Authorization': 'Bearer $accessToken'},
       );
 
   /// True when a non-empty access token is configured.

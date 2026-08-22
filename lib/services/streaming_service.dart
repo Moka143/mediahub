@@ -912,7 +912,7 @@ class StreamingService {
       if (session.selectedFileIndex! < files.length) {
         final selectedFile = files[session.selectedFileIndex!];
         fileProgress = selectedFile.progress;
-        fileSizeBytes = selectedFile.size.round();
+        fileSizeBytes = selectedFile.size;
       }
     } catch (e) {
       AppLog.e('[StreamingService] Error getting file progress: $e');
@@ -1104,7 +1104,7 @@ class StreamingService {
     final size = pieceSize > 0 ? pieceSize : torrent.pieceSize;
     if (size <= 0) return null;
     return LocalStreamingServer.pieceRangeForFile(
-      fileSizes: files.map((f) => f.size.round()).toList(),
+      fileSizes: files.map((f) => f.size).toList(),
       fileIndex: fileIndex,
       pieceSize: size,
     );
@@ -1208,9 +1208,11 @@ class StreamingService {
       if (!await file.exists() && !contentIsFile) {
         final dir = Directory(session.contentPath!);
         if (await dir.exists()) {
-          final selectedFileName = p.basename(
-            session.selectedFilePath!.replaceAll(r'\', '/'),
-          );
+          // basenameOf, not p.basename: this string comes from qBittorrent
+          // and may carry Windows separators whatever host we're on. The
+          // p.basename calls below are on real local paths, where the host
+          // separator is the right one.
+          final selectedFileName = basenameOf(session.selectedFilePath!);
           await for (final entity in dir.list(recursive: true)) {
             if (entity is File && _isVideoFile(entity.path)) {
               if (p.basename(entity.path).toLowerCase() ==

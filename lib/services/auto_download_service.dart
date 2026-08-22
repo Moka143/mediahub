@@ -272,7 +272,13 @@ class AutoDownloadService {
         .replaceAll('the', '');
   }
 
-  /// Maximum file size for streaming (900 MB) - smaller files buffer faster
+  /// Upper bound on a *candidate* torrent's size when picking a source to
+  /// stream. Smaller files reach the play threshold sooner.
+  ///
+  /// Unrelated to `StreamingService`'s buffer model (80–500 MB, or 10% of the
+  /// file), which decides when playback may start once a source is chosen.
+  /// This one narrows the field; that one times the start. Neither reads the
+  /// other, and they are not meant to agree.
   static const int maxStreamingSizeBytes = 900 * 1024 * 1024; // 900 MB
 
   /// Find the best matching torrent for an episode with quality preference
