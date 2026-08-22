@@ -24,6 +24,8 @@ import '../utils/feedback_utils.dart';
 import '../utils/formatters.dart';
 import '../widgets/editorial/editorial.dart';
 import '../utils/media_quality.dart';
+import '../utils/media_names.dart';
+import '../utils/platform_utils.dart';
 
 /// Build a TMDB image URL from a poster path (e.g. `/abc.jpg`).
 /// Returns null if the path is null or empty. If the input already
@@ -40,29 +42,6 @@ String? _tmdbPoster(String? p, {String size = 'w500'}) {
 /// remainder is usable as a TMDB search query. Returns the cleaned
 /// title (spaces, no separators), or an empty string when nothing
 /// recognizable remains.
-String _searchTitleFromTorrentName(String name) {
-  String n = name;
-  // Drop file extension when it looks like one (≤5 chars after the dot).
-  final lastDot = n.lastIndexOf('.');
-  if (lastDot > 0 && n.length - lastDot <= 5) {
-    n = n.substring(0, lastDot);
-  }
-  // Cut at the first season/episode/year/quality marker — everything
-  // before it is the title; everything after is release metadata.
-  final stop = RegExp(
-    r'[\s._\-]+(?:[Ss]\d{1,2}[Ee]\d{1,2}|\d{1,2}x\d{1,2}|(?:19|20)\d{2}|2160p|1080p|720p|480p|UHD|4K|HDTV|WEB[-.]?DL|WEBRip|BluRay|BDRip|HDR|x264|x265|HEVC)',
-    caseSensitive: false,
-  );
-  final m = stop.firstMatch(n);
-  if (m != null) n = n.substring(0, m.start);
-  return n
-      .replaceAll('.', ' ')
-      .replaceAll('_', ' ')
-      .replaceAll('-', ' ')
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
-}
-
 /// Open the video player for a Continue-Watching entry, seeking to
 /// the saved position. Falls back to a synthetic LocalMediaFile when
 /// the file isn't yet in the scanned library (e.g. a torrent that
@@ -76,7 +55,7 @@ void _resumePlayback(
   final file = localFiles.firstWhere(
     (f) => f.path == progress.filePath,
     orElse: () {
-      final name = progress.filePath.split('/').last.split('\\').last;
+      final name = basenameOf(progress.filePath);
       final ext = name.contains('.') ? name.split('.').last : '';
       return LocalMediaFile(
         path: progress.filePath,
@@ -961,10 +940,10 @@ class _ContinueCard extends ConsumerWidget {
     // older watch-progress entries were created before posters were
     // captured, so we resolve them on demand here.
     if (url == null) {
-      final fileName = p.filePath.split('/').last.split('\\').last;
+      final fileName = basenameOf(p.filePath);
       final query = (p.showName != null && p.showName!.isNotEmpty)
           ? p.showName!
-          : _searchTitleFromTorrentName(fileName);
+          : searchTitleFromTorrentName(fileName);
       if (query.isNotEmpty) {
         final isShow = p.episodeCode != null;
         final asyncPoster = isShow
@@ -1202,7 +1181,7 @@ class _FreshTile extends ConsumerWidget {
       final isShow = RegExp(
         r'[Ss]\d{1,2}[Ee]\d{1,2}|\d{1,2}x\d{1,2}',
       ).hasMatch(t.name);
-      final query = _searchTitleFromTorrentName(t.name);
+      final query = searchTitleFromTorrentName(t.name);
       if (query.isNotEmpty) {
         final asyncPoster = isShow
             ? ref.watch(showPosterProvider(query))

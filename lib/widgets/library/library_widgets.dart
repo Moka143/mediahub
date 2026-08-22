@@ -9,6 +9,7 @@ import '../../providers/local_media_provider.dart';
 import '../../utils/feedback_utils.dart';
 import '../common/empty_state.dart';
 import '../media/media.dart';
+import '../../utils/media_names.dart';
 
 enum LibrarySection { all, continueWatching, recent, movies, shows }
 
@@ -988,30 +989,9 @@ class _LocalMediaCard extends ConsumerWidget {
     }
     // For movies, strip quality/year/extension noise before searching TMDB —
     // a raw filename like `Movie.2020.1080p.BluRay.mkv` rarely matches.
-    final movieName = file.showName ?? _cleanMovieName(file.fileName);
+    final movieName = file.showName ?? cleanMediaTitle(file.fileName);
     if (movieName.isEmpty) return null;
     return ref.watch(moviePosterProvider(movieName));
-  }
-
-  /// Best-effort: convert a torrent-style filename into something searchable.
-  /// Drops extension, common quality tags, release-group suffixes and year.
-  static String _cleanMovieName(String filename) {
-    var name = filename.replaceAll(
-      RegExp(r'\.(mp4|mkv|avi|mov|wmv|flv|webm|m4v)$', caseSensitive: false),
-      '',
-    );
-    name = name.replaceAll(
-      RegExp(
-        r'[\.\s]?(1080p|720p|480p|2160p|4K|HDRip|BluRay|WEB-DL|WEBRip|BRRip|DVDRip|HDTV).*',
-        caseSensitive: false,
-      ),
-      '',
-    );
-    name = name.replaceAll(RegExp(r'\s*\(\d{4}\)\s*'), ' ');
-    name = name.replaceAll(RegExp(r'\s*\d{4}\s*$'), '');
-    name = name.replaceAll(RegExp(r'[\._]'), ' ');
-    name = name.replaceAll(RegExp(r'\s+'), ' ').trim();
-    return name;
   }
 
   String _displayTitle() {
@@ -1020,7 +1000,7 @@ class _LocalMediaCard extends ConsumerWidget {
           ? '${file.showName} ${file.episodeCode}'
           : file.showName!;
     }
-    final cleaned = _cleanMovieName(file.fileName);
+    final cleaned = cleanMediaTitle(file.fileName);
     return cleaned.isNotEmpty ? cleaned : file.fileName;
   }
 

@@ -10,6 +10,7 @@ import '../providers/shows_provider.dart';
 import '../providers/tmdb_account_provider.dart';
 import '../providers/torrent_provider.dart';
 import '../providers/watch_progress_provider.dart';
+import '../utils/media_names.dart';
 import '../utils/platform_utils.dart';
 import 'tmdb_account_service.dart';
 import 'app_logger.dart';
@@ -62,30 +63,6 @@ Future<int?> _resolveMovieId(WidgetRef ref, String? movieName) async {
     AppLog.w('[LibraryActions] movie id lookup failed for "$movieName": $e');
     return null; // Not cached — retry on the next pass.
   }
-}
-
-/// Clean a torrent-style filename into something `searchMovies` will hit.
-/// Mirrors the same logic the library card UI uses for poster lookups.
-String _cleanMovieName(String filename) {
-  var name = filename.replaceAll(
-    RegExp(
-      r'\.(mp4|mkv|avi|mov|wmv|flv|webm|m4v|mpg|mpeg|ts|3gp)$',
-      caseSensitive: false,
-    ),
-    '',
-  );
-  name = name.replaceAll(
-    RegExp(
-      r'[\.\s]?(1080p|720p|480p|2160p|4K|HDRip|BluRay|WEB-DL|WEBRip|BRRip|DVDRip|HDTV).*',
-      caseSensitive: false,
-    ),
-    '',
-  );
-  name = name.replaceAll(RegExp(r'\s*\(\d{4}\)\s*'), ' ');
-  name = name.replaceAll(RegExp(r'\s*\d{4}\s*$'), '');
-  name = name.replaceAll(RegExp(r'[\._]'), ' ');
-  name = name.replaceAll(RegExp(r'\s+'), ' ').trim();
-  return name;
 }
 
 /// Outcome of a delete action — lets the UI surface a useful toast.
@@ -275,7 +252,7 @@ Future<void> markAsWatched(
       resolvedShowId = await _resolveShowId(ref, file.showName);
     } else if (!isEpisodeFile && resolvedMovieId == null) {
       // Movie path — resolve a movie id from a cleaned filename.
-      final movieName = file.showName ?? _cleanMovieName(file.fileName);
+      final movieName = file.showName ?? cleanMediaTitle(file.fileName);
       resolvedMovieId = await _resolveMovieId(ref, movieName);
     }
   }
@@ -386,7 +363,7 @@ Future<void> markAsNotWatched(
             existing?.movieId ??
             await _resolveMovieId(
               ref,
-              file.showName ?? _cleanMovieName(file.fileName),
+              file.showName ?? cleanMediaTitle(file.fileName),
             ))
       : null;
 
@@ -586,7 +563,7 @@ Future<void> reconcileWatchedWithTmdb(
         if (movieId == null) {
           // Try to resolve from filename — same as the watch_screen
           // mark-watched path. Cached so we don't hit TMDB twice.
-          final name = p.showName ?? _cleanMovieName(basenameOf(p.filePath));
+          final name = p.showName ?? cleanMediaTitle(basenameOf(p.filePath));
           movieId = await _resolveMovieId(ref, name);
         }
         if (movieId == null) continue;
@@ -622,7 +599,7 @@ Future<void> reconcileWatchedWithTmdb(
         final name =
             file?.showName ??
             existing?.showName ??
-            _cleanMovieName(file?.fileName ?? basenameOf(path));
+            cleanMediaTitle(file?.fileName ?? basenameOf(path));
         movieId = await _resolveMovieId(ref, name);
       }
       if (movieId == null) continue;

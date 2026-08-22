@@ -2,6 +2,7 @@ import 'dart:io';
 
 import '../utils/formatters.dart';
 import '../utils/media_quality.dart';
+import '../utils/platform_utils.dart';
 import 'watch_progress.dart';
 
 /// Video file extensions supported
@@ -95,7 +96,7 @@ class LocalMediaFile {
   static Future<LocalMediaFile?> fromFile(File file) async {
     try {
       final stat = await file.stat();
-      final fileName = file.path.split('/').last.split('\\').last;
+      final fileName = basenameOf(file.path);
       final ext = fileName.contains('.')
           ? fileName.split('.').last.toLowerCase()
           : '';

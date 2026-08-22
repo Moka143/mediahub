@@ -830,126 +830,86 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         return;
       }
 
-      if (_nextEpisodeDownloadStarted && _downloadingEpisode != null) {
-        await _tryPlayDownloadedNextEpisode();
-        return;
-      }
-
-      await _checkAndPlayNextEpisode();
+      await _playNextEpisodeFromDisk(
+        target: _nextEpisodeDownloadStarted ? _downloadingEpisode : null,
+      );
     });
   }
 
-  /// Try to play the next episode that was being downloaded
-  Future<void> _tryPlayDownloadedNextEpisode() async {
-    final episode = _downloadingEpisode;
-    if (episode == null) return;
-
+  /// Find the next episode on disk and hand the player over to it.
+  ///
+  /// [target] is the episode a prefetch was downloading, when there is one;
+  /// that path waits for the file to be finalised before scanning. Otherwise
+  /// the candidates come from TMDB's answer if we have it, falling back to
+  /// "next in this season, then first of the next".
+  ///
+  /// Replaces two methods that answered the same question by different rules.
+  /// The fallback one hardcoded `season + 1, episode 1` while ignoring the
+  /// TMDB result this screen was already holding, so a show whose season
+  /// numbering does not follow that shape jumped to the wrong episode or to
+  /// none at all.
+  Future<void> _playNextEpisodeFromDisk({Episode? target}) async {
     final showName = widget.file.showName;
     if (showName == null) return;
 
-    AppLog.d(
-      '[AutoDownload] Looking for downloaded file: $showName S${episode.seasonNumber}E${episode.episodeNumber}',
-    );
+    final season = widget.file.seasonNumber;
+    final episode = widget.file.episodeNumber;
+    final fromTmdb = _nextEpisodeFromTmdb;
 
-    // Refresh local files to find newly downloaded episode
-    final refreshMedia = ref.read(refreshLocalMediaProvider);
-    await refreshMedia();
+    final candidates = <({int season, int episode})>[
+      if (target != null)
+        (season: target.seasonNumber, episode: target.episodeNumber)
+      else ...[
+        // TMDB is authoritative about what comes next; the arithmetic below
+        // is only a fallback for when the lookup failed.
+        if (fromTmdb != null)
+          (season: fromTmdb.seasonNumber, episode: fromTmdb.episodeNumber),
+        if (season != null && episode != null) ...[
+          (season: season, episode: episode + 1),
+          (season: season + 1, episode: 1),
+        ],
+      ],
+    ];
+    if (candidates.isEmpty) return;
 
-    // Small delay to ensure file is detected
-    await Future.delayed(const Duration(seconds: 2));
+    if (target != null) {
+      // The file may have landed seconds ago — let the scanner catch up.
+      await ref.read(refreshLocalMediaProvider)();
+      await Future.delayed(const Duration(seconds: 2));
+      if (!mounted) return;
+    }
 
-    // Re-scan for the episode
     final scanner = ref.read(localMediaScannerProvider);
     final files = await scanner.scanDirectory();
+    if (!mounted) return;
 
-    final nextFile = scanner.findEpisodeFile(
-      files,
-      showName: showName,
-      season: episode.seasonNumber,
-      episode: episode.episodeNumber,
-    );
-
-    if (nextFile != null && mounted) {
-      AppLog.d(
-        '[AutoDownload] Found downloaded episode! Playing: ${nextFile.fileName}',
+    for (final candidate in candidates) {
+      final match = scanner.findEpisodeFile(
+        files,
+        showName: showName,
+        season: candidate.season,
+        episode: candidate.episode,
       );
+      if (match == null) continue;
 
-      // Dismiss any streaming indicator
+      AppLog.d('[NextEpisode] Playing ${match.fileName} from disk');
       _dismissStreamingStatus();
       _dismissNextPrefetch();
-
-      final playerService = ref.read(playerServiceProvider);
-      await playerService.stop();
+      await ref.read(playerServiceProvider).stop();
       if (!mounted) return;
 
-      final fileToPlay = nextFile; // Capture non-null value
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => VideoPlayerScreen(file: fileToPlay)),
+        MaterialPageRoute(builder: (_) => VideoPlayerScreen(file: match)),
       );
-    } else {
-      AppLog.w(
-        '[AutoDownload] Downloaded file not found yet - may still be downloading',
-      );
-      // Show message that file is still downloading
-      if (mounted) {
-        _setNextEpisodePrefetch(
-          status: StreamingStatus.buffering,
-          message: 'Still downloading. Check Library when ready.',
-          episodeCode: episode.episodeCode,
-        );
-      }
-    }
-  }
-
-  /// Check if next episode has been downloaded (background download) and play it
-  Future<void> _checkAndPlayNextEpisode() async {
-    final showName = widget.file.showName;
-    final currentSeason = widget.file.seasonNumber;
-    final currentEpisode = widget.file.episodeNumber;
-
-    if (showName == null || currentSeason == null || currentEpisode == null) {
       return;
     }
 
-    // Calculate next episode number
-    final nextEpisodeNum = currentEpisode + 1;
-
-    AppLog.d(
-      '[AutoDownload] Checking for next episode: $showName S${currentSeason}E$nextEpisodeNum',
-    );
-
-    // Refresh local files
-    final scanner = ref.read(localMediaScannerProvider);
-    final files = await scanner.scanDirectory();
-
-    // Try current season next episode first
-    var nextFile = scanner.findEpisodeFile(
-      files,
-      showName: showName,
-      season: currentSeason,
-      episode: nextEpisodeNum,
-    );
-
-    // If not found, try first episode of next season
-    nextFile ??= scanner.findEpisodeFile(
-      files,
-      showName: showName,
-      season: currentSeason + 1,
-      episode: 1,
-    );
-
-    if (nextFile != null && mounted) {
-      AppLog.d(
-        '[AutoDownload] Found next episode! Playing: ${nextFile.fileName}',
-      );
-
-      final playerService = ref.read(playerServiceProvider);
-      await playerService.stop();
-      if (!mounted) return;
-
-      final fileToPlay = nextFile; // Capture non-null value
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => VideoPlayerScreen(file: fileToPlay)),
+    if (target != null) {
+      AppLog.w('[NextEpisode] ${target.episodeCode} is not on disk yet');
+      _setNextEpisodePrefetch(
+        status: StreamingStatus.buffering,
+        message: 'Still downloading. Check Library when ready.',
+        episodeCode: target.episodeCode,
       );
     }
   }
