@@ -2,7 +2,7 @@ name: mediahub
 description: "MediaHub — a cross-platform Flutter desktop media client."
 publish_to: 'none'
 
-version: 0.4.0+1
+version: 0.4.1+1
 
 environment:
   sdk: ^3.10.4
@@ -78,7 +78,7 @@ msix_config:
   publisher_display_name: MediaHub
   identity_name: com.mediahub.desktop
   publisher: CN=MediaHub
-  msix_version: 0.4.0.0
+  msix_version: 0.4.1.0
   logo_path: assets\icon.png
   capabilities: internetClient, privateNetworkClientServer
   architecture: x64
