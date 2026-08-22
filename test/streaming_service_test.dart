@@ -87,7 +87,9 @@ void main() {
       int minBytes = need,
       double rate = 500 * 1024, // 500 KB/s — comfortably viable
       Duration sinceProgress = const Duration(seconds: 2),
-      Duration sinceStart = const Duration(minutes: 1),
+      // Past rateWarmup — these cases exercise the rate projection, not the
+      // warmup gate, which has its own test below.
+      Duration sinceStart = const Duration(minutes: 2),
     }) => StreamingService.assessBuffering(
       bufferedBytes: buffered,
       minBytes: minBytes,
@@ -128,13 +130,40 @@ void main() {
     });
 
     test('ignores the rate estimate during warmup', () {
-      // The first seconds are handshakes; a low reading there means nothing.
+      // The opening seconds are handshakes, and a torrent routinely sits near
+      // zero while it finds peers before climbing to megabytes a second. A
+      // low reading in that window means nothing, and giving up on it was
+      // the "provider slow" report.
       expect(
         assess(rate: 1024, sinceStart: const Duration(seconds: 5)),
         BufferOutcome.waiting,
       );
       expect(
-        assess(rate: 1024, sinceStart: const Duration(seconds: 45)),
+        assess(rate: 1024, sinceStart: const Duration(seconds: 60)),
+        BufferOutcome.waiting,
+      );
+      expect(
+        assess(rate: 1024, sinceStart: StreamingService.rateWarmup),
+        BufferOutcome.tooSlow,
+      );
+    });
+
+    test('a slow start is judged against the prefix, not a 10% floor', () {
+      // The regression this pair pins. Readiness is gated on a contiguous
+      // prefix (8 MB), but the projection used to run against
+      // minBufferBytesFor() — 80 MB or 10% of the file. At 133 KB/s that
+      // reads as 10 minutes and gives up, while the bytes actually needed
+      // were a minute away.
+      const prefix = 8 * mb;
+      const slowStart = 133 * 1024.0;
+
+      expect(
+        assess(buffered: 0, minBytes: prefix, rate: slowStart),
+        BufferOutcome.waiting,
+      );
+      // Same rate, judged against the old floor: abandoned.
+      expect(
+        assess(buffered: 0, minBytes: 80 * mb, rate: slowStart),
         BufferOutcome.tooSlow,
       );
     });
@@ -194,48 +223,6 @@ void main() {
       expect(
         assess(rate: 0, sinceProgress: const Duration(seconds: 10)),
         BufferOutcome.waiting,
-      );
-    });
-  });
-
-  group('StreamingService.minBufferBytesFor', () {
-    const absoluteMin = 80 * 1024 * 1024;
-    const absoluteCap = 500 * 1024 * 1024;
-
-    test('returns the absolute minimum for a zero or negative size', () {
-      expect(StreamingService.minBufferBytesFor(0), absoluteMin);
-      expect(StreamingService.minBufferBytesFor(-1), absoluteMin);
-    });
-
-    test('floors small files at the absolute minimum', () {
-      expect(
-        StreamingService.minBufferBytesFor(100 * 1024 * 1024),
-        absoluteMin,
-      );
-    });
-
-    test('800 MB sits exactly on the floor', () {
-      expect(
-        StreamingService.minBufferBytesFor(800 * 1024 * 1024),
-        absoluteMin,
-      );
-    });
-
-    test('uses 10 percent between the floor and the cap', () {
-      expect(
-        StreamingService.minBufferBytesFor(2 * 1024 * 1024 * 1024),
-        214748365,
-      );
-    });
-
-    test('caps large files at the absolute maximum', () {
-      expect(
-        StreamingService.minBufferBytesFor(5 * 1024 * 1024 * 1024),
-        absoluteCap,
-      );
-      expect(
-        StreamingService.minBufferBytesFor(50 * 1024 * 1024 * 1024),
-        absoluteCap,
       );
     });
   });

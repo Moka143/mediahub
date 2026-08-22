@@ -265,14 +265,6 @@ class StreamingService {
     'm2ts',
   };
 
-  /// Pre-play buffer model: max(absolute floor, 10% of file), clamped to a
-  /// cap so a 50 GB UHD rip doesn't demand 5 GB before opening. Matches the
-  /// user's mental model of "stream waits for ~10% before playing" while
-  /// keeping small files snappy (small pieces still need mpv headroom).
-  static const int _bufferAbsoluteMin = 80 * 1024 * 1024; // 80 MB
-  static const int _bufferAbsoluteCap = 500 * 1024 * 1024; // 500 MB
-  static const double _bufferPercent = 0.10;
-
   /// Maximum time to wait for metadata
   static const Duration metadataTimeout = Duration(minutes: 2);
 
@@ -306,7 +298,13 @@ class StreamingService {
 
   /// Ignore the rate estimate until it has had time to mean something —
   /// the first seconds of a torrent are all handshakes and no payload.
-  static const Duration rateWarmup = Duration(seconds: 30);
+  ///
+  /// 30 s was not enough. A torrent routinely sits near zero while it finds
+  /// peers and then climbs to megabytes a second, and [_BufferWatch]'s rate
+  /// is exponentially smoothed, so at 30 s the estimate is still dominated
+  /// by the dead start — it takes several polls to catch up with a ramp.
+  /// Judging there gave up on streams that were about to be fine.
+  static const Duration rateWarmup = Duration(seconds: 90);
 
   /// What the buffer situation warrants doing right now.
   ///
@@ -339,13 +337,6 @@ class StreamingService {
     }
 
     return BufferOutcome.waiting;
-  }
-
-  /// Returns the minimum bytes needed before a file is ready to stream.
-  static int minBufferBytesFor(int fileSizeBytes) {
-    if (fileSizeBytes <= 0) return _bufferAbsoluteMin;
-    final pct = (fileSizeBytes * _bufferPercent).round();
-    return pct.clamp(_bufferAbsoluteMin, _bufferAbsoluteCap);
   }
 
   /// Polling interval for monitoring progress
@@ -919,7 +910,15 @@ class StreamingService {
     }
 
     final bufferedBytes = (fileSizeBytes * fileProgress).round();
-    final minBytes = minBufferBytesFor(fileSizeBytes);
+
+    // What readiness ACTUALLY requires — a contiguous prefix, checked by
+    // `_prefixIsPlayable` below — not the 80 MB pre-play floor this used to
+    // pass. That floor is a superseded model: nothing waits for it any more,
+    // so all it did was condemn a stream for failing to reach a threshold it
+    // was never going to be asked to reach. On a 133 KB/s start the
+    // projection said "11 minutes to 80 MB, give up" while the real
+    // requirement was ~30 seconds away.
+    const minBytes = LocalStreamingServer.prefixProbeBytes;
 
     AppLog.d(
       '[StreamingService] Buffer progress: ${(fileProgress * 100).toStringAsFixed(1)}% '
