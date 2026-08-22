@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import '../utils/formatters.dart';
+import '../utils/media_quality.dart';
+import '../utils/platform_utils.dart';
 import 'watch_progress.dart';
 
 /// Video file extensions supported
@@ -39,7 +41,7 @@ class LocalMediaFile {
   final String? showName; // Parsed show name
   final int? seasonNumber; // Parsed from filename
   final int? episodeNumber; // Parsed from filename
-  final String? quality; // "720p", "1080p", "4K"
+  final String? quality; // canonical MediaQuality label, e.g. "1080p"
   final String extension; // "mkv", "mp4", etc.
   final int? showId; // Matched TMDB show ID (nullable)
   final String? posterPath; // Show poster path
@@ -94,7 +96,7 @@ class LocalMediaFile {
   static Future<LocalMediaFile?> fromFile(File file) async {
     try {
       final stat = await file.stat();
-      final fileName = file.path.split('/').last.split('\\').last;
+      final fileName = basenameOf(file.path);
       final ext = fileName.contains('.')
           ? fileName.split('.').last.toLowerCase()
           : '';
@@ -183,18 +185,13 @@ class LocalMediaFile {
       }
     }
 
-    // Extract quality
-    final qualityPattern = RegExp(
-      r'(2160p|4K|UHD|1080p|720p|480p|HDTV|WEB-DL|WEBRip|BluRay|BDRip)',
-      caseSensitive: false,
-    );
-    final qualityMatch = qualityPattern.firstMatch(nameWithoutExt);
-    if (qualityMatch != null) {
-      quality = qualityMatch.group(1)!.toUpperCase();
-      // Normalize quality
-      if (quality == 'UHD' || quality == '4K') {
-        quality = '2160p';
-      }
+    // Extract quality. Canonical labels via [MediaQuality] — this used to
+    // uppercase whatever it matched, producing `1080P`, which then never
+    // compared equal to the `1080p` the torrent indexers emit. That is what
+    // made the per-show auto-download quality preference a no-op.
+    final detected = MediaQuality.fromText(nameWithoutExt);
+    if (detected != MediaQuality.unknown) {
+      quality = detected.label;
     }
 
     return {

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:watcher/watcher.dart';
 
 import '../models/local_media_file.dart';
+import '../utils/platform_utils.dart';
 import 'app_logger.dart';
 
 /// Service for scanning local media files from the download folder
@@ -144,11 +145,16 @@ class LocalMediaScanner {
     return null;
   }
 
-  /// Find external subtitle files for a video
+  /// Find external subtitle files for a video.
+  ///
+  /// Uses [basenameOf] rather than splitting on the host separator: a torrent
+  /// created on Windows hands back `Show\\S01E01.mkv`, and `path.basename`
+  /// on macOS treats the backslash as an ordinary character — so the "file
+  /// name" became the whole relative path and no sidecar ever matched it.
   Future<List<String>> findSubtitles(String videoPath) async {
     final subtitles = <String>[];
     final videoDir = File(videoPath).parent;
-    final videoName = videoPath.split('/').last.split('\\').last;
+    final videoName = basenameOf(videoPath);
     final videoBase = videoName.contains('.')
         ? videoName.substring(0, videoName.lastIndexOf('.'))
         : videoName;
@@ -158,7 +164,7 @@ class LocalMediaScanner {
     try {
       await for (final entity in videoDir.list()) {
         if (entity is File) {
-          final fileName = entity.path.split('/').last.split('\\').last;
+          final fileName = basenameOf(entity.path);
           final ext = fileName.split('.').last.toLowerCase();
 
           if (subtitleExtensions.contains(ext)) {

@@ -1,3 +1,5 @@
+import '../utils/media_quality.dart';
+
 /// Represents a stream from Torrentio addon
 ///
 /// Key concepts from Stremio/Torrentio:
@@ -194,44 +196,18 @@ class TorrentioStream {
     };
   }
 
-  /// Extract quality from name (e.g., "Torrentio\n4k" -> "4K")
-  String get quality {
-    final nameLower = name.toLowerCase();
-    if (nameLower.contains('4k') || nameLower.contains('2160p')) return '4K';
-    if (nameLower.contains('1080p')) return '1080p';
-    if (nameLower.contains('720p')) return '720p';
-    if (nameLower.contains('480p')) return '480p';
-    if (nameLower.contains('3d')) return '3D';
-    if (nameLower.contains('hdrip')) return 'HDRip';
-    if (nameLower.contains('dvdrip')) return 'DVDRip';
-    if (nameLower.contains('hdtv')) return 'HDTV';
-    if (nameLower.contains('bluray') || nameLower.contains('bdrip')) {
-      return 'BluRay';
-    }
-    return 'Unknown';
-  }
+  /// Release quality derived from the indexer's label (e.g. "Torrentio\n4k").
+  ///
+  /// See [MediaQuality]. The former private ladder had a `WEB-DL` rank its
+  /// own parser could never produce, and disagreed with [EztvTorrent] on the
+  /// order of the source tags.
+  MediaQuality get mediaQuality => MediaQuality.fromText(name);
+
+  /// Canonical quality label, e.g. `2160p`.
+  String get quality => mediaQuality.label;
 
   /// Get quality priority for sorting (higher is better)
-  int get qualityPriority {
-    switch (quality) {
-      case '4K':
-        return 5;
-      case '1080p':
-        return 4;
-      case '720p':
-        return 3;
-      case 'BluRay':
-        return 3;
-      case 'WEB-DL':
-        return 2;
-      case 'HDRip':
-        return 2;
-      case 'HDTV':
-        return 1;
-      default:
-        return 0;
-    }
-  }
+  int get qualityPriority => mediaQuality.rank;
 
   /// Extract seeders count from title (e.g., "👤 212" -> 212)
   int get seeders {

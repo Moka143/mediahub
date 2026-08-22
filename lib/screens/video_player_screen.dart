@@ -21,7 +21,6 @@ import '../providers/settings_provider.dart';
 import '../providers/subtitle_provider.dart';
 import '../providers/watch_progress_provider.dart';
 import '../providers/streaming_provider.dart';
-import '../services/auto_download_service.dart';
 import '../services/local_streaming_server.dart';
 import '../services/next_episode_planner.dart';
 import '../services/playback_health_monitor.dart';
@@ -72,6 +71,15 @@ class VideoPlayerScreen extends ConsumerStatefulWidget {
   /// instead of waiting ~2 s for the first health-poll to land.
   final double? initialBufferedRatio;
 
+  /// Id of the [StreamingSession] backing this playback, when there is one.
+  ///
+  /// Ownership, not decoration: whoever holds the id is responsible for
+  /// cancelling the session, which is what tears down its
+  /// [LocalStreamingServer] and releases the loopback port. Nothing cancelled
+  /// sessions before this existed, so every play leaked an HTTP server for
+  /// the life of the process.
+  final String? streamingSessionId;
+
   const VideoPlayerScreen({
     super.key,
     required this.file,
@@ -83,6 +91,7 @@ class VideoPlayerScreen extends ConsumerStatefulWidget {
     this.streamingFileIndex,
     this.streamingProxyUrl,
     this.initialBufferedRatio,
+    this.streamingSessionId,
   });
 
   @override
@@ -125,7 +134,6 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   late final NextEpisodePlanner _planner;
   LocalMediaFile? _nextEpisode;
   Episode? _nextEpisodeFromTmdb; // Next episode from TMDB (not downloaded yet)
-  NextEpisodeResult? _nextEpisodeResult; // Full result with availability info
   int? _currentShowId;
   String? _currentImdbId;
   StreamSubscription<Duration>? _positionSubscription;
@@ -185,9 +193,22 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   // or permanently if qBittorrent won't give us one.
   List<BufferedSpan> _bufferedSpans = const [];
 
+  /// Captured in [initState] so [dispose] can reach it without `ref.read`,
+  /// which is not safe there.
+  late final StreamingSessionsNotifier _streamingSessions;
+
+  /// Streaming sessions this screen must tear down on dispose. Set to null
+  /// the moment a session is handed to a replacement screen — that screen
+  /// takes ownership with it, and cancelling here would kill the proxy the
+  /// next episode is about to read from.
+  String? _ownedSessionId;
+  String? _prefetchSessionId;
+
   @override
   void initState() {
     super.initState();
+    _streamingSessions = ref.read(streamingSessionsProvider.notifier);
+    _ownedSessionId = widget.streamingSessionId;
     _keyboardFocus = FocusNode();
     _planner = NextEpisodePlanner(
       bingeEnabled: ref.read(bingeWatchingEnabledProvider),
@@ -400,6 +421,11 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   /// • Once shown, keep it visible for at least 1 s after buffering clears
   ///   (prevents rapid on/off flicker).
   void _setupStreamingBufferingDebounce() {
+    // Restart-safe: _handleResume calls this a second time after the resume
+    // prompt, and a second listener on the same stream would double every
+    // buffering transition.
+    _bufferingSubscription?.cancel();
+
     // Grace period — suppress indicator until mpv actually starts playing,
     // rather than using a fixed timer that may expire too early for large files.
     _streamBufferingGrace = true;
@@ -602,10 +628,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       );
 
       if (mounted) {
-        setState(() {
-          _nextEpisodeResult = result;
-          _nextEpisodeFromTmdb = result.nextEpisode;
-        });
+        setState(() => _nextEpisodeFromTmdb = result.nextEpisode);
       }
     } catch (e) {
       AppLog.e('[AutoDownload] Failed to check TMDB for next episode: $e');
@@ -807,126 +830,86 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         return;
       }
 
-      if (_nextEpisodeDownloadStarted && _downloadingEpisode != null) {
-        await _tryPlayDownloadedNextEpisode();
-        return;
-      }
-
-      await _checkAndPlayNextEpisode();
+      await _playNextEpisodeFromDisk(
+        target: _nextEpisodeDownloadStarted ? _downloadingEpisode : null,
+      );
     });
   }
 
-  /// Try to play the next episode that was being downloaded
-  Future<void> _tryPlayDownloadedNextEpisode() async {
-    final episode = _downloadingEpisode;
-    if (episode == null) return;
-
+  /// Find the next episode on disk and hand the player over to it.
+  ///
+  /// [target] is the episode a prefetch was downloading, when there is one;
+  /// that path waits for the file to be finalised before scanning. Otherwise
+  /// the candidates come from TMDB's answer if we have it, falling back to
+  /// "next in this season, then first of the next".
+  ///
+  /// Replaces two methods that answered the same question by different rules.
+  /// The fallback one hardcoded `season + 1, episode 1` while ignoring the
+  /// TMDB result this screen was already holding, so a show whose season
+  /// numbering does not follow that shape jumped to the wrong episode or to
+  /// none at all.
+  Future<void> _playNextEpisodeFromDisk({Episode? target}) async {
     final showName = widget.file.showName;
     if (showName == null) return;
 
-    AppLog.d(
-      '[AutoDownload] Looking for downloaded file: $showName S${episode.seasonNumber}E${episode.episodeNumber}',
-    );
+    final season = widget.file.seasonNumber;
+    final episode = widget.file.episodeNumber;
+    final fromTmdb = _nextEpisodeFromTmdb;
 
-    // Refresh local files to find newly downloaded episode
-    final refreshMedia = ref.read(refreshLocalMediaProvider);
-    await refreshMedia();
+    final candidates = <({int season, int episode})>[
+      if (target != null)
+        (season: target.seasonNumber, episode: target.episodeNumber)
+      else ...[
+        // TMDB is authoritative about what comes next; the arithmetic below
+        // is only a fallback for when the lookup failed.
+        if (fromTmdb != null)
+          (season: fromTmdb.seasonNumber, episode: fromTmdb.episodeNumber),
+        if (season != null && episode != null) ...[
+          (season: season, episode: episode + 1),
+          (season: season + 1, episode: 1),
+        ],
+      ],
+    ];
+    if (candidates.isEmpty) return;
 
-    // Small delay to ensure file is detected
-    await Future.delayed(const Duration(seconds: 2));
+    if (target != null) {
+      // The file may have landed seconds ago — let the scanner catch up.
+      await ref.read(refreshLocalMediaProvider)();
+      await Future.delayed(const Duration(seconds: 2));
+      if (!mounted) return;
+    }
 
-    // Re-scan for the episode
     final scanner = ref.read(localMediaScannerProvider);
     final files = await scanner.scanDirectory();
+    if (!mounted) return;
 
-    final nextFile = scanner.findEpisodeFile(
-      files,
-      showName: showName,
-      season: episode.seasonNumber,
-      episode: episode.episodeNumber,
-    );
-
-    if (nextFile != null && mounted) {
-      AppLog.d(
-        '[AutoDownload] Found downloaded episode! Playing: ${nextFile.fileName}',
+    for (final candidate in candidates) {
+      final match = scanner.findEpisodeFile(
+        files,
+        showName: showName,
+        season: candidate.season,
+        episode: candidate.episode,
       );
+      if (match == null) continue;
 
-      // Dismiss any streaming indicator
+      AppLog.d('[NextEpisode] Playing ${match.fileName} from disk');
       _dismissStreamingStatus();
       _dismissNextPrefetch();
-
-      final playerService = ref.read(playerServiceProvider);
-      await playerService.stop();
+      await ref.read(playerServiceProvider).stop();
       if (!mounted) return;
 
-      final fileToPlay = nextFile; // Capture non-null value
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => VideoPlayerScreen(file: fileToPlay)),
+        MaterialPageRoute(builder: (_) => VideoPlayerScreen(file: match)),
       );
-    } else {
-      AppLog.w(
-        '[AutoDownload] Downloaded file not found yet - may still be downloading',
-      );
-      // Show message that file is still downloading
-      if (mounted) {
-        _setNextEpisodePrefetch(
-          status: StreamingStatus.buffering,
-          message: 'Still downloading. Check Library when ready.',
-          episodeCode: episode.episodeCode,
-        );
-      }
-    }
-  }
-
-  /// Check if next episode has been downloaded (background download) and play it
-  Future<void> _checkAndPlayNextEpisode() async {
-    final showName = widget.file.showName;
-    final currentSeason = widget.file.seasonNumber;
-    final currentEpisode = widget.file.episodeNumber;
-
-    if (showName == null || currentSeason == null || currentEpisode == null) {
       return;
     }
 
-    // Calculate next episode number
-    final nextEpisodeNum = currentEpisode + 1;
-
-    AppLog.d(
-      '[AutoDownload] Checking for next episode: $showName S${currentSeason}E$nextEpisodeNum',
-    );
-
-    // Refresh local files
-    final scanner = ref.read(localMediaScannerProvider);
-    final files = await scanner.scanDirectory();
-
-    // Try current season next episode first
-    var nextFile = scanner.findEpisodeFile(
-      files,
-      showName: showName,
-      season: currentSeason,
-      episode: nextEpisodeNum,
-    );
-
-    // If not found, try first episode of next season
-    nextFile ??= scanner.findEpisodeFile(
-      files,
-      showName: showName,
-      season: currentSeason + 1,
-      episode: 1,
-    );
-
-    if (nextFile != null && mounted) {
-      AppLog.d(
-        '[AutoDownload] Found next episode! Playing: ${nextFile.fileName}',
-      );
-
-      final playerService = ref.read(playerServiceProvider);
-      await playerService.stop();
-      if (!mounted) return;
-
-      final fileToPlay = nextFile; // Capture non-null value
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => VideoPlayerScreen(file: fileToPlay)),
+    if (target != null) {
+      AppLog.w('[NextEpisode] ${target.episodeCode} is not on disk yet');
+      _setNextEpisodePrefetch(
+        status: StreamingStatus.buffering,
+        message: 'Still downloading. Check Library when ready.',
+        episodeCode: target.episodeCode,
       );
     }
   }
@@ -946,11 +929,17 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
 
     if (mounted) {
       final streamingHash = _nextEpisodeStreamingTorrentHash;
+      // Hand the prefetch session to the replacement screen. Nulled here so
+      // our dispose() — which runs right after pushReplacement — doesn't
+      // cancel the session the next episode is about to play from.
+      final handoffSessionId = _prefetchSessionId;
+      _prefetchSessionId = null;
       AppLog.d(
         '[NextEpisodeProxy] handing off to player streaming=${streamingHash != null} '
         'hash=$streamingHash '
         'fileIdx=$_nextEpisodeStreamingFileIndex '
-        'url=$_nextEpisodeStreamingProxyUrl',
+        'url=$_nextEpisodeStreamingProxyUrl '
+        'session=$handoffSessionId',
       );
       // Navigate to next episode
       Navigator.of(context).pushReplacement(
@@ -961,6 +950,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
             streamingTorrentHash: streamingHash,
             streamingFileIndex: _nextEpisodeStreamingFileIndex,
             streamingProxyUrl: _nextEpisodeStreamingProxyUrl,
+            streamingSessionId: handoffSessionId,
           ),
         ),
       );
@@ -1188,6 +1178,14 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     // subscription and needs no providers to shut down.
     _healthMonitor?.dispose();
     _keyboardFocus.dispose();
+    // Release the sessions this screen owns: cancelSession stops the 2 s
+    // monitoring timer and shuts down the LocalStreamingServer. Uses the
+    // notifier captured in initState, not ref.read — see below.
+    for (final sessionId in {_ownedSessionId, _prefetchSessionId}) {
+      if (sessionId != null) {
+        unawaited(_streamingSessions.cancelSession(sessionId));
+      }
+    }
     // Note: Don't use ref.read() in dispose - providers will clean up themselves.
     // Only call setFullScreen / setTitleBarStyle when we're actually in
     // fullscreen — otherwise the framework's own resize logic gets
@@ -1588,6 +1586,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
           );
     }
 
+    _prefetchSessionId = session.id;
     setState(() {
       _nextEpisodeDownloadStarted = true;
       _downloadingEpisode = episode;
@@ -1676,6 +1675,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
 
         case StreamingState.cancelled:
         case StreamingState.idle:
+          _prefetchSessionId = null;
           _dismissNextPrefetch();
           _nextEpisodeSubscription?.cancel();
           _nextEpisodeSubscription = null;

@@ -12,8 +12,12 @@ class QBittorrentProcessService {
   Process? _process;
   Timer? _healthCheckTimer;
   bool _isStarting = false;
+
+  /// Not final: [start] rewrites it when [findExecutable] locates qBittorrent
+  /// somewhere other than the configured path.
   String _qbittorrentPath;
-  int _port;
+  final int _port;
+  final String _host;
 
   /// Callback for when connection status changes
   final void Function(bool isConnected)? onConnectionStatusChanged;
@@ -24,25 +28,29 @@ class QBittorrentProcessService {
   QBittorrentProcessService({
     String? qbittorrentPath,
     int port = AppConstants.defaultPort,
+    String host = AppConstants.defaultHost,
     this.onConnectionStatusChanged,
     this.onLog,
   }) : _qbittorrentPath =
            qbittorrentPath ?? PlatformUtils.getDefaultQBittorrentPath(),
-       _port = port;
+       _port = port,
+       _host = host;
 
-  /// Update the qBittorrent path
-  void setQBittorrentPath(String path) {
-    _qbittorrentPath = path;
-  }
+  /// Whether this service may start and restart a qBittorrent process.
+  ///
+  /// False when the user has pointed the app at another machine: we cannot
+  /// launch a process there, and probing our own loopback port to decide
+  /// would answer "not running" forever — which had the health check trying
+  /// to spawn a local qBittorrent every 5 s against a perfectly healthy
+  /// remote one.
+  bool get managesLocalProcess => PlatformUtils.isLocalHost(_host);
 
-  /// Update the port
-  void setPort(int port) {
-    _port = port;
-  }
+  // No setters: a settings change rebuilds this service through
+  // `qbProcessServiceProvider`.
 
   /// Check if qBittorrent is currently running (by checking if port is in use)
   Future<bool> isRunning() async {
-    return PlatformUtils.isPortInUse(_port);
+    return PlatformUtils.isPortInUse(_port, host: _host);
   }
 
   /// Check if the qBittorrent executable exists
@@ -75,6 +83,12 @@ class QBittorrentProcessService {
     if (_isStarting) {
       _log('Already starting qBittorrent...');
       return false;
+    }
+
+    if (!managesLocalProcess) {
+      _log('qBittorrent is remote ($_host) — not starting a local process');
+      _isStarting = false;
+      return await isRunning();
     }
 
     _isStarting = true;
@@ -213,14 +227,16 @@ class QBittorrentProcessService {
   /// Perform a health check
   Future<void> _performHealthCheck() async {
     final running = await isRunning();
-    if (!running) {
-      _log('qBittorrent health check failed - not running');
-      onConnectionStatusChanged?.call(false);
+    if (running) return;
 
-      // Try to restart
-      _log('Attempting to restart qBittorrent...');
-      await start();
-    }
+    _log('qBittorrent health check failed - not running');
+    onConnectionStatusChanged?.call(false);
+
+    if (!managesLocalProcess) return;
+
+    // Try to restart
+    _log('Attempting to restart qBittorrent...');
+    await start();
   }
 
   /// Stop qBittorrent process

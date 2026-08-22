@@ -4,6 +4,7 @@ import '../models/episode.dart';
 import '../models/eztv_torrent.dart';
 import '../models/local_media_file.dart';
 import '../utils/formatters.dart';
+import '../utils/media_quality.dart';
 import 'eztv_api_service.dart';
 import 'qbittorrent_api_service.dart';
 import 'tmdb_api_service.dart';
@@ -152,24 +153,6 @@ class AutoDownloadService {
        _qbtService = qbtService,
        _torrentioService = torrentioService;
 
-  /// Detect quality from a torrent filename or current download
-  String detectQualityFromFilename(String filename) {
-    final lower = filename.toLowerCase();
-    if (lower.contains('2160p') ||
-        lower.contains('4k') ||
-        lower.contains('uhd')) {
-      return '4K';
-    }
-    if (lower.contains('1080p')) return '1080p';
-    if (lower.contains('720p')) return '720p';
-    if (lower.contains('480p')) return '480p';
-    if (lower.contains('web-dl') || lower.contains('webdl')) return 'WEB-DL';
-    if (lower.contains('webrip')) return 'WEBRip';
-    if (lower.contains('hdtv')) return 'HDTV';
-    if (lower.contains('bluray') || lower.contains('bdrip')) return 'BluRay';
-    return 'Unknown';
-  }
-
   /// Get the next episode for a show after the given season/episode
   Future<NextEpisodeResult> getNextEpisode({
     required int showId,
@@ -289,7 +272,13 @@ class AutoDownloadService {
         .replaceAll('the', '');
   }
 
-  /// Maximum file size for streaming (900 MB) - smaller files buffer faster
+  /// Upper bound on a *candidate* torrent's size when picking a source to
+  /// stream. Smaller files reach the play threshold sooner.
+  ///
+  /// Unrelated to `StreamingService`'s buffer model (80–500 MB, or 10% of the
+  /// file), which decides when playback may start once a source is chosen.
+  /// This one narrows the field; that one times the start. Neither reads the
+  /// other, and they are not meant to agree.
   static const int maxStreamingSizeBytes = 900 * 1024 * 1024; // 900 MB
 
   /// Find the best matching torrent for an episode with quality preference
@@ -354,10 +343,18 @@ class AutoDownloadService {
       if (eztvTorrents.isNotEmpty) {
         // Sort by quality and seeds
         eztvTorrents.sort((a, b) {
-          // If preferred quality specified, prioritize it
+          // If preferred quality specified, prioritize it.
+          //
+          // qualityMatches, not `==`. The preference arrives from
+          // LocalMediaFile.quality, which older builds uppercased to `1080P`
+          // and normalised 4K to `2160p`, while EztvTorrent.quality emitted
+          // `1080p` / `4K`. The comparison could therefore never be true and
+          // the per-show preference was silently ignored on this path —
+          // Torrentio's branch below lowercased both and worked, so the two
+          // indexers honoured the same setting differently.
           if (preferredQuality != null) {
-            final aMatches = a.quality == preferredQuality;
-            final bMatches = b.quality == preferredQuality;
+            final aMatches = qualityMatches(a.quality, preferredQuality);
+            final bMatches = qualityMatches(b.quality, preferredQuality);
             if (aMatches && !bMatches) return -1;
             if (!aMatches && bMatches) return 1;
           }
@@ -447,10 +444,8 @@ class AutoDownloadService {
       // Sort by quality and seeders, respecting preferred quality if set
       preferredStreams.sort((a, b) {
         if (preferredQuality != null) {
-          final aMatches =
-              a.quality.toLowerCase() == preferredQuality.toLowerCase();
-          final bMatches =
-              b.quality.toLowerCase() == preferredQuality.toLowerCase();
+          final aMatches = qualityMatches(a.quality, preferredQuality);
+          final bMatches = qualityMatches(b.quality, preferredQuality);
           if (aMatches && !bMatches) return -1;
           if (!aMatches && bMatches) return 1;
         }
@@ -517,11 +512,15 @@ class AutoDownloadService {
         '[AutoDownload] downloadNextEpisode called - infoHash: $infoHash, fileIdx: $fileIdx',
       );
 
+      // Same flags StreamingService uses. `firstLastPiecePrio` was true
+      // here, which prioritises the LAST piece as well and so breaks the
+      // strict in-order delivery sequential mode exists to provide — the two
+      // add paths were configuring qBittorrent to do opposite things.
       final success = await _qbtService.addTorrent(
         magnetLink: magnetLink,
         savePath: savePath,
-        sequentialDownload: true, // Enable sequential for faster playback
-        firstLastPiecePrio: true,
+        sequentialDownload: true,
+        firstLastPiecePrio: false,
       );
 
       AppLog.d('[AutoDownload] Torrent added: $success');
@@ -548,18 +547,29 @@ class AutoDownloadService {
               AppLog.d('[AutoDownload] File $i: ${files[i].name}');
             }
 
-            // Set all files to "do not download" (priority 0)
-            final allFileIds = List.generate(files.length, (i) => i);
-            await _qbtService.setFilePriority(infoHash, allFileIds, 0);
+            // Skip only the INCOMPLETE extras, matching StreamingService.
+            // Zeroing an already-finished file can flip qBittorrent into a
+            // recheck, which briefly reports progress=0 and leaves sequential
+            // download parked on pieces nothing will request.
+            final skipIds = [
+              for (var i = 0; i < files.length; i++)
+                if (i != fileIdx && files[i].progress < 0.999) i,
+            ];
+            if (skipIds.isNotEmpty) {
+              await _qbtService.setFilePriority(infoHash, skipIds, 0);
+            }
             AppLog.d(
-              '[AutoDownload] Set all ${files.length} files to priority 0 (skip)',
+              '[AutoDownload] Skipped ${skipIds.length} of ${files.length} '
+              'files (already-complete extras left alone)',
             );
 
-            // Set the specific file to normal priority (1) or high (6)
+            // Max priority on the target, as StreamingService does — 6 here
+            // and 7 there meant the same request produced different piece
+            // ordering depending on which path added the torrent.
             if (fileIdx >= 0 && fileIdx < files.length) {
-              await _qbtService.setFilePriority(infoHash, [fileIdx], 6);
+              await _qbtService.setFilePriority(infoHash, [fileIdx], 7);
               AppLog.d(
-                '[AutoDownload] Selected file $fileIdx: ${files[fileIdx].name} (priority 6)',
+                '[AutoDownload] Selected file $fileIdx: ${files[fileIdx].name} (priority 7)',
               );
             } else {
               AppLog.d(

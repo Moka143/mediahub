@@ -62,6 +62,17 @@ class AppSettings {
   /// Get the full API base URL
   String get apiBaseUrl => 'http://$host:$port';
 
+  /// Read an enum by persisted index, falling back rather than throwing.
+  ///
+  /// `TorrentFilter.values[json[...]]` throws on an out-of-range index, and
+  /// the only catch is in `SettingsNotifier._loadSettings` — which resets
+  /// *every* setting to defaults. One stale index should not cost the user
+  /// their host, port and credentials.
+  static T _enumAt<T>(List<T> values, Object? index, T fallback) {
+    if (index is! int || index < 0 || index >= values.length) return fallback;
+    return values[index];
+  }
+
   factory AppSettings.fromJson(Map<String, dynamic> json) {
     // Note: legacy `max_connections` and `theme_mode` keys are silently
     // dropped — neither was wired to UI. MediaHub is dark-only.
@@ -80,8 +91,16 @@ class AppSettings {
           json['idle_polling_interval_seconds'] as int? ?? 10,
       useAdaptivePolling: json['use_adaptive_polling'] as bool? ?? true,
       stopSeedingOnComplete: json['stop_seeding_on_complete'] as bool? ?? true,
-      defaultFilter: TorrentFilter.values[json['default_filter'] as int? ?? 0],
-      defaultSort: TorrentSort.values[json['default_sort'] as int? ?? 5],
+      defaultFilter: _enumAt(
+        TorrentFilter.values,
+        json['default_filter'],
+        TorrentFilter.all,
+      ),
+      defaultSort: _enumAt(
+        TorrentSort.values,
+        json['default_sort'],
+        TorrentSort.addedOn,
+      ),
       sortAscending: json['sort_ascending'] as bool? ?? false,
       bingeWatchingEnabled: json['binge_watching_enabled'] as bool? ?? true,
       nextEpisodeCountdownSeconds:

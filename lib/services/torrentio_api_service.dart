@@ -1,5 +1,7 @@
 import 'package:dio/dio.dart';
 import '../models/torrentio_stream.dart';
+import '../utils/media_quality.dart';
+import 'http_client.dart';
 
 /// Service for interacting with Torrentio Stremio addon API
 class TorrentioApiService {
@@ -10,16 +12,11 @@ class TorrentioApiService {
 
   TorrentioApiService({String? baseUrl})
     : baseUrl = baseUrl ?? _defaultBaseUrl,
-      _dio = Dio(
-        BaseOptions(
-          baseUrl: baseUrl ?? _defaultBaseUrl,
-          connectTimeout: const Duration(seconds: 15),
-          receiveTimeout: const Duration(seconds: 15),
-          headers: {
-            'Accept': 'application/json',
-            'User-Agent': 'Mozilla/5.0 (compatible; TorrentClient/1.0)',
-          },
-        ),
+      _dio = buildJsonDio(
+        baseUrl: baseUrl ?? _defaultBaseUrl,
+        connectTimeout: const Duration(seconds: 15),
+        receiveTimeout: const Duration(seconds: 15),
+        headers: {'User-Agent': 'Mozilla/5.0 (compatible; TorrentClient/1.0)'},
       );
 
   /// Get the addon manifest
@@ -225,7 +222,7 @@ class TorrentioApiService {
     List<TorrentioStream> streams,
     String quality,
   ) {
-    return streams.where((s) => s.quality == quality).toList();
+    return streams.where((s) => qualityMatches(s.quality, quality)).toList();
   }
 }
 

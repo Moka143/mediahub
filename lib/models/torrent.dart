@@ -162,9 +162,6 @@ class Torrent {
   /// Returns true if torrent is active (downloading or uploading)
   bool get isActive => dlspeed > 0 || upspeed > 0;
 
-  /// Returns true if streaming mode is enabled (sequential + first/last piece priority)
-  bool get isStreamingMode => sequentialDownload && firstLastPiecePriority;
-
   /// Get a user-friendly status string
   String get statusText {
     switch (state) {

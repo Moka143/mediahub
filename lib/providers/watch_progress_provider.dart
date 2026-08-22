@@ -9,6 +9,8 @@ import '../models/watch_progress.dart';
 import '../models/watched_index.dart';
 import '../services/tmdb_account_service.dart';
 import '../utils/formatters.dart';
+import '../utils/media_names.dart';
+import '../utils/platform_utils.dart';
 import 'local_media_provider.dart';
 import 'settings_provider.dart';
 import 'shows_provider.dart';
@@ -312,19 +314,37 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
     final acct = ref.read(tmdbAccountServiceProvider);
     try {
       var showId = p.showId;
+      var movieId = p.movieId;
       final season = p.seasonNumber;
       final episode = p.episodeNumber;
-      final movieId = p.movieId;
+      final isEpisode = season != null && episode != null;
 
       if (showId == null &&
-          season != null &&
-          episode != null &&
+          isEpisode &&
           p.showName != null &&
           p.showName!.isNotEmpty) {
         final shows = await ref
             .read(tmdbApiServiceProvider)
             .searchShows(p.showName!);
         if (shows.isNotEmpty) showId = shows.first.id;
+      }
+
+      // Movies got no equivalent, so finishing one never reached TMDB:
+      // `movieId` is only ever set by "Mark as watched", which resolves it
+      // by name. Playback had no way to. Resolve it the same way the episode
+      // branch above resolves a show id.
+      if (movieId == null &&
+          !isEpisode &&
+          !WatchProgress.isSyntheticPath(p.filePath)) {
+        final name = p.showName?.isNotEmpty == true
+            ? p.showName!
+            : cleanMediaTitle(basenameOf(p.filePath));
+        if (name.isNotEmpty) {
+          final movies = await ref
+              .read(tmdbApiServiceProvider)
+              .searchMovies(name);
+          if (movies.isNotEmpty) movieId = movies.first.id;
+        }
       }
 
       if (showId != null && season != null && episode != null) {
@@ -347,6 +367,15 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
           movieId: movieId,
           value: TmdbAccountService.watchedRatingValue,
         );
+        if (p.movieId == null) {
+          // Persist it so the next pass — and the TMDB reconcile — skip the
+          // search, the same way the episode branch persists the show id.
+          final existing = state[p.fileHash];
+          if (existing != null) {
+            state = {...state, p.fileHash: existing.copyWith(movieId: movieId)};
+            await _saveProgress();
+          }
+        }
       }
     } catch (e) {
       AppLog.e('[WatchProgress] auto-push to TMDB failed: $e');

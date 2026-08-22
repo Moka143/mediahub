@@ -168,9 +168,24 @@ void main() {
     });
 
     test('the hard ceiling ends even a progressing session', () {
+      // gaveUp, not tooSlow: a background prefetch (`allowSlowBuffer`) is
+      // allowed to swallow tooSlow/stalled indefinitely, so the deadline
+      // needs its own outcome or such a session never stops polling.
       expect(
         assess(buffered: 10 * mb, sinceStart: const Duration(minutes: 25)),
-        BufferOutcome.tooSlow,
+        BufferOutcome.gaveUp,
+      );
+    });
+
+    test('the hard ceiling outranks a healthy rate and fresh progress', () {
+      expect(
+        assess(
+          buffered: 10 * mb,
+          rate: 5 * mb.toDouble(),
+          sinceProgress: Duration.zero,
+          sinceStart: StreamingService.bufferHardCeiling,
+        ),
+        BufferOutcome.gaveUp,
       );
     });
 

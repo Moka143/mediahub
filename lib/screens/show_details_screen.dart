@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,7 +7,6 @@ import '../app.dart';
 import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
 import '../design/app_typography.dart';
-import '../models/local_media_file.dart';
 import '../models/show.dart';
 import '../models/season.dart';
 import '../models/episode.dart';
@@ -21,11 +19,8 @@ import '../providers/favorites_provider.dart';
 import '../providers/watchlist_provider.dart';
 import '../providers/torrentio_provider.dart';
 import '../providers/eztv_provider.dart';
-import '../providers/streaming_provider.dart';
 import '../services/library_actions.dart';
-import '../services/streaming_service.dart';
 import '../utils/feedback_utils.dart';
-import '../utils/formatters.dart';
 import '../widgets/common/floating_header_action.dart';
 import '../widgets/common/loading_state.dart';
 import '../widgets/media/cast_row.dart';
@@ -35,7 +30,6 @@ import '../widgets/mediahub_backdrop_hero.dart';
 import '_details_playback_controller.dart';
 import '../widgets/mediahub_episodes_drawer.dart';
 import '../widgets/mediahub_torrent_drawer.dart';
-import '../widgets/streaming_progress_overlay.dart';
 import 'settings_screen.dart';
 import 'video_player_screen.dart';
 import '../services/app_logger.dart';
@@ -302,69 +296,37 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
     }
   }
 
-  /// Start a streaming session using the new StreamingService
+  /// Start a streaming session with the floating progress overlay.
+  ///
+  /// Everything below the [DetailsStreamTarget] is shared with
+  /// `movie_details_screen.dart` via [DetailsPlaybackController].
   Future<void> _startStreamingSession(
     TorrentioStream stream,
     Episode episode,
     Show show,
   ) async {
-    final containerRef = ProviderScope.containerOf(context);
-
-    // Show initial streaming overlay (updatable, so _monitorStreamingSession
-    // can update it in-place without replaying the entrance animation).
-    final isSingleFile = stream.isSingleFile;
-    streamingOverlay?.remove();
-    streamingOverlayData?.dispose();
-
-    final result = showUpdatableStreamingOverlay(
-      context,
-      title: 'Starting ${episode.episodeCode}',
-      subtitle: isSingleFile
-          ? 'Connecting...'
-          : 'Selecting from season pack...',
-      isIndeterminate: true,
-      showClose: true,
-      onClose: () {
-        streamingOverlay = null;
-        streamingOverlayData = null;
-      },
-      onViewDownloads: () {
-        streamingOverlay?.remove();
-        streamingOverlay = null;
-        streamingOverlayData?.dispose();
-        streamingOverlayData = null;
-        containerRef.read(currentTabIndexProvider.notifier).set(1);
-        rootNavigatorKey.currentState?.popUntil((route) => route.isFirst);
-      },
-    );
-    streamingOverlay = result.entry;
-    streamingOverlayData = result.data;
-
-    final session = await ref
-        .read(streamingSessionsProvider.notifier)
-        .startStreaming(
-          stream: stream,
+    await startDetailsStream(
+      stream: stream,
+      showImdbId: show.imdbId,
+      episodeCode: episode.episodeCode,
+      target: DetailsStreamTarget(
+        label: episode.episodeCode,
+        packLabel: 'season pack',
+        showName: show.name,
+        season: episode.seasonNumber,
+        episode: episode.episodeNumber,
+        openPlayer: (file, session) => VideoPlayerScreen(
+          file: file,
           showImdbId: show.imdbId,
-          showName: show.name,
-          season: episode.seasonNumber,
-          episode: episode.episodeNumber,
-          episodeCode: episode.episodeCode,
-        );
-
-    if (session == null) {
-      streamingOverlay?.remove();
-      streamingOverlay = null;
-
-      AppSnackBar.showOn(
-        rootScaffoldMessengerKey.currentState,
-        message: 'Failed to start streaming session',
-        kind: AppSnackBarKind.error,
-      );
-      return;
-    }
-
-    // Monitor the session for readiness
-    _monitorStreamingSession(session.id, episode, show);
+          isStreaming: session != null,
+          streamingTorrentHash: session?.torrentHash,
+          streamingFileIndex: session?.selectedFileIndex,
+          streamingProxyUrl: session?.streamUrl,
+          initialBufferedRatio: session?.bufferProgress,
+          streamingSessionId: session?.id,
+        ),
+      ),
+    );
   }
 
   /// Select only the target file from a season pack
@@ -377,12 +339,15 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
     await Future.delayed(const Duration(seconds: 3));
 
     try {
-      final files = await apiService.getTorrentFiles(stream.infoHash);
+      var files = await apiService.getTorrentFiles(stream.infoHash);
       if (files.isEmpty) {
-        // Retry after more delay
+        // Retry after more delay. The retry result used to be assigned to a
+        // local that nothing below then read, so the whole block below ran
+        // against the empty first list: `allFileIds` was empty and the
+        // bounds check `fileIdx < 0` failed. The retry did nothing at all.
         await Future.delayed(const Duration(seconds: 3));
-        final retryFiles = await apiService.getTorrentFiles(stream.infoHash);
-        if (retryFiles.isEmpty) {
+        files = await apiService.getTorrentFiles(stream.infoHash);
+        if (files.isEmpty) {
           AppLog.d(
             '[ShowDetails] No files found in torrent, cannot select specific file',
           );
@@ -390,9 +355,15 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
         }
       }
 
-      // Set all files to skip (priority 0)
-      final allFileIds = List.generate(files.length, (i) => i);
-      await apiService.setFilePriority(stream.infoHash, allFileIds, 0);
+      // Skip only the incomplete extras — same rule as StreamingService.
+      // Zeroing an already-finished file can flip qBittorrent into a recheck.
+      final skipIds = [
+        for (var i = 0; i < files.length; i++)
+          if (i != stream.fileIdx && files[i].progress < 0.999) i,
+      ];
+      if (skipIds.isNotEmpty) {
+        await apiService.setFilePriority(stream.infoHash, skipIds, 0);
+      }
 
       // Set target file to high priority
       if (stream.fileIdx! < files.length) {
@@ -411,240 +382,6 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
   /// Uses a [StreamSubscription] (not `await for`) so the monitor
   /// keeps running even if the user navigates away from this screen.
   /// Navigation is done via [rootNavigatorKey] — no [mounted] check needed.
-  void _monitorStreamingSession(String sessionId, Episode episode, Show show) {
-    final containerRef = ProviderScope.containerOf(context);
-
-    // Reuse the overlay created by _startStreamingSession if it's already up;
-    // otherwise create one (e.g. when called from a different entry point).
-    if (mounted && streamingOverlayData != null) {
-      streamingOverlayData!.value = StreamingOverlayData(
-        title: 'Preparing ${episode.episodeCode}',
-        subtitle: episode.name,
-        isIndeterminate: true,
-      );
-    } else if (mounted) {
-      final result = showUpdatableStreamingOverlay(
-        context,
-        title: 'Preparing ${episode.episodeCode}',
-        subtitle: episode.name,
-        isIndeterminate: true,
-        showClose: true,
-        onClose: () {
-          streamingOverlay = null;
-          streamingOverlayData = null;
-        },
-        onViewDownloads: () {
-          streamingOverlay?.remove();
-          streamingOverlay = null;
-          streamingOverlayData?.dispose();
-          streamingOverlayData = null;
-          containerRef.read(currentTabIndexProvider.notifier).set(1);
-          rootNavigatorKey.currentState?.popUntil((route) => route.isFirst);
-        },
-      );
-      streamingOverlay = result.entry;
-      streamingOverlayData = result.data;
-    }
-
-    // Listen to the *notifier's* state instead of the streaming service's
-    // broadcast stream. The notifier already subscribes to the broadcast
-    // once and updates its state on every emit, so by watching the notifier
-    // we can't miss the early state transitions that happen between
-    // startStreaming() returning and the UI subscribing.
-    //
-    // `fireImmediately: true` makes the listener tick once with the current
-    // state — so if the session has already advanced (e.g. fast-path to
-    // ready), we react right away.
-    monitorSubscription?.close();
-    monitorSubscription = ref.listenManual<StreamingSessionsState>(
-      streamingSessionsProvider,
-      (prev, next) {
-        final session = next.sessions[sessionId];
-        if (session == null) return;
-        _handleSessionState(session, episode, show, containerRef);
-      },
-      fireImmediately: true,
-    );
-  }
-
-  void _handleSessionState(
-    StreamingSession session,
-    Episode episode,
-    Show show,
-    ProviderContainer containerRef,
-  ) {
-    switch (session.state) {
-      case StreamingState.addingTorrent:
-      case StreamingState.selectingFiles:
-      case StreamingState.buffering:
-        // Update the existing overlay in-place — no remove/recreate, no flicker.
-        // Always show actual percentage so the user sees forward motion even
-        // during file-selection / metadata phases.
-        final pct = session.bufferProgress * 100;
-        final titlePrefix = session.state == StreamingState.buffering
-            ? 'Buffering'
-            : 'Preparing';
-        final speed = session.downloadRateBytesPerSec;
-        final speedSuffix = speed > 0
-            ? ' • ${Formatters.formatSpeed(speed)}'
-            : '';
-        streamingOverlayData?.value = StreamingOverlayData(
-          title: '$titlePrefix ${episode.episodeCode}',
-          subtitle: pct > 0
-              ? '${pct.toStringAsFixed(1)}% downloaded$speedSuffix'
-              : 'Connecting…$speedSuffix',
-          progress: pct > 0 ? session.bufferProgress : null,
-          isIndeterminate: pct == 0,
-        );
-
-      case StreamingState.ready:
-      case StreamingState.playing:
-        monitorSubscription?.close();
-        streamingOverlay?.remove();
-        streamingOverlay = null;
-        streamingOverlayData?.dispose();
-        streamingOverlayData = null;
-
-        // Clear the active session so the safety-net listener in
-        // main_navigation_screen doesn't also open the player.
-        containerRef
-            .read(streamingSessionsProvider.notifier)
-            .clearActiveSession();
-
-        // Navigate via root key — works whether screen is mounted or not
-        if (session.videoFile != null) {
-          rootNavigatorKey.currentState?.push(
-            MaterialPageRoute(
-              builder: (_) => VideoPlayerScreen(
-                file: session.videoFile!,
-                showImdbId: show.imdbId,
-                isStreaming: true,
-                streamingTorrentHash: session.torrentHash,
-                streamingFileIndex: session.selectedFileIndex,
-                streamingProxyUrl: session.streamUrl,
-                initialBufferedRatio: session.bufferProgress,
-              ),
-            ),
-          );
-        } else if (session.contentPath != null &&
-            session.selectedFilePath != null) {
-          // Fallback: open via content path
-          if (mounted) {
-            _openStreamingPlayer(session.contentPath!, episode, show);
-          }
-        }
-
-      case StreamingState.error:
-        monitorSubscription?.close();
-        streamingOverlay?.remove();
-        streamingOverlay = null;
-        streamingOverlayData?.dispose();
-        streamingOverlayData = null;
-
-        AppSnackBar.showOn(
-          rootScaffoldMessengerKey.currentState,
-          message:
-              'Streaming error: ${session.errorMessage ?? "Failed to stream"}',
-          kind: AppSnackBarKind.error,
-        );
-
-      case StreamingState.cancelled:
-        monitorSubscription?.close();
-        streamingOverlay?.remove();
-        streamingOverlay = null;
-        streamingOverlayData?.dispose();
-        streamingOverlayData = null;
-
-      case StreamingState.idle:
-        break;
-    }
-  }
-
-  void _openStreamingPlayer(
-    String contentPath,
-    Episode episode,
-    Show show,
-  ) async {
-    // Find the video file in the content path
-    final videoFile = await _findVideoFile(
-      contentPath,
-      episode: episode,
-      show: show,
-    );
-
-    if (videoFile == null) {
-      final messenger = rootScaffoldMessengerKey.currentState;
-      AppSnackBar.showOn(
-        messenger,
-        message: 'Could not find video file in: $contentPath',
-        kind: AppSnackBarKind.error,
-      );
-      return;
-    }
-
-    if (mounted) {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (context) =>
-              VideoPlayerScreen(file: videoFile, showImdbId: show.imdbId),
-        ),
-      );
-    }
-  }
-
-  Future<LocalMediaFile?> _findVideoFile(
-    String contentPath, {
-    Episode? episode,
-    Show? show,
-  }) async {
-    try {
-      final path = contentPath;
-      final fileOrDir = FileSystemEntity.typeSync(path);
-
-      List<File> videoFiles = [];
-
-      if (fileOrDir == FileSystemEntityType.file) {
-        // It's a file, check if it's a video
-        final ext = path.split('.').last.toLowerCase();
-        if (videoExtensions.contains(ext)) {
-          videoFiles.add(File(path));
-        }
-      } else if (fileOrDir == FileSystemEntityType.directory) {
-        // Scan directory for video files
-        final dir = Directory(path);
-        await for (final entity in dir.list(recursive: true)) {
-          if (entity is File) {
-            final ext = entity.path.split('.').last.toLowerCase();
-            if (videoExtensions.contains(ext)) {
-              videoFiles.add(entity);
-            }
-          }
-        }
-      }
-
-      if (videoFiles.isEmpty) return null;
-
-      // Pick the largest video file (usually the main content)
-      videoFiles.sort((a, b) => b.lengthSync().compareTo(a.lengthSync()));
-      final largestFile = videoFiles.first;
-      final stat = largestFile.statSync();
-
-      return LocalMediaFile(
-        path: largestFile.path,
-        fileName: largestFile.path.split(Platform.pathSeparator).last,
-        sizeBytes: stat.size,
-        modifiedDate: stat.modified,
-        extension: largestFile.path.split('.').last.toLowerCase(),
-        showName: show?.name,
-        seasonNumber: episode?.seasonNumber,
-        episodeNumber: episode?.episodeNumber,
-      );
-    } catch (e) {
-      AppLog.e('[ShowDetails] Error finding video file: $e');
-      return null;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final showDetails = ref.watch(showDetailsProvider(widget.show.id));

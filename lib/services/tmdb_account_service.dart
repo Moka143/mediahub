@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'http_client.dart';
 
 /// What TMDB lets a signed-in user mutate from the API.
 ///
@@ -17,17 +18,14 @@ class TmdbAccountService {
   final String accessToken;
 
   TmdbAccountService({required this.accessToken})
-    : _dio = Dio(
-        BaseOptions(
-          baseUrl: _baseUrl,
-          connectTimeout: const Duration(seconds: 10),
-          receiveTimeout: const Duration(seconds: 15),
-          headers: {
-            'Authorization': 'Bearer $accessToken',
-            'Content-Type': 'application/json;charset=utf-8',
-            'Accept': 'application/json',
-          },
-        ),
+    : _dio = buildJsonDio(
+        baseUrl: _baseUrl,
+        connectTimeout: const Duration(seconds: 10),
+        receiveTimeout: const Duration(seconds: 15),
+        headers: {
+          'Authorization': 'Bearer $accessToken',
+          'Content-Type': 'application/json;charset=utf-8',
+        },
       );
 
   // ============================================================================

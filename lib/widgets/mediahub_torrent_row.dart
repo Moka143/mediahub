@@ -9,19 +9,7 @@ import '../utils/constants.dart';
 import '../utils/formatters.dart';
 import 'common/mediahub_popup_menu.dart';
 import 'editorial/editorial.dart';
-
-/// Pull a short display quality token (`4K` / `1080p` / `720p` / `SD`)
-/// out of a release name. The full name is what we want to render
-/// elsewhere — but the quality badge needs a tiny label.
-String _qualityFromName(String name) {
-  final lower = name.toLowerCase();
-  if (lower.contains('2160') || lower.contains('uhd') || lower.contains('4k')) {
-    return '4K';
-  }
-  if (lower.contains('1080')) return '1080p';
-  if (lower.contains('720')) return '720p';
-  return 'SD';
-}
+import '../utils/media_quality.dart';
 
 /// Sortable column-header strip matching the design's Transfers screen.
 ///
@@ -253,7 +241,7 @@ class _MediaHubTorrentRowState extends State<MediaHubTorrentRow>
                         const SizedBox(width: AppSpacing.sm),
                         Builder(
                           builder: (_) {
-                            final q = _qualityFromName(t.name);
+                            final q = qualityBadgeLabel(t.name);
                             return EditorialBadge(
                               q,
                               compact: true,

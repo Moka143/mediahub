@@ -4,6 +4,10 @@ class AppConstants {
 
   // App Info
   static const String appName = 'MediaHub';
+
+  /// Shown in Settings → About. Keep in sync with `version:` in pubspec.yaml —
+  /// reading the real one needs `package_info_plus`, which is not worth a
+  /// dependency for a single string.
   static const String appVersion = '1.0.0';
 
   // qBittorrent API defaults
@@ -12,8 +16,8 @@ class AppConstants {
   static const String defaultUsername = 'admin';
   static const String defaultPassword = ''; // Empty is qBittorrent's default
 
-  // Polling intervals
-  static const Duration defaultPollingInterval = Duration(seconds: 2);
+  // Polling intervals. The torrent list's own intervals come from
+  // AppSettings (active / idle), not from here.
   static const Duration connectionCheckInterval = Duration(seconds: 5);
 
   // Retry settings

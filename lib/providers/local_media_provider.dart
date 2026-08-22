@@ -103,30 +103,51 @@ final localMediaScannerProvider = Provider<LocalMediaScanner>((ref) {
 final localMediaFilesProvider = FutureProvider<List<LocalMediaFile>>((
   ref,
 ) async {
+  // Watch-progress is joined HERE, not inside [localMediaStreamProvider].
+  // Watching it there re-ran the stream body on every progress write — and
+  // PlayerService saves progress every 10 s during playback — which cancelled
+  // the running `watchDirectory()` generator and started a new one, each of
+  // which opens with a full `directory.list(recursive: true)` over the whole
+  // library (and rebuilds the DirectoryWatcher). Joining downstream means a
+  // progress write costs one map over an in-memory list instead.
+  final progressMap = ref.watch(watchProgressProvider);
   final streamAsync = ref.watch(localMediaStreamProvider);
   if (streamAsync.hasError) throw streamAsync.error!;
-  if (streamAsync.hasValue) return streamAsync.value!;
-  // Loading — wait for the stream's first emission (initial scan).
-  return await ref.watch(localMediaStreamProvider.future);
+  final files = streamAsync.hasValue
+      ? streamAsync.value!
+      // Loading — wait for the stream's first emission (initial scan).
+      : await ref.watch(localMediaStreamProvider.future);
+  return _joinProgress(files, progressMap);
 });
 
+/// Attach each file's persisted [WatchProgress], when it has one.
+List<LocalMediaFile> _joinProgress(
+  List<LocalMediaFile> files,
+  Map<String, WatchProgress> progressMap,
+) {
+  if (progressMap.isEmpty) return files;
+  final joined = <LocalMediaFile>[];
+  for (final file in files) {
+    final progress = progressMap[WatchProgress.generateHash(file.path)];
+    joined.add(progress == null ? file : file.copyWith(progress: progress));
+  }
+  return joined;
+}
+
 /// Provider for watching local media files (stream)
+///
+/// Deliberately depends on nothing but the scanner. Anything else watched here
+/// re-runs the body, and re-running the body means re-scanning the entire
+/// library from disk — see the note in [localMediaFilesProvider].
+///
+/// No existence filter either: every emission from watchDirectory() is a
+/// fresh `directory.list(recursive: true)`, so these files were enumerated
+/// from the filesystem microseconds ago. Re-stat'ing each one was an O(n)
+/// syscall pass over the whole library on every watcher event, guarding a
+/// race window that the next watcher event corrects anyway.
 final localMediaStreamProvider = StreamProvider<List<LocalMediaFile>>((ref) {
   final scanner = ref.watch(localMediaScannerProvider);
-  final progressMap = ref.watch(watchProgressProvider);
-
-  // No existence filter here: every emission from watchDirectory() is a
-  // fresh `directory.list(recursive: true)`, so these files were enumerated
-  // from the filesystem microseconds ago. Re-stat'ing each one was an O(n)
-  // syscall pass over the whole library on every watcher event, guarding a
-  // race window that the next watcher event corrects anyway.
-  return scanner.watchDirectory().map((files) {
-    return files.map((file) {
-      final hash = WatchProgress.generateHash(file.path);
-      final progress = progressMap[hash];
-      return progress != null ? file.copyWith(progress: progress) : file;
-    }).toList();
-  });
+  return scanner.watchDirectory();
 });
 
 /// Provider for refreshing local media files

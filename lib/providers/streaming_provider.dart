@@ -29,13 +29,19 @@ class StreamingSessionsState {
     this.activeSessionId,
   });
 
+  /// [clearActive] is the only way to set [activeSessionId] back to null.
+  /// A bare `activeSessionId: null` means "keep" under the `??` merge, which
+  /// silently left `cancelSession` pointing at a session it had just removed.
   StreamingSessionsState copyWith({
     Map<String, StreamingSession>? sessions,
     String? activeSessionId,
+    bool clearActive = false,
   }) {
     return StreamingSessionsState(
       sessions: sessions ?? this.sessions,
-      activeSessionId: activeSessionId ?? this.activeSessionId,
+      activeSessionId: clearActive
+          ? null
+          : (activeSessionId ?? this.activeSessionId),
     );
   }
 
@@ -141,41 +147,37 @@ class StreamingSessionsNotifier extends Notifier<StreamingSessionsState> {
     return session;
   }
 
-  /// Cancel a streaming session
+  /// Cancel a streaming session and forget it.
   Future<void> cancelSession(String sessionId) async {
-    final streamingService = ref.read(streamingServiceProvider);
-    await streamingService.cancelSession(sessionId);
+    final wasActive = state.activeSessionId == sessionId;
+
+    // Drop the listener first. `StreamingService.cancelSession` emits a final
+    // `cancelled` event before closing the controller, and a broadcast
+    // listener is notified in a later microtask — after the removal below —
+    // so leaving it attached puts the cancelled session straight back into
+    // the map, where nothing would ever clean it up again.
+    if (wasActive) {
+      _activeSubscription?.cancel();
+      _activeSubscription = null;
+    }
+
+    await ref.read(streamingServiceProvider).cancelSession(sessionId);
 
     final newSessions = Map<String, StreamingSession>.from(state.sessions);
     newSessions.remove(sessionId);
 
-    state = state.copyWith(
-      sessions: newSessions,
-      activeSessionId: state.activeSessionId == sessionId
-          ? null
-          : state.activeSessionId,
-    );
+    state = state.copyWith(sessions: newSessions, clearActive: wasActive);
   }
 
   /// Clear the active session ID so global listeners (e.g. the safety-net in
   /// main_navigation_screen) don't fire after the originating screen already
   /// handled the ready→player transition.
   void clearActiveSession() {
-    state = StreamingSessionsState(
-      sessions: state.sessions,
-      activeSessionId: null,
-    );
+    state = state.copyWith(clearActive: true);
   }
 
   /// Get session by ID
   StreamingSession? getSession(String sessionId) => state.sessions[sessionId];
-
-  /// Clear all completed or errored sessions
-  void clearInactiveSessions() {
-    final newSessions = Map<String, StreamingSession>.from(state.sessions);
-    newSessions.removeWhere((_, s) => !s.isActive);
-    state = state.copyWith(sessions: newSessions);
-  }
 }
 
 /// Provider for streaming sessions notifier

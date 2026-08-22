@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
 import '../utils/formatters.dart';
+import '../utils/platform_utils.dart';
 
 /// Represents watch progress for a video file
 class WatchProgress {
@@ -116,7 +117,7 @@ class WatchProgress {
       return episodeTitle!;
     }
     // Extract filename from path
-    return filePath.split('/').last.split('\\').last;
+    return basenameOf(filePath);
   }
 
   factory WatchProgress.fromJson(Map<String, dynamic> json) {

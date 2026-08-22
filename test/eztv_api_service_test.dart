@@ -73,8 +73,8 @@ void main() {
 
   group('EztvTorrent.quality', () {
     test('derives quality from the filename', () {
-      expect(_torrent(id: 1, filename: 'Show.2160p.mkv').quality, '4K');
-      expect(_torrent(id: 2, filename: 'Show.4K.mkv').quality, '4K');
+      expect(_torrent(id: 1, filename: 'Show.2160p.mkv').quality, '2160p');
+      expect(_torrent(id: 2, filename: 'Show.4K.mkv').quality, '2160p');
       expect(_torrent(id: 3, filename: 'Show.1080p.mkv').quality, '1080p');
       expect(_torrent(id: 4, filename: 'Show.720p.mkv').quality, '720p');
       expect(_torrent(id: 5, filename: 'Show.480p.mkv').quality, '480p');
@@ -90,9 +90,28 @@ void main() {
     });
 
     test('ranks the recognised qualities', () {
-      expect(_torrent(id: 1, filename: 'Show.2160p.mkv').qualityPriority, 4);
-      expect(_torrent(id: 2, filename: 'Show.1080p.mkv').qualityPriority, 3);
-      expect(_torrent(id: 3, filename: 'Show.720p.mkv').qualityPriority, 2);
+      // Shares MediaQuality's scale with TorrentioStream. The two used to
+      // rank the same release differently (4K was 4 here and 5 there).
+      final ranked = [
+        _torrent(id: 1, filename: 'Show.2160p.mkv'),
+        _torrent(id: 2, filename: 'Show.1080p.mkv'),
+        _torrent(id: 3, filename: 'Show.720p.mkv'),
+      ].map((t) => t.qualityPriority).toList();
+
+      expect(ranked, [6, 5, 4]);
+    });
+
+    test('resolution wins over a source tag in the same name', () {
+      // The two parsers disagreed here: this one tested `hdtv` before
+      // `web-dl`, the Torrentio one tested neither before the resolutions.
+      expect(
+        _torrent(id: 1, filename: 'Show.S01E01.1080p.HDTV.WEB-DL.mkv').quality,
+        '1080p',
+      );
+      expect(
+        _torrent(id: 2, filename: 'Show.HDTV.WEB-DL.mkv').quality,
+        'WEB-DL',
+      );
     });
   });
 
@@ -110,10 +129,16 @@ void main() {
       );
     });
 
-    test('is case-sensitive', () {
-      final torrents = [_torrent(id: 1, filename: 'Show.1080p.mkv')];
+    test('is case-insensitive and tolerates legacy spellings', () {
+      final torrents = [
+        _torrent(id: 1, filename: 'Show.1080p.mkv'),
+        _torrent(id: 2, filename: 'Show.2160p.mkv'),
+      ];
 
-      expect(EztvApiService.filterByQuality(torrents, '1080P'), isEmpty);
+      // `1080P` is exactly what LocalMediaFile used to persist, and is what
+      // made the per-show quality preference a silent no-op on this path.
+      expect(EztvApiService.filterByQuality(torrents, '1080P').single.id, 1);
+      expect(EztvApiService.filterByQuality(torrents, '4K').single.id, 2);
     });
 
     test('returns an empty list for empty input', () {
