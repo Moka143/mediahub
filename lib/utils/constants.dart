@@ -8,7 +8,7 @@ class AppConstants {
   /// Shown in Settings → About. Keep in sync with `version:` in pubspec.yaml —
   /// reading the real one needs `package_info_plus`, which is not worth a
   /// dependency for a single string.
-  static const String appVersion = '1.0.0';
+  static const String appVersion = '0.4.0';
 
   // qBittorrent API defaults
   static const String defaultHost = 'localhost';
