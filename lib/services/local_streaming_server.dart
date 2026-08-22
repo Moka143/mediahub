@@ -38,6 +38,38 @@ class ParsedByteRange {
   final bool openEnded;
 }
 
+/// A contiguous, inclusive run of file-relative byte offsets.
+///
+/// Produced by [LocalStreamingServer.availableRanges] to describe *where*
+/// a partially-downloaded file actually has data. A single `progress`
+/// fraction cannot express this: once sequential download is off (which is
+/// what we do after the user seeks) pieces land scattered, so "60%
+/// downloaded" says nothing about which 60%.
+@immutable
+class ByteRange {
+  const ByteRange(this.start, this.end);
+
+  /// First byte of the run, file-relative.
+  final int start;
+
+  /// Last byte of the run, inclusive.
+  final int end;
+
+  int get length => end - start + 1;
+
+  bool contains(int offset) => offset >= start && offset <= end;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ByteRange && other.start == start && other.end == end;
+
+  @override
+  int get hashCode => Object.hash(start, end);
+
+  @override
+  String toString() => 'ByteRange($start-$end)';
+}
+
 /// Local HTTP server that fronts a partially-downloaded torrent file for the
 /// video player.
 ///
@@ -98,7 +130,20 @@ class LocalStreamingServer {
   /// here, so we fall through to the blocking-read path for those — that's
   /// what makes "drag the seek bar past the download edge" eventually
   /// re-buffer instead of dying with a 416.
-  static const int _tailProbeWindow = 64 * 1024 * 1024; // 64 MB
+  ///
+  /// Sized to the index, not to a safety margin. This was 64 MB, which on a
+  /// 500 MB episode swallowed the last ~12% of the runtime: seeking there
+  /// answered 416, mpv treated the seek as failed, and playback fell back to
+  /// the spinner. Cues/moov live in the final few MB, so 8 MB covers the
+  /// probe with room to spare while leaving the rest of the file seekable.
+  static const int _tailProbeWindow = 8 * 1024 * 1024; // 8 MB
+
+  /// Below this size the tail window would cover a large fraction of the
+  /// file — for a 20 MB sample every offset would count as a probe and a
+  /// read of any not-yet-downloaded byte would 416 instead of waiting, so
+  /// the file could never stream at all. Small files skip the rule entirely
+  /// and use the blocking path, which is cheap at these sizes.
+  static const int _minTailProbeFileSize = 4 * _tailProbeWindow; // 32 MB
 
   /// Smallest run of available bytes worth answering an open-ended request
   /// with. Below this we block instead, so a barely-started file doesn't turn
@@ -119,9 +164,15 @@ class LocalStreamingServer {
   /// Kept under mpv's network timeout (~60 s).
   static const Duration _openPrefixWait = Duration(seconds: 20);
 
+  /// How long a mid-file open-ended read (a seek) may wait for its available
+  /// run to reach [minClampedChunk] before we answer with the shorter run we
+  /// already have. Deliberately brief: the whole point of the seek path is
+  /// that the bytes are there, so responding fast matters more than
+  /// responding in big slices.
+  static const Duration _seekRunWait = Duration(seconds: 2);
+
   /// Contiguous prefix mpv's lavf demuxer needs to identify the file.
   /// Matches `demuxer-lavf-probesize` in the player.
-  @visibleForTesting
   static const int prefixProbeBytes = 8 * 1024 * 1024; // 8 MB
 
   HttpServer? _server;
@@ -275,24 +326,32 @@ class LocalStreamingServer {
   /// Two deliberate exceptions fall through to the blocking path:
   ///   * a bounded request (`bytes=A-B`) is honoured exactly — the client
   ///     asked for those bytes specifically, and they are typically small;
-  ///   * an available run shorter than [minClampedChunk], which would other-
-  ///     wise turn one stalled request into a storm of tiny ones. Notably
-  ///     this covers a seek past the download edge, where nothing at [start]
-  ///     is available yet — that case still blocks, so the seek-past-head
-  ///     indicator and the sequential-download toggle behave as before.
+  ///   * an available run shorter than [minRun], which would otherwise turn
+  ///     one stalled request into a storm of tiny ones. Notably this covers
+  ///     a seek past the download edge, where nothing at [start] is
+  ///     available yet — that case still blocks, so the seek-past-head
+  ///     indicator and the piece prioritiser behave as before.
+  ///
+  /// [minRun] exists so the caller can lower the bar *after* it has already
+  /// waited for the run to grow (see [_waitForRunAt]). At that point a short
+  /// run is real information and serving it beats promising the rest of the
+  /// file and stalling mid-body — the exact hang this function was written
+  /// to avoid. Only a run of zero (nothing at [start]) still falls through
+  /// to the blocking path.
   @visibleForTesting
   static int clampOpenEndedEnd({
     required int start,
     required int requestedEnd,
     required int firstUnavailableByte,
     required bool openEnded,
+    int minRun = minClampedChunk,
   }) {
     if (!openEnded) return requestedEnd;
     final availableEnd = firstUnavailableByte - 1;
     // Everything asked for is already on disk — nothing to shorten.
     if (availableEnd >= requestedEnd) return requestedEnd;
     // Too little to be worth a round trip; let the caller block instead.
-    if (availableEnd - start + 1 < minClampedChunk) return requestedEnd;
+    if (availableEnd - start + 1 < minRun) return requestedEnd;
     return availableEnd;
   }
 
@@ -326,7 +385,6 @@ class LocalStreamingServer {
 
   /// Piece indices covering a contiguous prefix of [minBytes] from the
   /// start of a file. Used to bump those pieces to max priority.
-  @visibleForTesting
   static List<int> prefixPieceIds({
     required int firstPiece,
     required int lastPiece,
@@ -352,7 +410,6 @@ class LocalStreamingServer {
   /// One complete leading piece is enough to open; the HTTP proxy waits on
   /// the rest. Requiring an 8 MB run blocked real streams: sequential had
   /// finished piece 1613 while 1614 never completed, so we sat until 99%.
-  @visibleForTesting
   static bool prefixPiecesReady({
     required List<int> pieceStates,
     required int firstPiece,
@@ -384,7 +441,6 @@ class LocalStreamingServer {
   /// qBittorrent's `piece_range` is missing on some WebUI versions; we
   /// reconstruct it from file sizes + piece size so we don't fall back to
   /// the "0..progress×size is contiguous" lie.
-  @visibleForTesting
   static (int first, int last)? pieceRangeForFile({
     required List<int> fileSizes,
     required int fileIndex,
@@ -408,15 +464,71 @@ class LocalStreamingServer {
     return null;
   }
 
+  /// Contiguous downloaded runs of a file, in file-relative byte offsets.
+  ///
+  /// The inverse of [_firstUnavailableByteFrom]: instead of "where does the
+  /// data stop", this answers "which parts do we have" in one pass, which is
+  /// what the seek bar needs to draw an honest buffered track and what the
+  /// health monitor needs to tell a seek-into-a-hole from a seek-past-head.
+  ///
+  /// Shares [_firstUnavailableByteFrom]'s simplification that the file's
+  /// first byte aligns with the start of [firstPiece] — off by at most one
+  /// piece at the file boundary, and in the conservative direction (a
+  /// boundary piece we mislabel as missing is simply not drawn).
+  ///
+  /// Returns an empty list when the piece map is unusable; callers should
+  /// fall back to the scalar progress fraction.
+  static List<ByteRange> availableRanges({
+    required List<int> pieceStates,
+    required int firstPiece,
+    required int lastPiece,
+    required int pieceSize,
+    required int fileSize,
+  }) {
+    if (pieceSize <= 0 ||
+        fileSize <= 0 ||
+        firstPiece < 0 ||
+        lastPiece < firstPiece ||
+        pieceStates.isEmpty) {
+      return const [];
+    }
+
+    final ranges = <ByteRange>[];
+    int? runStartPiece;
+
+    void closeRun(int endPieceExclusive) {
+      if (runStartPiece == null) return;
+      final start = (runStartPiece! - firstPiece) * pieceSize;
+      final end = (endPieceExclusive - firstPiece) * pieceSize - 1;
+      runStartPiece = null;
+      if (start >= fileSize) return;
+      final clampedEnd = end >= fileSize ? fileSize - 1 : end;
+      if (clampedEnd < start) return;
+      ranges.add(ByteRange(start, clampedEnd));
+    }
+
+    final last = lastPiece < pieceStates.length - 1
+        ? lastPiece
+        : pieceStates.length - 1;
+    for (var i = firstPiece; i <= last; i++) {
+      if (pieceStates[i] == 2) {
+        runStartPiece ??= i;
+      } else {
+        closeRun(i);
+      }
+    }
+    closeRun(last + 1);
+    return ranges;
+  }
+
   /// Whether a read at [start] lands in the container-index tail window
   /// described on [_tailProbeWindow].
   ///
-  /// The window is absolute, not proportional: for a file smaller than the
-  /// window this is true at every offset, so such files never take the
-  /// blocking-read path.
+  /// Always false for a file below [_minTailProbeFileSize] — see that
+  /// constant for why a small file must not fast-fail.
   @visibleForTesting
   static bool isTailProbeStart(int start, int size) =>
-      start >= size - _tailProbeWindow;
+      size >= _minTailProbeFileSize && start >= size - _tailProbeWindow;
 
   Future<void> _handleRequest(HttpRequest req) async {
     _activeRequests.add(req);
@@ -489,7 +601,7 @@ class LocalStreamingServer {
       // missing hangs mpv until network-timeout (duration stays 00:00).
       int end;
       if (range.openEnded && start == 0) {
-        firstMissing = await _waitForStartPrefix(size);
+        firstMissing = await _waitForRunAt(0, size, limit: _openPrefixWait);
         startByteAvailable = firstMissing > 0;
         if (!startByteAvailable) {
           AppLog.w(
@@ -502,6 +614,26 @@ class LocalStreamingServer {
         }
         end = firstMissing - 1;
         if (end > range.end) end = range.end;
+      } else if (range.openEnded && startByteAvailable) {
+        // A mid-file `bytes=N-` with data at N is what a *seek into the
+        // buffered region* looks like. Answering with the whole remaining
+        // file promises a Content-Length we cannot deliver, and libav
+        // abandons the open rather than asking again — the seek then never
+        // completes and the player falls back to the spinner even though the
+        // bytes at N were on disk all along.
+        //
+        // Give the run a short chance to reach [minClampedChunk] so a healthy
+        // download still answers in large slices, then serve whatever is
+        // genuinely there. `minRun: 1` is the point: after waiting, a short
+        // run is served short instead of over-promised.
+        firstMissing = await _waitForRunAt(start, size, limit: _seekRunWait);
+        end = clampOpenEndedEnd(
+          start: start,
+          requestedEnd: range.end,
+          firstUnavailableByte: firstMissing,
+          openEnded: true,
+          minRun: 1,
+        );
       } else {
         end = clampOpenEndedEnd(
           start: start,
@@ -553,18 +685,23 @@ class LocalStreamingServer {
     }
   }
 
-  /// Poll until byte 0 has a usable contiguous run, or [_openPrefixWait]
-  /// elapses. Returns the first unavailable file offset (0 if still empty).
-  Future<int> _waitForStartPrefix(int size) async {
-    final deadline = DateTime.now().add(_openPrefixWait);
-    var firstMissing = await _firstUnavailableByteFrom(0);
+  /// Poll until [start] has a contiguous run of at least [minClampedChunk]
+  /// (or reaches end-of-file), or [limit] elapses. Returns the first
+  /// unavailable file offset — equal to [start] when nothing landed at all.
+  Future<int> _waitForRunAt(
+    int start,
+    int size, {
+    required Duration limit,
+  }) async {
+    final deadline = DateTime.now().add(limit);
+    var firstMissing = await _firstUnavailableByteFrom(start);
     while (!_stopped && DateTime.now().isBefore(deadline)) {
-      if (firstMissing > 0 &&
-          (firstMissing >= minClampedChunk || firstMissing >= size)) {
+      if (firstMissing > start &&
+          (firstMissing - start >= minClampedChunk || firstMissing >= size)) {
         return firstMissing;
       }
       await Future<void>.delayed(_waitInterval);
-      firstMissing = await _firstUnavailableByteFrom(0);
+      firstMissing = await _firstUnavailableByteFrom(start);
     }
     return firstMissing;
   }

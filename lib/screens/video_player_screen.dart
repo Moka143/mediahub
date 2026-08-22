@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -172,9 +173,17 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   PlaybackHealthMonitor? _healthMonitor;
 
   // Latest 0.0–1.0 download progress for the streaming target file.
-  // Drives the seek-bar's buffered-track in streaming mode. Fed by the
-  // monitor's onDownloadedRatio callback; read by build().
+  // Drives the buffering overlay's percentage, and the seek-bar's buffered
+  // track when no piece map is available. Fed by the monitor's
+  // onDownloadedRatio callback; read by build().
   double? _streamingDownloadedRatio;
+
+  // Where those bytes actually are, from the torrent's piece map. Preferred
+  // over the scalar above for the seek-bar track: once the user seeks we turn
+  // sequential download off, after which "60% downloaded" no longer means
+  // "the first 60% is playable". Empty until the first piece-map poll lands,
+  // or permanently if qBittorrent won't give us one.
+  List<BufferedSpan> _bufferedSpans = const [];
 
   @override
   void initState() {
@@ -364,6 +373,12 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         if (_streamingDownloadedRatio == null ||
             (ratio - _streamingDownloadedRatio!).abs() > 0.001) {
           setState(() => _streamingDownloadedRatio = ratio);
+        }
+      },
+      onBufferedSpans: (spans) {
+        if (!mounted) return;
+        if (!listEquals(spans, _bufferedSpans)) {
+          setState(() => _bufferedSpans = spans);
         }
       },
       onBuffering: (message, progress) => _showStreamingStatus(
@@ -1308,6 +1323,9 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
                             streamingDownloadedRatio: widget.isStreaming
                                 ? _streamingDownloadedRatio
                                 : null,
+                            bufferedSpans: widget.isStreaming
+                                ? _bufferedSpans
+                                : const [],
                             showId: _currentShowId,
                             onContinueWatchingActivated:
                                 _onContinueWatchingActivated,

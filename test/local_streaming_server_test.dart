@@ -2,8 +2,11 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:mediahub/services/local_streaming_server.dart';
 
-/// Matches the private `_tailProbeWindow` on the server (64 MB).
-const _tailProbeWindow = 64 * 1024 * 1024;
+/// Matches the private `_tailProbeWindow` on the server (8 MB).
+const _tailProbeWindow = 8 * 1024 * 1024;
+
+/// Matches the private `_minTailProbeFileSize` (4x the window).
+const _minTailProbeFileSize = 4 * _tailProbeWindow;
 
 void main() {
   group('parseRangeHeader — no usable range', () {
@@ -269,6 +272,153 @@ void main() {
         fileEnd,
       );
     });
+
+    test('minRun: 1 serves a short run rather than over-promising', () {
+      // What the request handler does after it has already waited for the
+      // run to grow. Returning `fileEnd` here would advertise a
+      // Content-Length of the whole remaining file and then stall mid-body —
+      // libav abandons the open instead of asking again, so a seek into a
+      // thinly-buffered region never completes.
+      const start = 100 * 1024 * 1024;
+      const available = start + 2 * 1024 * 1024;
+
+      expect(
+        LocalStreamingServer.clampOpenEndedEnd(
+          start: start,
+          requestedEnd: fileEnd,
+          firstUnavailableByte: available,
+          openEnded: true,
+          minRun: 1,
+        ),
+        available - 1,
+      );
+    });
+
+    test('minRun: 1 still blocks when nothing at all is available', () {
+      // A genuine seek past the download edge: there is no run to serve, so
+      // the blocking path plus the seek-past-head indicator must still win.
+      const start = 300 * 1024 * 1024;
+
+      expect(
+        LocalStreamingServer.clampOpenEndedEnd(
+          start: start,
+          requestedEnd: fileEnd,
+          firstUnavailableByte: start,
+          openEnded: true,
+          minRun: 1,
+        ),
+        fileEnd,
+      );
+    });
+  });
+
+  group('availableRanges', () {
+    // 10 pieces of 1 MB covering a 10 MB file starting at piece 100.
+    const pieceSize = 1024 * 1024;
+    const firstPiece = 100;
+    const lastPiece = 109;
+    const fileSize = 10 * pieceSize;
+
+    List<ByteRange> ranges(List<int> fileStates) {
+      // Pad the leading pieces that belong to earlier files in the torrent.
+      final states = [...List<int>.filled(firstPiece, 0), ...fileStates];
+      return LocalStreamingServer.availableRanges(
+        pieceStates: states,
+        firstPiece: firstPiece,
+        lastPiece: lastPiece,
+        pieceSize: pieceSize,
+        fileSize: fileSize,
+      );
+    }
+
+    test('a fully downloaded file is one run covering every byte', () {
+      expect(ranges(List<int>.filled(10, 2)), [
+        const ByteRange(0, fileSize - 1),
+      ]);
+    });
+
+    test('an empty file has no runs', () {
+      expect(ranges(List<int>.filled(10, 0)), isEmpty);
+    });
+
+    test('a sequential prefix is a single run from zero', () {
+      expect(ranges([2, 2, 2, 0, 0, 0, 0, 0, 0, 0]), [
+        const ByteRange(0, 3 * pieceSize - 1),
+      ]);
+    });
+
+    test('scattered pieces produce separate runs', () {
+      // The case the scalar progress fraction cannot express: 50% downloaded,
+      // but the first 50% of the file is *not* what is on disk.
+      expect(ranges([2, 2, 0, 0, 2, 2, 0, 0, 2, 2]), [
+        const ByteRange(0, 2 * pieceSize - 1),
+        ByteRange(4 * pieceSize, 6 * pieceSize - 1),
+        ByteRange(8 * pieceSize, fileSize - 1),
+      ]);
+    });
+
+    test('a downloading piece (state 1) is not available', () {
+      expect(ranges([2, 1, 2, 0, 0, 0, 0, 0, 0, 0]), [
+        const ByteRange(0, pieceSize - 1),
+        ByteRange(2 * pieceSize, 3 * pieceSize - 1),
+      ]);
+    });
+
+    test('the final run is clamped to the file size', () {
+      // The last piece of a file usually runs past its end into the next
+      // file; the run must stop at the file boundary.
+      const shortFile = fileSize - 512 * 1024;
+      final result = LocalStreamingServer.availableRanges(
+        pieceStates: [
+          ...List<int>.filled(firstPiece, 0),
+          ...List.filled(10, 2),
+        ],
+        firstPiece: firstPiece,
+        lastPiece: lastPiece,
+        pieceSize: pieceSize,
+        fileSize: shortFile,
+      );
+
+      expect(result, [ByteRange(0, shortFile - 1)]);
+    });
+
+    test('a truncated piece-state array stops at what it has', () {
+      // qBittorrent occasionally returns fewer entries than the piece range
+      // implies; walking past the end would throw.
+      final result = LocalStreamingServer.availableRanges(
+        pieceStates: [...List<int>.filled(firstPiece, 0), 2, 2],
+        firstPiece: firstPiece,
+        lastPiece: lastPiece,
+        pieceSize: pieceSize,
+        fileSize: fileSize,
+      );
+
+      expect(result, [const ByteRange(0, 2 * pieceSize - 1)]);
+    });
+
+    test('unusable inputs yield no runs rather than a wrong answer', () {
+      expect(ranges(const []), isEmpty);
+      expect(
+        LocalStreamingServer.availableRanges(
+          pieceStates: List<int>.filled(110, 2),
+          firstPiece: firstPiece,
+          lastPiece: lastPiece,
+          pieceSize: 0,
+          fileSize: fileSize,
+        ),
+        isEmpty,
+      );
+      expect(
+        LocalStreamingServer.availableRanges(
+          pieceStates: List<int>.filled(110, 2),
+          firstPiece: firstPiece,
+          lastPiece: lastPiece,
+          pieceSize: pieceSize,
+          fileSize: 0,
+        ),
+        isEmpty,
+      );
+    });
   });
 
   group('isTailProbeStart', () {
@@ -291,13 +441,42 @@ void main() {
       expect(LocalStreamingServer.isTailProbeStart(0, hundredMb), isFalse);
     });
 
-    test('every offset of a sub-window file counts as a tail probe', () {
-      // The window is absolute, so a file smaller than 64 MB never reaches
-      // the blocking-read path — it always fast-fails with a 416 instead.
+    test('a small file never counts as a tail probe', () {
+      // The window is absolute, so without the size guard every offset of a
+      // sub-window file would fast-fail with a 416 and the file could never
+      // stream at all — it would only ever play once fully downloaded.
       const tenMb = 10 * 1024 * 1024;
 
-      expect(LocalStreamingServer.isTailProbeStart(0, tenMb), isTrue);
-      expect(LocalStreamingServer.isTailProbeStart(tenMb - 1, tenMb), isTrue);
+      expect(LocalStreamingServer.isTailProbeStart(0, tenMb), isFalse);
+      expect(LocalStreamingServer.isTailProbeStart(tenMb - 1, tenMb), isFalse);
+    });
+
+    test('the size guard is inclusive at its own boundary', () {
+      const size = _minTailProbeFileSize;
+
+      expect(
+        LocalStreamingServer.isTailProbeStart(size - 1, size),
+        isTrue,
+        reason: 'at the threshold the rule applies',
+      );
+      expect(
+        LocalStreamingServer.isTailProbeStart(size - 2, size - 1),
+        isFalse,
+        reason: 'one byte under, it does not',
+      );
+    });
+
+    test('leaves the seekable body of a mid-size file alone', () {
+      // The regression this window was shrunk for: at 64 MB, seeking to 90%
+      // of a 500 MB episode landed inside the "probe" window and answered
+      // 416, so the seek failed and playback fell back to the spinner.
+      const fiveHundredMb = 500 * 1024 * 1024;
+      final ninetyPercent = (fiveHundredMb * 0.9).round();
+
+      expect(
+        LocalStreamingServer.isTailProbeStart(ninetyPercent, fiveHundredMb),
+        isFalse,
+      );
     });
   });
 

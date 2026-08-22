@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:mediahub/services/local_streaming_server.dart';
 import 'package:mediahub/services/playback_health_monitor.dart';
 
 void main() {
@@ -244,6 +245,204 @@ void main() {
           durationSeconds: 0,
         ),
         0,
+      );
+    });
+  });
+
+  group('isOffsetPastBuffer', () {
+    const mb = 1024 * 1024;
+    // 50% of the file downloaded, but scattered — the exact shape that makes
+    // a scalar progress fraction lie.
+    const scattered = [
+      ByteRange(0, 20 * mb - 1),
+      ByteRange(60 * mb, 80 * mb - 1),
+    ];
+
+    test('a position inside a run is not past the buffer', () {
+      expect(
+        PlaybackHealthMonitor.isOffsetPastBuffer(
+          ranges: scattered,
+          offset: 10 * mb,
+          tolerance: 0,
+        ),
+        isFalse,
+      );
+      expect(
+        PlaybackHealthMonitor.isOffsetPastBuffer(
+          ranges: scattered,
+          offset: 70 * mb,
+          tolerance: 0,
+        ),
+        isFalse,
+      );
+    });
+
+    test('a position in a hole is past the buffer', () {
+      // 40 MB is under the 50% "downloaded" mark, so the scalar check would
+      // call this fine — and the proxy would block on it.
+      expect(
+        PlaybackHealthMonitor.isOffsetPastBuffer(
+          ranges: scattered,
+          offset: 40 * mb,
+          tolerance: 0,
+        ),
+        isTrue,
+      );
+    });
+
+    test('tolerance absorbs the piece-boundary approximation', () {
+      // availableRanges assumes the file starts on a piece boundary, so a
+      // run edge can be off by up to one piece. Playback crossing that edge
+      // must not flash the overlay.
+      expect(
+        PlaybackHealthMonitor.isOffsetPastBuffer(
+          ranges: scattered,
+          offset: 20 * mb + 1024,
+          tolerance: 4 * mb,
+        ),
+        isFalse,
+      );
+      expect(
+        PlaybackHealthMonitor.isOffsetPastBuffer(
+          ranges: scattered,
+          offset: 40 * mb,
+          tolerance: 4 * mb,
+        ),
+        isTrue,
+        reason: 'tolerance must not swallow a real hole',
+      );
+    });
+
+    test('no piece map is not evidence of a hole', () {
+      expect(
+        PlaybackHealthMonitor.isOffsetPastBuffer(
+          ranges: const [],
+          offset: 40 * mb,
+          tolerance: 0,
+        ),
+        isFalse,
+      );
+    });
+  });
+
+  group('hasDataAfter', () {
+    const mb = 1024 * 1024;
+
+    test('a gap with data beyond it is a seek, not the frontier', () {
+      expect(
+        PlaybackHealthMonitor.hasDataAfter(const [
+          ByteRange(0, 20 * mb - 1),
+          ByteRange(60 * mb, 80 * mb - 1),
+        ], 40 * mb),
+        isTrue,
+      );
+    });
+
+    test('nothing downloaded past the playhead is the frontier', () {
+      // Playback caught up with a sequential download. Sequential is already
+      // fetching the right pieces, so this must not be treated as a seek.
+      expect(
+        PlaybackHealthMonitor.hasDataAfter(const [
+          ByteRange(0, 20 * mb - 1),
+        ], 20 * mb + 1),
+        isFalse,
+      );
+    });
+
+    test('no piece map means no claim either way', () {
+      expect(PlaybackHealthMonitor.hasDataAfter(const [], 10 * mb), isFalse);
+    });
+  });
+
+  group('seekTargetPieceIds', () {
+    const pieceSize = 4 * 1024 * 1024; // 4 MB
+    const firstPiece = 100;
+    const lastPiece = 1099; // 1000 pieces ≈ 4 GB
+
+    test('starts at the piece holding the seek target', () {
+      final ids = PlaybackHealthMonitor.seekTargetPieceIds(
+        offset: 400 * 1024 * 1024, // 100 pieces in
+        firstPiece: firstPiece,
+        lastPiece: lastPiece,
+        pieceSize: pieceSize,
+      );
+
+      expect(ids.first, firstPiece + 100);
+    });
+
+    test('covers the prefetch span and no more', () {
+      final ids = PlaybackHealthMonitor.seekTargetPieceIds(
+        offset: 0,
+        firstPiece: firstPiece,
+        lastPiece: lastPiece,
+        pieceSize: pieceSize,
+        spanBytes: 32 * 1024 * 1024,
+      );
+
+      expect(ids.length, 8); // 32 MB / 4 MB
+      expect(ids, [for (var i = 0; i < 8; i++) firstPiece + i]);
+    });
+
+    test('clamps to the end of the file', () {
+      final ids = PlaybackHealthMonitor.seekTargetPieceIds(
+        offset: 998 * pieceSize,
+        firstPiece: firstPiece,
+        lastPiece: lastPiece,
+        pieceSize: pieceSize,
+        spanBytes: 32 * 1024 * 1024,
+      );
+
+      expect(ids, [firstPiece + 998, firstPiece + 999]);
+      expect(ids.last, lastPiece);
+    });
+
+    test('a seek past the end still asks for the last piece', () {
+      final ids = PlaybackHealthMonitor.seekTargetPieceIds(
+        offset: 99999 * pieceSize,
+        firstPiece: firstPiece,
+        lastPiece: lastPiece,
+        pieceSize: pieceSize,
+      );
+
+      expect(ids, [lastPiece]);
+    });
+
+    test('unusable geometry yields nothing rather than a bad request', () {
+      expect(
+        PlaybackHealthMonitor.seekTargetPieceIds(
+          offset: 0,
+          firstPiece: firstPiece,
+          lastPiece: lastPiece,
+          pieceSize: 0,
+        ),
+        isEmpty,
+      );
+      expect(
+        PlaybackHealthMonitor.seekTargetPieceIds(
+          offset: 0,
+          firstPiece: 10,
+          lastPiece: 9,
+          pieceSize: pieceSize,
+        ),
+        isEmpty,
+      );
+    });
+  });
+
+  group('toBufferedSpans', () {
+    test('maps byte runs onto fractions of the file', () {
+      final spans = PlaybackHealthMonitor.toBufferedSpans(const [
+        ByteRange(0, 249),
+        ByteRange(500, 999),
+      ], 1000);
+
+      expect(spans, const [BufferedSpan(0.0, 0.25), BufferedSpan(0.5, 1.0)]);
+    });
+
+    test('a zero-size file yields nothing rather than dividing by zero', () {
+      expect(
+        PlaybackHealthMonitor.toBufferedSpans(const [ByteRange(0, 9)], 0),
+        isEmpty,
       );
     });
   });
