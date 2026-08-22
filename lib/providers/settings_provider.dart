@@ -98,12 +98,6 @@ class SettingsNotifier extends Notifier<AppSettings> {
     await _prefs.setString(_settingsKey, jsonString);
   }
 
-  /// Update settings
-  Future<void> updateSettings(AppSettings newSettings) async {
-    state = newSettings;
-    await _saveSettings();
-  }
-
   /// Update host
   Future<void> setHost(String host) async {
     state = state.copyWith(host: host);
@@ -187,23 +181,10 @@ class SettingsNotifier extends Notifier<AppSettings> {
     await _saveSettings();
   }
 
-  /// Update default filter
-  Future<void> setDefaultFilter(TorrentFilter filter) async {
-    state = state.copyWith(defaultFilter: filter);
-    await _saveSettings();
-  }
-
-  /// Update default sort
-  Future<void> setDefaultSort(TorrentSort sort) async {
-    state = state.copyWith(defaultSort: sort);
-    await _saveSettings();
-  }
-
-  /// Update sort ascending
-  Future<void> setSortAscending(bool ascending) async {
-    state = state.copyWith(sortAscending: ascending);
-    await _saveSettings();
-  }
+  // No setters for defaultFilter / defaultSort / sortAscending: no screen
+  // offers them, so they only ever hold their defaults. The fields and their
+  // JSON keys stay so existing prefs still load, and so wiring the Transfers
+  // screen's current filter through later is an additive change.
 
   /// Update binge watching enabled
   Future<void> setBingeWatchingEnabled(bool enabled) async {

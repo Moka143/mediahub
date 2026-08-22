@@ -170,13 +170,6 @@ class StreamingSessionsNotifier extends Notifier<StreamingSessionsState> {
 
   /// Get session by ID
   StreamingSession? getSession(String sessionId) => state.sessions[sessionId];
-
-  /// Clear all completed or errored sessions
-  void clearInactiveSessions() {
-    final newSessions = Map<String, StreamingSession>.from(state.sessions);
-    newSessions.removeWhere((_, s) => !s.isActive);
-    state = state.copyWith(sessions: newSessions);
-  }
 }
 
 /// Provider for streaming sessions notifier

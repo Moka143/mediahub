@@ -12,8 +12,11 @@ class QBittorrentProcessService {
   Process? _process;
   Timer? _healthCheckTimer;
   bool _isStarting = false;
+
+  /// Not final: [start] rewrites it when [findExecutable] locates qBittorrent
+  /// somewhere other than the configured path.
   String _qbittorrentPath;
-  int _port;
+  final int _port;
   final String _host;
 
   /// Callback for when connection status changes
@@ -42,15 +45,8 @@ class QBittorrentProcessService {
   /// remote one.
   bool get managesLocalProcess => PlatformUtils.isLocalHost(_host);
 
-  /// Update the qBittorrent path
-  void setQBittorrentPath(String path) {
-    _qbittorrentPath = path;
-  }
-
-  /// Update the port
-  void setPort(int port) {
-    _port = port;
-  }
+  // No setters: a settings change rebuilds this service through
+  // `qbProcessServiceProvider`.
 
   /// Check if qBittorrent is currently running (by checking if port is in use)
   Future<bool> isRunning() async {

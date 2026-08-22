@@ -28,10 +28,10 @@ class QBittorrentApiException implements Exception {
 /// Service for interacting with qBittorrent Web API v2
 class QBittorrentApiService {
   late Dio _dio;
-  String _host;
-  int _port;
-  String _username;
-  String _password;
+  final String _host;
+  final int _port;
+  final String _username;
+  final String _password;
   String? _sid;
   bool _isAuthenticated = false;
   int _syncRid = 0;
@@ -124,22 +124,10 @@ class QBittorrentApiService {
     );
   }
 
-  /// Update connection settings
-  void updateSettings({
-    String? host,
-    int? port,
-    String? username,
-    String? password,
-  }) {
-    if (host != null) _host = host;
-    if (port != null) _port = port;
-    if (username != null) _username = username;
-    if (password != null) _password = password;
-
-    _initDio();
-    _isAuthenticated = false;
-    _sid = null;
-  }
+  // No updateSettings: a settings change disposes this service and builds a
+  // new one through `qbApiServiceProvider`, which is also what kept
+  // `_pieceSizeCache`, `_piecePrioSupported` and `_syncRid` from going stale
+  // against a different host.
 
   /// Check if authenticated
   bool get isAuthenticated => _isAuthenticated;

@@ -67,21 +67,6 @@ class PlatformUtils {
     }
   }
 
-  /// Get command line arguments for starting qBittorrent in headless mode
-  static List<String> getQBittorrentArgs() {
-    if (Platform.isLinux) {
-      // qbittorrent-nox is already headless
-      return [];
-    } else if (Platform.isMacOS) {
-      // macOS qBittorrent with Web UI enabled
-      return ['--webui-port=8080'];
-    } else if (Platform.isWindows) {
-      // Windows: minimize to tray
-      return ['--webui-port=8080'];
-    }
-    return [];
-  }
-
   /// Hosts that mean "this machine".
   ///
   /// Matters because [QBittorrentProcessService] decides whether to *launch*

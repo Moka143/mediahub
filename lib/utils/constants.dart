@@ -16,8 +16,8 @@ class AppConstants {
   static const String defaultUsername = 'admin';
   static const String defaultPassword = ''; // Empty is qBittorrent's default
 
-  // Polling intervals
-  static const Duration defaultPollingInterval = Duration(seconds: 2);
+  // Polling intervals. The torrent list's own intervals come from
+  // AppSettings (active / idle), not from here.
   static const Duration connectionCheckInterval = Duration(seconds: 5);
 
   // Retry settings
