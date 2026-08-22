@@ -78,6 +78,12 @@ Future<void> _bootstrap() async {
 
   windowManager.addListener(windowStateService);
 
+  // Required for the close-time save to actually land. Without it the native
+  // side emits `close` and tears the window down in the same message, so an
+  // async save never resumes. WindowStateService.onWindowClose owns the
+  // teardown from here — it always destroys, even if saving fails.
+  await windowManager.setPreventClose(true);
+
   AppLog.i('[Startup] runApp()');
   runApp(
     ProviderScope(
