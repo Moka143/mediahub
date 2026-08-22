@@ -57,6 +57,12 @@ enum BufferOutcome {
   /// Moving, but so slowly that reaching the threshold isn't worth waiting
   /// for. Better to say so than to spin and fail later.
   tooSlow,
+
+  /// [StreamingService.bufferHardCeiling] elapsed. Distinct from [tooSlow]
+  /// because it is the one outcome `allowSlowBuffer` must NOT swallow — a
+  /// background prefetch is allowed to be slow indefinitely by the rate
+  /// checks, so without a deadline it polls qBittorrent forever.
+  gaveUp,
 }
 
 /// Download-rate telemetry for one session's buffering phase.
@@ -170,6 +176,10 @@ class StreamingSession {
   bool get isReady =>
       state == StreamingState.ready || state == StreamingState.playing;
 
+  /// Deliberately NOT `??`-merged: an error belongs to one update, so every
+  /// subsequent copy clears it. Pass it explicitly on any copy that must keep
+  /// it — a `finally` that only flips a loading flag will otherwise wipe the
+  /// `catch` above it.
   StreamingSession copyWith({
     StreamingState? state,
     String? torrentHash,
@@ -312,7 +322,7 @@ class StreamingService {
     required Duration sinceStart,
   }) {
     if (bufferedBytes >= minBytes) return BufferOutcome.ready;
-    if (sinceStart >= bufferHardCeiling) return BufferOutcome.tooSlow;
+    if (sinceStart >= bufferHardCeiling) return BufferOutcome.gaveUp;
 
     // Nothing arriving at all — a peer problem, not a speed problem.
     if (sinceLastProgress >= bufferStallWindow) return BufferOutcome.stalled;
@@ -1004,6 +1014,21 @@ class StreamingService {
           sessionId,
           'Too slow to stream ($rate). Download it instead, or pick another '
           'source.',
+        );
+
+      case BufferOutcome.gaveUp:
+        // Deliberately NOT gated on allowSlowBuffer. A background prefetch
+        // may be slow for as long as it likes, but it may not poll forever:
+        // without this the 2 s monitoring timer outlived the app's use for
+        // the session and never stopped.
+        AppLog.w(
+          '[StreamingService] Giving up — ${bufferHardCeiling.inMinutes} min '
+          'elapsed at ${Formatters.formatBytesCompact(bufferedBytes)}',
+        );
+        _failBuffering(
+          sessionId,
+          'Gave up after ${bufferHardCeiling.inMinutes} minutes. '
+          'Try another source.',
         );
     }
   }

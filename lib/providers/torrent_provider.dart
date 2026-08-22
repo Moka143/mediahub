@@ -79,6 +79,10 @@ class TorrentListState {
     this.lastUpdated,
   });
 
+  /// Deliberately NOT `??`-merged: an error belongs to one update, so every
+  /// subsequent copy clears it. Pass it explicitly on any copy that must keep
+  /// it — a `finally` that only flips a loading flag will otherwise wipe the
+  /// `catch` above it.
   TorrentListState copyWith({
     List<Torrent>? torrents,
     bool? isLoading,

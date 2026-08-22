@@ -72,6 +72,15 @@ class VideoPlayerScreen extends ConsumerStatefulWidget {
   /// instead of waiting ~2 s for the first health-poll to land.
   final double? initialBufferedRatio;
 
+  /// Id of the [StreamingSession] backing this playback, when there is one.
+  ///
+  /// Ownership, not decoration: whoever holds the id is responsible for
+  /// cancelling the session, which is what tears down its
+  /// [LocalStreamingServer] and releases the loopback port. Nothing cancelled
+  /// sessions before this existed, so every play leaked an HTTP server for
+  /// the life of the process.
+  final String? streamingSessionId;
+
   const VideoPlayerScreen({
     super.key,
     required this.file,
@@ -83,6 +92,7 @@ class VideoPlayerScreen extends ConsumerStatefulWidget {
     this.streamingFileIndex,
     this.streamingProxyUrl,
     this.initialBufferedRatio,
+    this.streamingSessionId,
   });
 
   @override
@@ -185,9 +195,22 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   // or permanently if qBittorrent won't give us one.
   List<BufferedSpan> _bufferedSpans = const [];
 
+  /// Captured in [initState] so [dispose] can reach it without `ref.read`,
+  /// which is not safe there.
+  late final StreamingSessionsNotifier _streamingSessions;
+
+  /// Streaming sessions this screen must tear down on dispose. Set to null
+  /// the moment a session is handed to a replacement screen — that screen
+  /// takes ownership with it, and cancelling here would kill the proxy the
+  /// next episode is about to read from.
+  String? _ownedSessionId;
+  String? _prefetchSessionId;
+
   @override
   void initState() {
     super.initState();
+    _streamingSessions = ref.read(streamingSessionsProvider.notifier);
+    _ownedSessionId = widget.streamingSessionId;
     _keyboardFocus = FocusNode();
     _planner = NextEpisodePlanner(
       bingeEnabled: ref.read(bingeWatchingEnabledProvider),
@@ -946,11 +969,17 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
 
     if (mounted) {
       final streamingHash = _nextEpisodeStreamingTorrentHash;
+      // Hand the prefetch session to the replacement screen. Nulled here so
+      // our dispose() — which runs right after pushReplacement — doesn't
+      // cancel the session the next episode is about to play from.
+      final handoffSessionId = _prefetchSessionId;
+      _prefetchSessionId = null;
       AppLog.d(
         '[NextEpisodeProxy] handing off to player streaming=${streamingHash != null} '
         'hash=$streamingHash '
         'fileIdx=$_nextEpisodeStreamingFileIndex '
-        'url=$_nextEpisodeStreamingProxyUrl',
+        'url=$_nextEpisodeStreamingProxyUrl '
+        'session=$handoffSessionId',
       );
       // Navigate to next episode
       Navigator.of(context).pushReplacement(
@@ -961,6 +990,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
             streamingTorrentHash: streamingHash,
             streamingFileIndex: _nextEpisodeStreamingFileIndex,
             streamingProxyUrl: _nextEpisodeStreamingProxyUrl,
+            streamingSessionId: handoffSessionId,
           ),
         ),
       );
@@ -1188,6 +1218,14 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     // subscription and needs no providers to shut down.
     _healthMonitor?.dispose();
     _keyboardFocus.dispose();
+    // Release the sessions this screen owns: cancelSession stops the 2 s
+    // monitoring timer and shuts down the LocalStreamingServer. Uses the
+    // notifier captured in initState, not ref.read — see below.
+    for (final sessionId in {_ownedSessionId, _prefetchSessionId}) {
+      if (sessionId != null) {
+        unawaited(_streamingSessions.cancelSession(sessionId));
+      }
+    }
     // Note: Don't use ref.read() in dispose - providers will clean up themselves.
     // Only call setFullScreen / setTitleBarStyle when we're actually in
     // fullscreen — otherwise the framework's own resize logic gets
@@ -1588,6 +1626,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
           );
     }
 
+    _prefetchSessionId = session.id;
     setState(() {
       _nextEpisodeDownloadStarted = true;
       _downloadingEpisode = episode;
@@ -1676,6 +1715,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
 
         case StreamingState.cancelled:
         case StreamingState.idle:
+          _prefetchSessionId = null;
           _dismissNextPrefetch();
           _nextEpisodeSubscription?.cancel();
           _nextEpisodeSubscription = null;

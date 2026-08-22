@@ -29,13 +29,19 @@ class StreamingSessionsState {
     this.activeSessionId,
   });
 
+  /// [clearActive] is the only way to set [activeSessionId] back to null.
+  /// A bare `activeSessionId: null` means "keep" under the `??` merge, which
+  /// silently left `cancelSession` pointing at a session it had just removed.
   StreamingSessionsState copyWith({
     Map<String, StreamingSession>? sessions,
     String? activeSessionId,
+    bool clearActive = false,
   }) {
     return StreamingSessionsState(
       sessions: sessions ?? this.sessions,
-      activeSessionId: activeSessionId ?? this.activeSessionId,
+      activeSessionId: clearActive
+          ? null
+          : (activeSessionId ?? this.activeSessionId),
     );
   }
 
@@ -151,9 +157,7 @@ class StreamingSessionsNotifier extends Notifier<StreamingSessionsState> {
 
     state = state.copyWith(
       sessions: newSessions,
-      activeSessionId: state.activeSessionId == sessionId
-          ? null
-          : state.activeSessionId,
+      clearActive: state.activeSessionId == sessionId,
     );
   }
 
@@ -161,10 +165,7 @@ class StreamingSessionsNotifier extends Notifier<StreamingSessionsState> {
   /// main_navigation_screen) don't fire after the originating screen already
   /// handled the ready→player transition.
   void clearActiveSession() {
-    state = StreamingSessionsState(
-      sessions: state.sessions,
-      activeSessionId: null,
-    );
+    state = state.copyWith(clearActive: true);
   }
 
   /// Get session by ID

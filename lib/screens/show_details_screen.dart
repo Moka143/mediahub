@@ -523,6 +523,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
                 streamingFileIndex: session.selectedFileIndex,
                 streamingProxyUrl: session.streamUrl,
                 initialBufferedRatio: session.bufferProgress,
+                streamingSessionId: session.id,
               ),
             ),
           );

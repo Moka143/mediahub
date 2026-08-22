@@ -124,6 +124,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
               streamingFileIndex: next.selectedFileIndex,
               streamingProxyUrl: next.streamUrl,
               initialBufferedRatio: next.bufferProgress,
+              streamingSessionId: next.id,
             ),
           ),
         );

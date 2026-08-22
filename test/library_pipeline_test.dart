@@ -173,6 +173,39 @@ void main() {
       expect(cw.single.filePath, f.path);
     });
 
+    test('progress written after the scan still reaches the file', () async {
+      // The join between scanned files and watch progress used to live inside
+      // `localMediaStreamProvider`. That made every progress write — one per
+      // 10 s of playback — cancel the directory watcher and re-run a full
+      // recursive scan. The join now happens downstream in
+      // `localMediaFilesProvider`; this pins the behaviour that move had to
+      // preserve, which is that a *later* write still lands on the file.
+      final f = await makeFile('Severance.S02E01.mkv', bytes: 2 * 1024 * 1024);
+      final container = await makeContainer();
+
+      final before = await library(container);
+      expect(before.single.progress, isNull);
+
+      await container
+          .read(watchProgressProvider.notifier)
+          .createProgress(
+            filePath: f.path,
+            showName: 'Severance',
+            seasonNumber: 2,
+            episodeNumber: 1,
+            position: const Duration(seconds: 1440),
+            duration: const Duration(seconds: 3600),
+          );
+
+      await waitUntil(
+        () =>
+            container.read(localMediaFilesProvider).value?.single.progress !=
+            null,
+      );
+      final after = container.read(localMediaFilesProvider).value!;
+      expect(after.single.watchProgress, closeTo(0.4, 0.01));
+    });
+
     test('a deleted file drops out of Continue Watching', () async {
       // The entry survives — the watched history is deliberately kept — but
       // it must not be offered for playback.
