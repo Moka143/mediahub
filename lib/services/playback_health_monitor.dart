@@ -3,8 +3,41 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
 
+import '../models/torrent_file.dart';
 import 'app_logger.dart';
+import 'local_streaming_server.dart';
 import 'qbittorrent_api_service.dart';
+
+/// One downloaded region of the streaming file, as a fraction of the whole.
+///
+/// The seek bar draws these instead of a single 0→progress block. A scalar
+/// progress fraction says *how much* is downloaded but not *which parts* —
+/// and once the piece picker stops running in order (which is exactly what
+/// we do after a seek) those are different questions. Drawing the scalar as
+/// a solid bar from zero told the user that everything to its left was
+/// playable when it was not, so seeking "into the white" landed in a hole
+/// and playback dropped back to the spinner.
+@immutable
+class BufferedSpan {
+  const BufferedSpan(this.start, this.end);
+
+  /// Fraction of the file where this run begins, 0.0–1.0.
+  final double start;
+
+  /// Fraction of the file where this run ends, 0.0–1.0.
+  final double end;
+
+  @override
+  bool operator ==(Object other) =>
+      other is BufferedSpan && other.start == start && other.end == end;
+
+  @override
+  int get hashCode => Object.hash(start, end);
+
+  @override
+  String toString() =>
+      'BufferedSpan(${start.toStringAsFixed(3)}-${end.toStringAsFixed(3)})';
+}
 
 /// What the buffer-headroom check wants done with playback right now.
 enum BufferAction {
@@ -49,6 +82,7 @@ class PlaybackHealthMonitor {
     required this.usingProxy,
     required this.isActive,
     required this.onDownloadedRatio,
+    required this.onBufferedSpans,
     required this.onBuffering,
     required this.onBufferingResolved,
   }) : _player = player,
@@ -70,8 +104,14 @@ class PlaybackHealthMonitor {
   final bool Function() isActive;
 
   /// Latest 0.0–1.0 download progress for the streaming file. Drives the
-  /// seek-bar's buffered track.
+  /// buffering overlay's percentage, and the seek bar's buffered track when
+  /// no piece map is available.
   final void Function(double ratio) onDownloadedRatio;
+
+  /// Where the downloaded bytes actually are, as fractions of the file.
+  /// Empty when qBittorrent won't give us a usable piece map — callers fall
+  /// back to [onDownloadedRatio]. See [BufferedSpan].
+  final void Function(List<BufferedSpan> spans) onBufferedSpans;
 
   /// Show the buffering overlay with this message and optional progress.
   final void Function(String message, double? progress) onBuffering;
@@ -125,7 +165,23 @@ class PlaybackHealthMonitor {
 
   /// Slack applied to the past-the-head comparison. 1% absorbs VBR jitter so
   /// a few seconds of play near the edge doesn't toggle the indicator.
+  ///
+  /// Only used on the scalar fallback path. With a piece map we compare
+  /// against real byte ranges and the slack is one piece — see
+  /// [isOffsetPastBuffer].
   static const double pastHeadSlack = 0.01;
+
+  /// How much of the file to pull at max priority around a seek target.
+  /// Roughly 20–30 s of a 1080p episode: enough that playback survives while
+  /// the piece picker catches up, small enough not to re-prioritise half the
+  /// torrent on every scrub.
+  static const int seekPrefetchBytes = 32 * 1024 * 1024; // 32 MB
+
+  /// Don't re-issue piece priorities until the seek target has moved at
+  /// least this far. A drag that settles a few seconds away from the last
+  /// target is the same request, and qBittorrent's piecePrio endpoint is not
+  /// free.
+  static const int seekPrefetchResendBytes = 8 * 1024 * 1024; // 8 MB
 
   /// mpv occasionally reports a near-zero duration during initial open,
   /// before the demuxer settles. Ratio maths is meaningless until then.
@@ -150,6 +206,22 @@ class PlaybackHealthMonitor {
   bool _recoveryInFlight = false;
   bool _checkInFlight = false;
   bool _disposed = false;
+
+  // Piece geometry for the target file. Immutable once the torrent is added,
+  // so resolved on the first poll that can and then reused.
+  int _fileSizeBytes = 0;
+  int? _pieceSize;
+  int? _firstPiece;
+  int? _lastPiece;
+
+  /// Downloaded runs of the target file, file-relative bytes. Empty when
+  /// qBittorrent gave us no usable piece map; every consumer then falls back
+  /// to the scalar progress fraction.
+  List<ByteRange> _availableRanges = const [];
+
+  /// Byte offset of the last seek target handed to qBittorrent's piece
+  /// prioritiser, so a scrub that settles nearby doesn't re-issue it.
+  int? _lastSeekPrefetchOffset;
 
   /// Set true the first time mpv's position actually advances past zero.
   /// Gates stall detection so recovery doesn't fire during the initial open
@@ -228,6 +300,90 @@ class PlaybackHealthMonitor {
     required double fileProgress,
   }) => positionRatio > fileProgress + pastHeadSlack;
 
+  /// Whether [offset] falls outside every downloaded run by more than
+  /// [tolerance] bytes.
+  ///
+  /// The piece-map answer to [isPastDownloadHead], and the one that actually
+  /// matches what the proxy will do: it serves byte N only if N is inside a
+  /// completed piece, regardless of how much of the file is downloaded
+  /// overall. [tolerance] should be one piece — [availableRanges] assumes the
+  /// file starts on a piece boundary, so a run's edges can be off by that
+  /// much, and we would rather miss an edge case than flash the overlay
+  /// every time playback crosses a run boundary.
+  ///
+  /// Returns false for an empty [ranges] — "no piece map" is not evidence of
+  /// a hole, and the caller should use the scalar path instead.
+  @visibleForTesting
+  static bool isOffsetPastBuffer({
+    required List<ByteRange> ranges,
+    required int offset,
+    required int tolerance,
+  }) {
+    for (final range in ranges) {
+      if (offset >= range.start - tolerance &&
+          offset <= range.end + tolerance) {
+        return false;
+      }
+    }
+    return ranges.isNotEmpty;
+  }
+
+  /// Whether any downloaded run extends past [offset].
+  ///
+  /// Separates the two ways the playhead can end up on un-served bytes:
+  ///   * it caught up with the download frontier — nothing is downloaded
+  ///     further on, sequential is already fetching exactly the right pieces,
+  ///     and the ordinary buffering overlay covers it;
+  ///   * it landed in a gap with data beyond it — only possible after a seek,
+  ///     and the piece picker needs to be told to come back for those pieces.
+  @visibleForTesting
+  static bool hasDataAfter(List<ByteRange> ranges, int offset) =>
+      ranges.any((range) => range.end > offset);
+
+  /// Piece ids covering [spanBytes] of the file forward from [offset],
+  /// clamped to the file's own pieces.
+  ///
+  /// Handed to qBittorrent's piece prioritiser after a seek into an
+  /// un-downloaded region. Turning sequential download off lets the picker
+  /// leave the head; this is what tells it where to go instead.
+  @visibleForTesting
+  static List<int> seekTargetPieceIds({
+    required int offset,
+    required int firstPiece,
+    required int lastPiece,
+    required int pieceSize,
+    int spanBytes = seekPrefetchBytes,
+  }) {
+    if (pieceSize <= 0 || firstPiece < 0 || lastPiece < firstPiece) {
+      return const [];
+    }
+    final safeOffset = offset < 0 ? 0 : offset;
+    final startPiece = (firstPiece + safeOffset ~/ pieceSize).clamp(
+      firstPiece,
+      lastPiece,
+    );
+    final available = lastPiece - startPiece + 1;
+    final need = (spanBytes / pieceSize).ceil().clamp(1, available).toInt();
+    return [for (var i = 0; i < need; i++) startPiece + i];
+  }
+
+  /// Convert file-relative byte runs into the 0.0–1.0 spans the seek bar
+  /// draws.
+  @visibleForTesting
+  static List<BufferedSpan> toBufferedSpans(
+    List<ByteRange> ranges,
+    int fileSize,
+  ) {
+    if (fileSize <= 0) return const [];
+    return [
+      for (final range in ranges)
+        BufferedSpan(
+          (range.start / fileSize).clamp(0.0, 1.0),
+          ((range.end + 1) / fileSize).clamp(0.0, 1.0),
+        ),
+    ];
+  }
+
   /// Approximate seconds of downloaded data ahead of the playback position,
   /// assuming a uniform bitrate. Good enough for the 8 s / 25 s hysteresis
   /// band on the direct-disk path.
@@ -264,6 +420,7 @@ class PlaybackHealthMonitor {
     _lastPositionAdvanceAt = DateTime.now();
     _hasStartedPlayback = false;
     _lastRecoveryAt = DateTime.fromMillisecondsSinceEpoch(0);
+    _lastSeekPrefetchOffset = null;
 
     // Track when the player position last moved (stall detection input).
     _positionSub = _player.stream.position.listen((pos) {
@@ -300,18 +457,87 @@ class PlaybackHealthMonitor {
   // Poll
   // ---------------------------------------------------------------------
 
-  /// Push the streaming file's download fraction to the seek bar. Independent
-  /// of playback state, so it keeps working while mpv is still opening.
-  Future<void> _reportDownloadedRatio() async {
+  /// Fetch the target file's progress and piece map, push both to the UI,
+  /// and hand the file back so the edge checks can reuse it.
+  ///
+  /// Independent of playback state, so the seek bar keeps filling in while
+  /// mpv is still opening and `duration` is still zero.
+  ///
+  /// Returns null when the file can't be resolved — the caller then skips
+  /// edge tracking for this tick rather than acting on stale numbers.
+  Future<TorrentFile?> _refreshDownloadState() async {
+    final idx = fileIndex;
+    if (idx == null) return null;
+
+    List<TorrentFile> files;
     try {
-      final files = await _qbt.getTorrentFiles(torrentHash);
-      final idx = fileIndex;
-      if (idx == null || idx < 0 || idx >= files.length) return;
-      if (!_alive) return;
-      if (files[idx].size <= 0) return;
-      onDownloadedRatio(files[idx].progress);
+      files = await _qbt.getTorrentFiles(torrentHash);
     } catch (e) {
-      AppLog.e('[HealthMonitor] Downloaded-ratio poll failed: $e');
+      AppLog.e('[HealthMonitor] Download-state poll failed: $e');
+      return null;
+    }
+    if (!_alive || idx < 0 || idx >= files.length) return null;
+
+    final file = files[idx];
+    if (file.size <= 0) return null;
+
+    _fileSizeBytes = file.size;
+    onDownloadedRatio(file.progress);
+
+    await _refreshPieceMap(files, idx);
+    return _alive ? file : null;
+  }
+
+  /// Resolve piece geometry (once) and re-read piece states, converting them
+  /// into the byte runs the seek bar draws and the past-buffer check uses.
+  ///
+  /// Every failure here is soft: [_availableRanges] simply stays as it was
+  /// and consumers fall back to scalar progress.
+  Future<void> _refreshPieceMap(List<TorrentFile> files, int idx) async {
+    try {
+      if (_pieceSize == null) {
+        final size = await _qbt.getPieceSize(torrentHash);
+        if (size > 0) _pieceSize = size;
+      }
+      final pieceSize = _pieceSize;
+      if (pieceSize == null || !_alive) return;
+
+      if (_firstPiece == null || _lastPiece == null) {
+        // `piece_range` is missing on some WebUI versions; reconstruct it
+        // from file sizes the same way the proxy does.
+        final listed = files[idx].pieceRange;
+        if (listed != null && listed.length >= 2) {
+          _firstPiece = listed[0];
+          _lastPiece = listed[1];
+        } else {
+          final computed = LocalStreamingServer.pieceRangeForFile(
+            fileSizes: files.map((f) => f.size).toList(),
+            fileIndex: idx,
+            pieceSize: pieceSize,
+          );
+          if (computed != null) {
+            _firstPiece = computed.$1;
+            _lastPiece = computed.$2;
+          }
+        }
+      }
+      final first = _firstPiece;
+      final last = _lastPiece;
+      if (first == null || last == null) return;
+
+      final states = await _qbt.getPieceStates(torrentHash);
+      if (!_alive || states == null || states.isEmpty) return;
+
+      _availableRanges = LocalStreamingServer.availableRanges(
+        pieceStates: states,
+        firstPiece: first,
+        lastPiece: last,
+        pieceSize: pieceSize,
+        fileSize: _fileSizeBytes,
+      );
+      onBufferedSpans(toBufferedSpans(_availableRanges, _fileSizeBytes));
+    } catch (e) {
+      AppLog.e('[HealthMonitor] Piece-map poll failed: $e');
     }
   }
 
@@ -338,7 +564,7 @@ class PlaybackHealthMonitor {
     // Reporting after the duration guard meant the indicator sat frozen at
     // whatever it was seeded with for the entire open, and stayed frozen
     // forever if mpv never resolved a duration at all.
-    await _reportDownloadedRatio();
+    final file = await _refreshDownloadState();
     if (!_alive) return;
 
     if (duration.inMilliseconds <= 0) return;
@@ -362,17 +588,12 @@ class PlaybackHealthMonitor {
       return;
     }
 
-    // 2) Edge tracking.
+    // 2) Edge tracking. Reuses the file resolved above — this used to issue
+    // a second `getTorrentFiles` for the same data on every tick.
+    if (file == null) return;
     try {
-      final files = await _qbt.getTorrentFiles(torrentHash);
-      final idx = fileIndex;
-      if (idx == null || idx < 0 || idx >= files.length) return;
-      if (!_alive) return;
-
-      final file = files[idx];
       final fileSize = file.size;
       final fileProgress = file.progress;
-      if (fileSize <= 0) return;
 
       // File is done — nothing useful left to pause for.
       if (fileProgress >= completeEnough) {
@@ -540,21 +761,111 @@ class PlaybackHealthMonitor {
   }) {
     if (duration.inSeconds < minReliableDurationSeconds) return;
 
-    final pastHead = isPastDownloadHead(
-      positionRatio: position.inMilliseconds / duration.inMilliseconds,
+    final positionRatio = position.inMilliseconds / duration.inMilliseconds;
+    final pieceSize = _pieceSize;
+    final offset = (_fileSizeBytes * positionRatio).round();
+    final haveMap = _availableRanges.isNotEmpty && pieceSize != null;
+
+    // Is the playhead actually on bytes the proxy can serve? The piece map
+    // answers this exactly; comparing against a scalar `fileProgress` only
+    // works while pieces arrive in order, and that stops being true the
+    // moment we turn sequential off. After that a position well *under*
+    // `fileProgress` can still sit in a gap — which is what a seek "into the
+    // white part of the bar" looked like: a generic, unexplained stall.
+    final inHole = haveMap
+        ? isOffsetPastBuffer(
+            ranges: _availableRanges,
+            offset: offset,
+            tolerance: pieceSize,
+          )
+        : isPastDownloadHead(
+            positionRatio: positionRatio,
+            fileProgress: fileProgress,
+          );
+
+    // …and if so, is it a seek, or has playback merely caught up with the
+    // download frontier? Those need opposite handling and only the first is
+    // this method's business — at the frontier, sequential download is
+    // already fetching precisely the right pieces and the ordinary buffering
+    // overlay explains the wait.
+    final pastFrontier = isPastDownloadHead(
+      positionRatio: positionRatio,
       fileProgress: fileProgress,
     );
+    final seekedIntoHole =
+        inHole &&
+        (pastFrontier || (haveMap && hasDataAfter(_availableRanges, offset)));
 
-    if (pastHead) {
+    if (seekedIntoHole) {
       _seekPastHeadActive = true;
-      if (!_sequentialDisabledForSeek) {
-        _sequentialDisabledForSeek = true;
-        unawaited(_disableSequentialForSeek());
-      }
+      // Only a forward seek past everything downloaded justifies dropping
+      // in-order download; a gap *behind* the frontier is the very next thing
+      // sequential will fetch, so leave it on.
+      unawaited(
+        _fetchAroundSeekTarget(offset, disableSequential: pastFrontier),
+      );
       onBuffering('Fetching pieces around new position…', fileProgress);
     } else if (_seekPastHeadActive) {
       _seekPastHeadActive = false;
+      _lastSeekPrefetchOffset = null;
       onBufferingResolved();
+    }
+  }
+
+  /// Point qBittorrent at the seek target.
+  ///
+  /// Piece priority is the half that was missing. Turning sequential off only
+  /// releases the picker from the head; without also saying *where to go*, it
+  /// falls back to rarest-first and the bytes under the playhead arrive
+  /// whenever they happen to arrive — which is why a seek into an
+  /// un-downloaded region could sit on the spinner more or less indefinitely.
+  ///
+  /// [disableSequential] is for a forward seek past everything downloaded,
+  /// where in-order download would otherwise fetch the whole intermediate
+  /// region first. One-shot: turning it back on would send the picker
+  /// straight back to the head.
+  ///
+  /// Re-issued as the target moves, throttled by [seekPrefetchResendBytes].
+  /// The throttle is recorded before the first await so overlapping polls
+  /// can't double-issue.
+  Future<void> _fetchAroundSeekTarget(
+    int offset, {
+    required bool disableSequential,
+  }) async {
+    final previous = _lastSeekPrefetchOffset;
+    if (previous != null &&
+        (offset - previous).abs() < seekPrefetchResendBytes) {
+      return;
+    }
+    _lastSeekPrefetchOffset = offset;
+
+    if (disableSequential && !_sequentialDisabledForSeek) {
+      _sequentialDisabledForSeek = true;
+      await _disableSequentialForSeek();
+      if (!_alive) return;
+    }
+
+    final pieceSize = _pieceSize;
+    final firstPiece = _firstPiece;
+    final lastPiece = _lastPiece;
+    if (pieceSize == null || firstPiece == null || lastPiece == null) return;
+
+    final ids = seekTargetPieceIds(
+      offset: offset,
+      firstPiece: firstPiece,
+      lastPiece: lastPiece,
+      pieceSize: pieceSize,
+    );
+    if (ids.isEmpty) return;
+
+    try {
+      final ok = await _qbt.setPiecePriority(torrentHash, ids, 7);
+      AppLog.d(
+        '[HealthMonitor] seek prefetch ${ok ? "set" : "failed"} — pieces '
+        '${ids.first}-${ids.last} for byte $offset',
+      );
+    } catch (e) {
+      AppLog.e('[HealthMonitor] seek prefetch failed: $e');
     }
   }
 
