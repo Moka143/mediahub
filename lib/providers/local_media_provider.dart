@@ -16,68 +16,77 @@ final downloadPathProvider = Provider<String>((ref) {
   return ref.watch(settingsProvider).defaultSavePath;
 });
 
-/// Cache for show poster lookups.
+/// In-flight and resolved poster lookups, keyed by the search name.
 ///
-/// Process-lifetime, so it distinguishes a confirmed miss (TMDB answered and
-/// had nothing) from a failure (network down, rate limited). Only the former
-/// is cached — caching a transient failure left the card showing a flat
-/// gradient for the rest of the session with no way to retry.
-final _showPosterCache = <String, String?>{};
+/// The **Future** is cached, not the resolved value, and that distinction is
+/// the whole point. Riverpod 3 auto-disposes a family provider the moment
+/// nothing watches it, and the library list churns constantly — the torrent
+/// poll rebuilds it every 2 s while a download runs, and every watch-progress
+/// write rebuilds it during playback. A lookup still in flight when its
+/// provider was torn down was simply discarded, and the next build started
+/// over. While the churn outpaced the TMDB round trip the poster never
+/// resolved at all, which is why a freshly-added episode or movie would
+/// sometimes sit on a blank gradient until things settled down.
+///
+/// Sharing the Future also collapses the duplicate requests two cards for the
+/// same show would otherwise both fire.
+///
+/// A confirmed miss — TMDB answered and had nothing — resolves to null and
+/// stays cached. A *failure* (network down, rate limited) removes its own
+/// entry so the next rebuild retries; caching that would leave the card on a
+/// flat gradient for the rest of the session with no way back.
+final _showPosterRequests = <String, Future<String?>>{};
 
-/// Cache for movie poster lookups. Same rule as [_showPosterCache].
-final _moviePosterCache = <String, String?>{};
+/// Same contract as [_showPosterRequests], for `/search/movie`.
+final _moviePosterRequests = <String, Future<String?>>{};
 
 /// Provider to lookup show poster from TMDB
 final showPosterProvider = FutureProvider.family<String?, String>((
   ref,
   showName,
-) async {
-  // Check cache first
-  if (_showPosterCache.containsKey(showName)) {
-    return _showPosterCache[showName];
-  }
+) {
+  // Outlive the card that asked. Without this the request is cancelled the
+  // moment the list rebuilds — see [_showPosterRequests].
+  ref.keepAlive();
+  return _showPosterRequests[showName] ??= _lookupShowPoster(ref, showName);
+});
 
+Future<String?> _lookupShowPoster(Ref ref, String showName) async {
+  // Read before the first await, while the provider is certainly alive.
   final tmdb = ref.read(tmdbApiServiceProvider);
-  final String? posterUrl;
   try {
     final shows = await tmdb.searchShows(showName);
     final posterPath = shows.isNotEmpty ? shows.first.posterPath : null;
-    posterUrl = posterPath != null
+    return posterPath != null
         ? TmdbApiService.getPosterUrl(posterPath, size: 'w185')
         : null;
   } catch (e) {
-    // Transient — leave uncached so a later rebuild can retry.
     AppLog.w('[LocalMedia] show poster lookup failed for "$showName": $e');
+    _showPosterRequests.remove(showName);
     return null;
   }
-
-  _showPosterCache[showName] = posterUrl;
-  return posterUrl;
-});
+}
 
 /// Provider to lookup movie poster from TMDB based on filename
 final moviePosterProvider = FutureProvider.family<String?, String>((
   ref,
   movieName,
-) async {
-  // Check cache first
-  if (_moviePosterCache.containsKey(movieName)) {
-    return _moviePosterCache[movieName];
-  }
+) {
+  ref.keepAlive();
+  return _moviePosterRequests[movieName] ??= _lookupMoviePoster(ref, movieName);
+});
 
+Future<String?> _lookupMoviePoster(Ref ref, String movieName) async {
   final tmdb = ref.read(tmdbApiServiceProvider);
-  final String? posterUrl;
   try {
     final movies = await tmdb.searchMovies(movieName);
-    posterUrl = movies.isNotEmpty ? movies.first.posterUrl : null;
+    return movies.isNotEmpty ? movies.first.posterUrl : null;
   } catch (e) {
     AppLog.w('[LocalMedia] movie poster lookup failed for "$movieName": $e');
+    _moviePosterRequests.remove(movieName);
     return null;
   }
-
-  _moviePosterCache[movieName] = posterUrl;
-  return posterUrl;
-});
+}
 
 /// Provider for LocalMediaScanner instance
 final localMediaScannerProvider = Provider<LocalMediaScanner>((ref) {
