@@ -90,6 +90,35 @@ class _WatchScreenState extends ConsumerState<WatchScreen> {
       onRefresh: _handleRefresh,
       child: CustomScrollView(
         slivers: [
+          // The search field sits ABOVE the state branch deliberately.
+          //
+          // It used to live inside the content arm, and the branch below
+          // collapses the entire sliver list to a single SliverFillRemaining
+          // for loading / error / empty. Any flip into one of those while the
+          // user was typing unmounted the field — losing keyboard focus and
+          // the caret mid-word. Keeping it mounted whenever there is
+          // something to search, or a query already in flight, removes that
+          // whole class of failure rather than trying to avoid the flip.
+          if (hasQuery || (localFilesAsync.value ?? []).isNotEmpty) ...[
+            const SliverToBoxAdapter(
+              key: ValueKey('mh-library-search-lead'),
+              child: SizedBox(height: AppSpacing.sm),
+            ),
+            SliverToBoxAdapter(
+              key: const ValueKey('mh-library-search'),
+              child: LibrarySearchBar(
+                controller: _searchController,
+                hasQuery: hasQuery,
+                onClear: () => _searchController.clear(),
+                onRefresh: _refreshFromButton,
+              ),
+            ),
+            const SliverToBoxAdapter(
+              key: ValueKey('mh-library-search-gap'),
+              child: SizedBox(height: AppSpacing.md),
+            ),
+          ],
+
           // Loading state
           if (localFilesAsync.isLoading)
             const SliverFillRemaining(
@@ -113,19 +142,6 @@ class _WatchScreenState extends ConsumerState<WatchScreen> {
             )
           // Content
           else ...[
-            const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.sm)),
-
-            // Search bar
-            SliverToBoxAdapter(
-              child: LibrarySearchBar(
-                controller: _searchController,
-                hasQuery: hasQuery,
-                onClear: () => _searchController.clear(),
-                onRefresh: _refreshFromButton,
-              ),
-            ),
-            const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.md)),
-
             // No results state
             if (hasQuery && !hasFilteredResults)
               SliverFillRemaining(

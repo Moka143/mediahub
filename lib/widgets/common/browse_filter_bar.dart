@@ -12,7 +12,7 @@ import 'mediahub_chip.dart';
 ///   * Narrow (< 720px): two rows — chips · (sort + search).
 ///
 /// Each screen keeps its own typed sort picker; pass it via [sortPicker].
-class BrowseFilterBar extends StatelessWidget {
+class BrowseFilterBar extends StatefulWidget {
   const BrowseFilterBar({
     super.key,
     required this.genres,
@@ -39,6 +39,19 @@ class BrowseFilterBar extends StatelessWidget {
   final String searchHint;
 
   @override
+  State<BrowseFilterBar> createState() => _BrowseFilterBarState();
+}
+
+class _BrowseFilterBarState extends State<BrowseFilterBar> {
+  /// A GlobalKey, not a ValueKey, because the pill genuinely changes parent:
+  /// the narrow layout nests it in an `Expanded` inside a `Column`, the wide
+  /// one puts it directly in a `Row`. A local key cannot match across that,
+  /// so resizing the window past 720px while typing rebuilt the field from
+  /// scratch and dropped keyboard focus. A GlobalKey lets the element move
+  /// instead of being recreated.
+  final GlobalKey _searchKey = GlobalKey();
+
+  @override
   Widget build(BuildContext context) {
     return Container(
       decoration: const BoxDecoration(
@@ -55,16 +68,18 @@ class BrowseFilterBar extends StatelessWidget {
 
           final chips = AnimatedOpacity(
             duration: AppDuration.fast,
-            opacity: searchActive ? 0.4 : 1.0,
+            opacity: widget.searchActive ? 0.4 : 1.0,
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  for (final g in genres) ...[
+                  for (final g in widget.genres) ...[
                     MediaHubFilterChip(
                       label: g,
-                      selected: g == selectedGenre,
-                      onTap: searchActive ? null : () => onGenreSelected(g),
+                      selected: g == widget.selectedGenre,
+                      onTap: widget.searchActive
+                          ? null
+                          : () => widget.onGenreSelected(g),
                     ),
                     const SizedBox(width: AppSpacing.xs),
                   ],
@@ -75,8 +90,8 @@ class BrowseFilterBar extends StatelessWidget {
 
           final sort = AnimatedOpacity(
             duration: AppDuration.fast,
-            opacity: searchActive ? 0.4 : 1.0,
-            child: sortPicker,
+            opacity: widget.searchActive ? 0.4 : 1.0,
+            child: widget.sortPicker,
           );
 
           if (isNarrow) {
@@ -91,9 +106,10 @@ class BrowseFilterBar extends StatelessWidget {
                     const SizedBox(width: AppSpacing.md),
                     Expanded(
                       child: BrowseSearchPill(
-                        controller: searchController,
-                        onChanged: onSearchChanged,
-                        hint: searchHint,
+                        key: _searchKey,
+                        controller: widget.searchController,
+                        onChanged: widget.onSearchChanged,
+                        hint: widget.searchHint,
                         width: null,
                       ),
                     ),
@@ -110,9 +126,10 @@ class BrowseFilterBar extends StatelessWidget {
               sort,
               const SizedBox(width: AppSpacing.md),
               BrowseSearchPill(
-                controller: searchController,
-                onChanged: onSearchChanged,
-                hint: searchHint,
+                key: _searchKey,
+                controller: widget.searchController,
+                onChanged: widget.onSearchChanged,
+                hint: widget.searchHint,
               ),
             ],
           );

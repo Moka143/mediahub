@@ -111,6 +111,10 @@ class _DownloadsContent extends ConsumerStatefulWidget {
 class _DownloadsContentState extends ConsumerState<_DownloadsContent> {
   late final TextEditingController _searchController;
 
+  /// Held so the provider→controller sync in [build] can tell whether the
+  /// user is currently typing. See the guard there.
+  final FocusNode _searchFocus = FocusNode();
+
   @override
   void initState() {
     super.initState();
@@ -121,6 +125,7 @@ class _DownloadsContentState extends ConsumerState<_DownloadsContent> {
 
   @override
   void dispose() {
+    _searchFocus.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -128,7 +133,13 @@ class _DownloadsContentState extends ConsumerState<_DownloadsContent> {
   @override
   Widget build(BuildContext context) {
     final searchQuery = ref.watch(torrentSearchQueryProvider);
-    if (_searchController.text != searchQuery) {
+    // Never rewrite the field while the user is in it. Assigning `.value`
+    // resets the selection to a collapsed caret at the end, and this screen
+    // rebuilds every 2 s from the torrent poll — so a rebuild landing between
+    // keystrokes would yank the caret and scramble what was being typed.
+    // Outside focus the sync still matters: it reflects a query cleared or
+    // set from elsewhere.
+    if (!_searchFocus.hasFocus && _searchController.text != searchQuery) {
       _searchController.value = _searchController.value.copyWith(
         text: searchQuery,
         selection: TextSelection.collapsed(offset: searchQuery.length),
@@ -215,6 +226,7 @@ class _DownloadsContentState extends ConsumerState<_DownloadsContent> {
                 const SizedBox(width: AppSpacing.md),
                 _TransfersSearchPill(
                   controller: _searchController,
+                  focusNode: _searchFocus,
                   onChanged: (v) =>
                       ref.read(torrentSearchQueryProvider.notifier).set(v),
                 ),
@@ -433,10 +445,12 @@ class _TransfersSearchPill extends StatelessWidget {
   const _TransfersSearchPill({
     required this.controller,
     required this.onChanged,
+    this.focusNode,
   });
 
   final TextEditingController controller;
   final ValueChanged<String> onChanged;
+  final FocusNode? focusNode;
 
   @override
   Widget build(BuildContext context) {
@@ -458,6 +472,7 @@ class _TransfersSearchPill extends StatelessWidget {
           Expanded(
             child: TextField(
               controller: controller,
+              focusNode: focusNode,
               onChanged: onChanged,
               cursorColor: AppColors.seedColor,
               style: const TextStyle(fontSize: 12, color: AppColors.fg),
