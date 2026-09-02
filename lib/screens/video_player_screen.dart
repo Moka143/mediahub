@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
-import '../design/app_tokens.dart';
 import '../models/local_media_file.dart';
 import '../providers/local_media_provider.dart';
 import '../providers/player_provider.dart';
@@ -18,11 +17,9 @@ import '../services/local_streaming_server.dart';
 import '../services/next_episode_planner.dart';
 import '../services/streaming_service.dart';
 import '../widgets/next_episode_overlay.dart';
-import '../widgets/player/buffering_indicator.dart';
 import '../widgets/player/player_keyboard.dart';
-import '../widgets/player/resume_prompt.dart';
-import '../widgets/player/seek_indicator.dart';
-import '../widgets/player/skip_ripple_indicator.dart';
+import '../widgets/player/player_overlay_stack.dart';
+import '../widgets/player/up_next_chip.dart';
 import '../widgets/streaming_status_indicator.dart';
 import '../widgets/video_controls.dart';
 import '_player_next_episode_controller.dart';
@@ -496,6 +493,13 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
         ? (streamBuffering && !streamBufferingGrace)
         : rawBuffering;
 
+    final upNext = UpNextChip.resolve(
+      overlayActive: _planner.overlayActive,
+      downloaded: nextEpisode,
+      fromTmdb: nextEpisodeFromTmdb,
+      countdownSeconds: ref.read(nextEpisodeCountdownSecondsProvider),
+    );
+
     return Scaffold(
       backgroundColor: Colors.black,
       body: Focus(
@@ -511,160 +515,70 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
         child: MouseRegion(
           cursor: _showControls ? MouseCursor.defer : SystemMouseCursors.none,
           onHover: (_) => onUserInteraction(),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              // Main video area with gesture detection
-              GestureDetector(
-                onTap: onUserInteraction,
-                onDoubleTap: _onDoubleTap,
-                onHorizontalDragStart: _onHorizontalDragStart,
-                onHorizontalDragUpdate: _onHorizontalDragUpdate,
-                onHorizontalDragEnd: _onHorizontalDragEnd,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    if (_mediaOpened)
-                      Video(
-                        controller: videoController,
-                        controls: NoVideoControls,
-                      ),
-
-                    // Buffering indicator — in streaming mode, surface the
-                    // download progress so a long pause-for-cache shows the
-                    // user the torrent is actually progressing.
-                    if (isBuffering && _mediaOpened)
-                      BufferingIndicator(
-                        label: widget.isStreaming
-                            ? bufferingLabel(streamingDownloadedRatio)
-                            : null,
-                      ),
-
-                    // Skip backward indicator (left side)
-                    if (_showSkipBackward)
-                      Positioned(
-                        left: 60,
-                        top: 0,
-                        bottom: 0,
-                        child: Center(
-                          child: SkipRippleIndicator(forward: false),
-                        ),
-                      ),
-
-                    // Skip forward indicator (right side)
-                    if (_showSkipForward)
-                      Positioned(
-                        right: 60,
-                        top: 0,
-                        bottom: 0,
-                        child: Center(
-                          child: SkipRippleIndicator(forward: true),
-                        ),
-                      ),
-
-                    // Seek indicator during drag
-                    if (_isSeeking)
-                      Center(
-                        child: SeekIndicator(
-                          seekDelta: _seekDelta,
-                          dragStartTime: _dragStartTime!,
-                        ),
-                      ),
-
-                    // Resume prompt overlay
-                    if (_showResumePrompt)
-                      ResumePrompt(
-                        resumePosition: _resumePosition ?? Duration.zero,
-                        onStartOver: () => _handleResume(false),
-                        onResume: () => _handleResume(true),
-                      ),
-
-                    // Custom controls overlay
-                    if (!_showResumePrompt)
-                      AnimatedOpacity(
-                        opacity: _showControls ? 1.0 : 0.0,
-                        duration: const Duration(milliseconds: 300),
-                        child: IgnorePointer(
-                          ignoring: !_showControls,
-                          child: VideoControlsOverlay(
-                            file: widget.file,
-                            isPlaying: isPlaying,
-                            isFullscreen: isWindowFullscreen,
-                            onPlayPause: () =>
-                                ref.read(playerServiceProvider).playOrPause(),
-                            onSeekForward: _seekForward,
-                            onSeekBackward: _seekBackward,
-                            onToggleFullscreen: toggleWindowFullscreen,
-                            onClose: _exitPlayer,
-                            onShowShortcuts: _showShortcutsDialog,
-                            streamingDownloadedRatio: widget.isStreaming
-                                ? streamingDownloadedRatio
-                                : null,
-                            bufferedSpans: widget.isStreaming
-                                ? bufferedSpans
-                                : const [],
-                            showId: currentShowId,
-                            onContinueWatchingActivated:
-                                onContinueWatchingActivated,
-                            nextEpisodePrefetch: nextPrefetch,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-
-              // Up Next chip — sized to itself so player controls stay
-              // tappable. Stays offered (expanded or minimized) after the
-              // trigger percentage; Play/Stream consumes it.
-              if (_planner.overlayActive &&
-                  (nextEpisode != null || nextEpisodeFromTmdb != null))
-                Positioned(
-                  right: AppSpacing.lg,
-                  bottom: 110,
-                  child: NextEpisodeOverlay(
-                    episodeCode:
-                        nextEpisode?.episodeCode ??
-                        nextEpisodeFromTmdb?.episodeCode ??
-                        '',
-                    title: nextEpisode != null
-                        ? (nextEpisode!.showName ?? nextEpisode!.fileName)
-                        : (nextEpisodeFromTmdb?.name ?? ''),
-                    countdownSeconds: nextEpisode != null
-                        ? ref.read(nextEpisodeCountdownSecondsProvider)
-                        : null,
+          child: PlayerOverlayStack(
+            video: _mediaOpened
+                ? Video(controller: videoController, controls: NoVideoControls)
+                : null,
+            showBuffering: isBuffering,
+            bufferingLabel: widget.isStreaming
+                ? bufferingLabel(streamingDownloadedRatio)
+                : null,
+            showSkipForward: _showSkipForward,
+            showSkipBackward: _showSkipBackward,
+            seekDelta: _isSeeking ? _seekDelta : null,
+            seekStartTime: _isSeeking ? _dragStartTime : null,
+            showResumePrompt: _showResumePrompt,
+            resumePosition: _resumePosition ?? Duration.zero,
+            onStartOver: () => _handleResume(false),
+            onResume: () => _handleResume(true),
+            controlsVisible: _showControls,
+            controls: VideoControlsOverlay(
+              file: widget.file,
+              isPlaying: isPlaying,
+              isFullscreen: isWindowFullscreen,
+              onPlayPause: () => ref.read(playerServiceProvider).playOrPause(),
+              onSeekForward: _seekForward,
+              onSeekBackward: _seekBackward,
+              onToggleFullscreen: toggleWindowFullscreen,
+              onClose: _exitPlayer,
+              onShowShortcuts: _showShortcutsDialog,
+              streamingDownloadedRatio: widget.isStreaming
+                  ? streamingDownloadedRatio
+                  : null,
+              bufferedSpans: widget.isStreaming ? bufferedSpans : const [],
+              showId: currentShowId,
+              onContinueWatchingActivated: onContinueWatchingActivated,
+              nextEpisodePrefetch: nextPrefetch,
+            ),
+            upNextChip: upNext == null
+                ? null
+                : NextEpisodeOverlay(
+                    episodeCode: upNext.episodeCode,
+                    title: upNext.title,
+                    countdownSeconds: upNext.countdownSeconds,
                     minimized: _planner.overlayMinimized,
-                    playLabel: nextEpisode != null ? 'Play' : 'Stream',
-                    onPlay: nextEpisode != null
+                    playLabel: upNext.playLabel,
+                    onPlay: upNext.playsFromDisk
                         ? onPlayNextEpisode
                         : onStreamNextEpisode,
                     onMinimize: minimizeNextEpisode,
                     onDismiss: consumeNextEpisodePrompt,
                     onRestore: restoreNextEpisode,
                   ),
-                ),
-
-              // Current-episode health-monitor chip (next-episode prefetch
-              // is the spinner beside the Continue Watching pill).
-              if (streamingStatus != null)
-                Positioned(
-                  top: MediaQuery.of(context).padding.top + AppSpacing.md,
-                  left: 0,
-                  right: 0,
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 400),
-                      child: StreamingStatusIndicator(
-                        status: streamingStatus!,
-                        message: streamingMessage,
-                        episodeCode: streamingEpisodeCode,
-                        progress: streamingProgress,
-                        onDismiss: dismissStreamingStatus,
-                      ),
-                    ),
+            statusChip: streamingStatus == null
+                ? null
+                : StreamingStatusIndicator(
+                    status: streamingStatus!,
+                    message: streamingMessage,
+                    episodeCode: streamingEpisodeCode,
+                    progress: streamingProgress,
+                    onDismiss: dismissStreamingStatus,
                   ),
-                ),
-            ],
+            onTap: onUserInteraction,
+            onDoubleTap: _onDoubleTap,
+            onHorizontalDragStart: _onHorizontalDragStart,
+            onHorizontalDragUpdate: _onHorizontalDragUpdate,
+            onHorizontalDragEnd: _onHorizontalDragEnd,
           ),
         ),
       ),
