@@ -206,10 +206,6 @@ Future<LibraryDeleteResult> deleteLibraryItem(
     if (await f.exists()) {
       await f.delete();
     }
-    ref.invalidate(localMediaStreamProvider);
-    ref.invalidate(localMediaFilesProvider);
-    await ref.read(watchProgressProvider.notifier).cleanupStaleEntries();
-    return LibraryDeleteResult(fileRemoved: true, torrentRemoved: hash != null);
   } catch (e) {
     AppLog.e('[LibraryActions] File delete failed for ${file.path}: $e');
     return LibraryDeleteResult(
@@ -218,6 +214,21 @@ Future<LibraryDeleteResult> deleteLibraryItem(
       error: e.toString(),
     );
   }
+
+  // Bookkeeping, in its own guard. The unlink has already happened by here,
+  // so folding a failure of this step into the delete result reported
+  // "nothing was removed" about a file that was in fact gone — the toast
+  // said the delete failed and the row disappeared anyway.
+  try {
+    ref.invalidate(localMediaStreamProvider);
+    ref.invalidate(localMediaFilesProvider);
+    await ref.read(watchProgressProvider.notifier).cleanupStaleEntries();
+  } catch (e) {
+    AppLog.w(
+      '[LibraryActions] post-delete cleanup failed for ${file.path}: $e',
+    );
+  }
+  return LibraryDeleteResult(fileRemoved: true, torrentRemoved: hash != null);
 }
 
 /// Mark a library item as watched.
