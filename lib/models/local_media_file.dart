@@ -202,14 +202,34 @@ class LocalMediaFile {
     };
   }
 
-  /// Clean show name by replacing separators with spaces
+  /// Turn the part of a release name before `S01E01` into a show title.
+  ///
+  /// Replacing separators is not enough: `Lanterns.2026.S01E03…` leaves
+  /// `Lanterns 2026`, and TMDB's `/search/tv` treats the year as part of the
+  /// query rather than a filter, so it matches nothing. The library then
+  /// shows a card with no poster while the *streaming* path — which takes its
+  /// show name from the indexer rather than the filename — resolves the same
+  /// series fine. That asymmetry is what makes it look like a poster bug
+  /// rather than a parsing one.
+  ///
+  /// Deliberately not [searchTitleFromTorrentName], which is for whole
+  /// torrent names: it drops a short trailing `.xxx` as a file extension, and
+  /// on an already-trimmed fragment that eats the last word — `The.Bear`
+  /// becomes `The`.
+  ///
+  /// A title that *is* a year survives, because the year is only dropped when
+  /// something is left after it: `1923` stays `1923`.
   static String _cleanShowName(String name) {
-    return name
+    final spaced = name
         .replaceAll('.', ' ')
         .replaceAll('_', ' ')
         .replaceAll('-', ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
+    final withoutYear = spaced
+        .replaceFirst(RegExp(r'\s+(?:19|20)\d{2}$'), '')
+        .trim();
+    return withoutYear.isEmpty ? spaced : withoutYear;
   }
 
   LocalMediaFile copyWith({
