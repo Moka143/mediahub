@@ -663,6 +663,79 @@ void main() {
       );
     });
   });
+
+  // ── describeDeleteFailure ──────────────────────────────────────────────
+
+  group('describeDeleteFailure', () {
+    test('names the real cause of a Windows sharing violation', () {
+      // The one users actually hit: qBittorrent holds every file it is
+      // seeding, and Windows — unlike macOS and Linux — refuses to unlink an
+      // open file. The raw exception reads "OSError: The process cannot
+      // access the file because it is being used by another process,
+      // errno = 32", which says nothing about what to do.
+      expect(
+        describeDeleteFailure(
+          const FileSystemException(
+            'Deletion failed',
+            'C:\\Downloads\\Show.mkv',
+            OSError('The process cannot access the file', 32),
+          ),
+        ),
+        'the file is still in use — stop the torrent and try again',
+      );
+    });
+
+    test('covers the lock-violation code too', () {
+      expect(
+        describeDeleteFailure(
+          const FileSystemException(
+            'Deletion failed',
+            'x',
+            OSError('locked', 33),
+          ),
+        ),
+        contains('still in use'),
+      );
+    });
+
+    test('reports permission trouble plainly', () {
+      // 1 EPERM, 5 ERROR_ACCESS_DENIED (Windows), 13 EACCES.
+      for (final code in [1, 5, 13]) {
+        expect(
+          describeDeleteFailure(
+            FileSystemException(
+              'Deletion failed',
+              'x',
+              OSError('denied', code),
+            ),
+          ),
+          'permission denied',
+          reason: 'errno $code',
+        );
+      }
+    });
+
+    test('falls back to the OS message for anything else', () {
+      expect(
+        describeDeleteFailure(
+          const FileSystemException(
+            'Deletion failed',
+            'x',
+            OSError('No such file or directory', 2),
+          ),
+        ),
+        'No such file or directory',
+      );
+    });
+
+    test('never returns an empty string', () {
+      expect(
+        describeDeleteFailure(const FileSystemException('', 'x')),
+        isNotEmpty,
+      );
+      expect(describeDeleteFailure(StateError('boom')), isNotEmpty);
+    });
+  });
 }
 
 /// A [TorrentListNotifier] that never polls and answers deletes from a script.

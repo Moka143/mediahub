@@ -22,18 +22,47 @@ class LocalMediaScanner {
 
     final files = <LocalMediaFile>[];
 
+    // One unreadable subdirectory must not end the walk.
+    //
+    // `Directory.list` reports a folder it cannot open as a stream error and
+    // then carries on, but an error that reaches `await for` breaks the loop
+    // — so a single bad folder used to discard every file after it, with one
+    // log line and a half-empty Library to show for it.
+    //
+    // Windows hits this routinely and macOS almost never does, which is why
+    // it went unnoticed: a download folder at a drive root always contains
+    // `System Volume Information` and `$RECYCLE.BIN`, neither readable, and
+    // OneDrive adds placeholder files that fail to stat until they are
+    // hydrated.
+    var skipped = 0;
+    final entities = directory.list(recursive: true).handleError((Object e) {
+      skipped++;
+      AppLog.d('[LibraryScan] skipped an unreadable entry: $e');
+    }, test: (e) => e is FileSystemException);
+
     try {
-      await for (final entity in directory.list(recursive: true)) {
-        if (entity is File) {
+      await for (final entity in entities) {
+        if (entity is! File) continue;
+        try {
           final mediaFile = await LocalMediaFile.fromFile(entity);
-          if (mediaFile != null) {
-            files.add(mediaFile);
-          }
+          if (mediaFile != null) files.add(mediaFile);
+        } on FileSystemException catch (e) {
+          // A file that vanished mid-scan, or one qBittorrent is still
+          // writing and has locked — Windows refuses the stat outright.
+          skipped++;
+          AppLog.d('[LibraryScan] skipped ${entity.path}: $e');
         }
       }
     } catch (e) {
-      // Handle permission errors or other issues
+      // Anything the per-entry guards did not cover.
       AppLog.e('[LibraryScan] Error scanning directory: $e');
+    }
+
+    if (skipped > 0) {
+      AppLog.i(
+        '[LibraryScan] ${files.length} file(s) found, $skipped entry/entries '
+        'skipped as unreadable',
+      );
     }
 
     // Sort by modified date (newest first)

@@ -62,7 +62,15 @@ class QBittorrentProcessService {
     return PlatformUtils.qBittorrentExists(_qbittorrentPath);
   }
 
-  /// Find qBittorrent executable using 'which' command
+  /// Find the qBittorrent executable.
+  ///
+  /// `which` is enough on macOS and Linux, where installers put qBittorrent
+  /// on `PATH`. Nothing does that on Windows, so `which` there always
+  /// answers null and the search has to be a list of known install
+  /// locations — 32-bit, per-user, and scoop layouts included. Without them
+  /// anyone who did not install to the default 64-bit path met
+  /// "qBittorrent executable not found" with no hint that the fix was to
+  /// type a path into Settings.
   Future<String?> findExecutable() async {
     try {
       final names = Platform.isLinux
@@ -74,6 +82,13 @@ class QBittorrentProcessService {
         if (result != null) {
           _log('Found qBittorrent at: $result');
           return result;
+        }
+      }
+
+      for (final candidate in PlatformUtils.qBittorrentCandidates()) {
+        if (await PlatformUtils.qBittorrentExists(candidate)) {
+          _log('Found qBittorrent at: $candidate');
+          return candidate;
         }
       }
     } catch (e) {

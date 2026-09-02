@@ -3,6 +3,12 @@
   <application xmlns="urn:schemas-microsoft-com:asm.v3">
     <windowsSettings>
       <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+      <!-- Torrent names are long, season packs nest, and a save path chosen
+           under Documents or OneDrive is already deep. Without this the app
+           is capped at MAX_PATH (260 chars) and files past it fail to stat,
+           play or delete. Takes effect where the machine also has the
+           LongPathsEnabled policy set, which is the default on Windows 11. -->
+      <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
     </windowsSettings>
   </application>
   <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">

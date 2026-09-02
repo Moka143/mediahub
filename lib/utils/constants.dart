@@ -38,6 +38,27 @@ class QBittorrentPaths {
   static const String linux = '/usr/bin/qbittorrent-nox';
   static const String macos =
       '/Applications/qBittorrent.app/Contents/MacOS/qBittorrent';
+
+  /// Where else qBittorrent is commonly installed on Windows.
+  ///
+  /// The default above is only right for a 64-bit install to the default
+  /// location. Nothing puts qBittorrent on `PATH` on Windows, so the `which`
+  /// fallback that rescues macOS and Linux finds nothing — leaving anyone
+  /// with a 32-bit build, a per-user install, or a second drive staring at
+  /// "qBittorrent executable not found" with no idea that the fix is to type
+  /// a path into Settings.
+  ///
+  /// `%…%` placeholders are expanded against the environment at lookup time;
+  /// an entry whose variable is unset is skipped.
+  static const List<String> windowsFallbacks = [
+    r'%ProgramFiles%\qBittorrent\qbittorrent.exe',
+    r'%ProgramFiles(x86)%\qBittorrent\qbittorrent.exe',
+    r'%LOCALAPPDATA%\Programs\qBittorrent\qbittorrent.exe',
+    r'%LOCALAPPDATA%\qBittorrent\qbittorrent.exe',
+    r'%USERPROFILE%\scoop\apps\qbittorrent\current\qbittorrent.exe',
+    r'C:\Program Files\qBittorrent\qbittorrent.exe',
+    r'C:\Program Files (x86)\qBittorrent\qbittorrent.exe',
+  ];
 }
 
 /// Torrent state constants from qBittorrent API

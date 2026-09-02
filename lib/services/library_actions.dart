@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/local_media_file.dart';
@@ -167,6 +168,32 @@ Future<bool> isFileCompleteOnDisk(WidgetRef ref, LocalMediaFile file) async {
   }
 }
 
+/// Turn a failed delete into something a user can act on.
+///
+/// The raw `FileSystemException` reads `OSError: The process cannot access
+/// the file because it is being used by another process, errno = 32`, which
+/// is both alarming and unhelpful. Windows is where it actually happens:
+/// unlike macOS and Linux, it refuses to unlink a file that another process
+/// holds open, and qBittorrent holds every file it is still seeding. The
+/// answer is always the same — stop the torrent first — so say that instead.
+@visibleForTesting
+String describeDeleteFailure(Object error) {
+  if (error is FileSystemException) {
+    final code = error.osError?.errorCode;
+    // 32 ERROR_SHARING_VIOLATION, 33 ERROR_LOCK_VIOLATION (Windows);
+    // EACCES / EPERM elsewhere.
+    if (code == 32 || code == 33) {
+      return 'the file is still in use — stop the torrent and try again';
+    }
+    if (code == 5 || code == 13 || code == 1) {
+      return 'permission denied';
+    }
+    final message = error.osError?.message ?? error.message;
+    return message.isEmpty ? 'could not delete the file' : message;
+  }
+  return error.toString();
+}
+
 /// Delete a library item end-to-end.
 ///
 /// - If a matching qBittorrent torrent is found, asks qBit to delete the
@@ -211,7 +238,7 @@ Future<LibraryDeleteResult> deleteLibraryItem(
     return LibraryDeleteResult(
       fileRemoved: false,
       torrentRemoved: false,
-      error: e.toString(),
+      error: describeDeleteFailure(e),
     );
   }
 

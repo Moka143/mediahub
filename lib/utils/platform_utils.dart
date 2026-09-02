@@ -53,18 +53,66 @@ class PlatformUtils {
     return file.exists();
   }
 
-  /// Get the default download directory for the current platform
+  /// Expand `%VAR%` placeholders against the process environment.
+  ///
+  /// Returns null when any referenced variable is missing, so a caller can
+  /// skip the candidate rather than probe a path with a literal `%VAR%` in
+  /// it. Windows-shaped, but harmless anywhere.
+  static String? expandWindowsVars(
+    String value, {
+    Map<String, String>? environment,
+  }) {
+    final env = environment ?? Platform.environment;
+    var missing = false;
+    final expanded = value.replaceAllMapped(RegExp(r'%([^%]+)%'), (match) {
+      final replacement = env[match.group(1)!];
+      if (replacement == null) missing = true;
+      return replacement ?? '';
+    });
+    return missing ? null : expanded;
+  }
+
+  /// Candidate qBittorrent locations to try, most likely first.
+  ///
+  /// Only Windows has more than one: `which` finds qBittorrent on macOS and
+  /// Linux, and nothing puts it on `PATH` on Windows.
+  static List<String> qBittorrentCandidates({
+    Map<String, String>? environment,
+  }) {
+    if (!Platform.isWindows) return const [];
+    final seen = <String>{};
+    return [
+      for (final candidate in QBittorrentPaths.windowsFallbacks)
+        if (expandWindowsVars(candidate, environment: environment)
+            case final path?)
+          if (seen.add(path.toLowerCase())) path,
+    ];
+  }
+
+  /// Get the default download directory for the current platform.
+  ///
+  /// On Windows, `%USERPROFILE%\Downloads` is only right when the folder has
+  /// not been redirected. OneDrive's "Back up your folders" moves Downloads
+  /// under `%OneDrive%` and leaves nothing behind, so the naive path points
+  /// at a directory that does not exist and the library scans nothing. Prefer
+  /// whichever candidate is actually on disk.
   static String getDefaultDownloadPath() {
     final home =
         Platform.environment['HOME'] ??
         Platform.environment['USERPROFILE'] ??
         '';
 
-    if (Platform.isWindows) {
-      return '$home\\Downloads';
-    } else {
-      return '$home/Downloads';
+    if (!Platform.isWindows) return '$home/Downloads';
+
+    final oneDrive = Platform.environment['OneDrive'];
+    final candidates = <String>[
+      '$home\\Downloads',
+      if (oneDrive != null && oneDrive.isNotEmpty) '$oneDrive\\Downloads',
+    ];
+    for (final candidate in candidates) {
+      if (Directory(candidate).existsSync()) return candidate;
     }
+    return candidates.first;
   }
 
   /// Hosts that mean "this machine".
