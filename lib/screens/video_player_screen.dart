@@ -9,15 +9,11 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../design/app_tokens.dart';
-import '../models/episode.dart';
 import '../models/local_media_file.dart';
-import '../models/stream_request.dart';
-import '../providers/auto_download_provider.dart';
 import '../providers/connection_provider.dart';
 import '../providers/local_media_provider.dart';
 import '../providers/player_provider.dart';
 import '../providers/settings_provider.dart';
-import '../providers/shows_provider.dart';
 import '../providers/streaming_provider.dart';
 import '../providers/subtitle_provider.dart';
 import '../providers/watch_progress_provider.dart';
@@ -34,6 +30,7 @@ import '../widgets/player/seek_indicator.dart';
 import '../widgets/player/skip_ripple_indicator.dart';
 import '../widgets/streaming_status_indicator.dart';
 import '../widgets/video_controls.dart';
+import '_player_next_episode_controller.dart';
 
 /// Full-screen video player screen with gesture controls
 class VideoPlayerScreen extends ConsumerStatefulWidget {
@@ -99,7 +96,8 @@ class VideoPlayerScreen extends ConsumerStatefulWidget {
   ConsumerState<VideoPlayerScreen> createState() => _VideoPlayerScreenState();
 }
 
-class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
+class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
+    with PlayerNextEpisodeController<VideoPlayerScreen> {
   bool _showControls = true;
   Timer? _hideControlsTimer;
   bool _isFullscreen = false;
@@ -126,47 +124,18 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   bool _showSkipBackward = false;
   Timer? _skipIndicatorTimer;
 
-  // Binge watching / Next episode state.
-  //
-  // The *when* — trigger window, overlay-vs-autoplay, and the one-shot
-  // guards that used to be four loose booleans here — lives in
-  // [NextEpisodePlanner]. This screen keeps the *what*: the resolved
-  // episode, the TMDB lookup, and the navigation.
+  // Binge watching. The *when* — trigger window, overlay-vs-autoplay and
+  // the one-shot guards — lives in [NextEpisodePlanner]; the *what* —
+  // resolving the episode, the TMDB lookup, the prefetch and the hand-off —
+  // lives in [PlayerNextEpisodeController]. This screen holds the planner
+  // only because `build()` reads it to decide whether to draw the overlay.
   late final NextEpisodePlanner _planner;
-  LocalMediaFile? _nextEpisode;
-  Episode? _nextEpisodeFromTmdb; // Next episode from TMDB (not downloaded yet)
-  int? _currentShowId;
-  String? _currentImdbId;
-  StreamSubscription<Duration>? _positionSubscription;
-  StreamSubscription<bool>? _completedSubscription;
-
-  bool _nextEpisodeDownloadStarted =
-      false; // Track if we started downloading next ep
-  Episode? _downloadingEpisode; // The episode we're downloading
-  String? _nextEpisodeStreamingTorrentHash;
-  int? _nextEpisodeStreamingFileIndex;
-
-  /// HTTP proxy URL for the next-episode stream, when one has been set up.
-  /// Mirrors `widget.streamingProxyUrl` for the current episode but for the
-  /// auto-next-episode handoff in [_onPlayNextEpisode]. Without this the
-  /// new VideoPlayerScreen would open in direct-disk mode and the seek-bar
-  /// buffered region wouldn't update.
-  String? _nextEpisodeStreamingProxyUrl;
-  StreamSubscription<Duration>? _autoDownloadSubscription;
-
-  /// Subscription to the next-episode [StreamingService] session. Cancelled
-  /// on any terminal state and in [dispose].
-  StreamSubscription<StreamingSession>? _nextEpisodeSubscription;
-
   // Streaming status indicator (current-episode health monitor only —
-  // next-episode prefetch lives in [_nextPrefetch] beside the CW pill).
+  // next-episode prefetch lives in [nextPrefetch] beside the CW pill).
   StreamingStatus? _streamingStatus;
   String _streamingMessage = '';
   String? _streamingEpisodeCode;
   double? _streamingProgress;
-
-  NextEpisodePrefetch? _nextPrefetch;
-  Timer? _nextPrefetchHideTimer;
 
   // Debounced buffering state for streaming mode —
   // mpv's buffering signal flickers rapidly when reading at the edge
@@ -203,8 +172,6 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   /// takes ownership with it, and cancelling here would kill the proxy the
   /// next episode is about to read from.
   String? _ownedSessionId;
-  String? _prefetchSessionId;
-
   @override
   void initState() {
     super.initState();
@@ -225,9 +192,9 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _keyboardFocus.requestFocus();
       _initializePlayer();
-      _setupNextEpisodeWatcher();
-      _setupAutoDownloadWatcher();
-      _setupPlaybackCompletionWatcher();
+      setupNextEpisodeWatcher();
+      setupAutoDownloadWatcher();
+      setupPlaybackCompletionWatcher();
     });
   }
 
@@ -408,7 +375,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         message: message,
         progress: progress,
       ),
-      onBufferingResolved: _dismissStreamingStatus,
+      onBufferingResolved: dismissStreamingStatus,
     )..start();
   }
 
@@ -464,516 +431,6 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     });
   }
 
-  void _setupNextEpisodeWatcher() async {
-    final player = ref.read(playerProvider);
-
-    // Skip the whole flow — subscription, TMDB lookup and library rescan —
-    // when binge watching is off. The planner would refuse every action
-    // anyway, but there's no reason to pay for the round trips.
-    if (!_planner.bingeEnabled) return;
-
-    // Attach the position listener UP FRONT — even before we know whether
-    // there's a next episode. If we wait until TMDB / local scan resolves
-    // (a network round trip + filesystem scan, which can outlast the user
-    // crossing the countdown threshold) we miss the show window entirely.
-    // The auto-download flow can also surface a next episode much later
-    // (after buffering completes), and we want the overlay to fire then
-    // too. So: always-attach, lazy-check `_hasNextEpisode()` on each tick.
-    _positionSubscription = player.stream.position.listen((position) {
-      if (!mounted) return;
-
-      final cwOverride = _currentShowId == null
-          ? null
-          : ref
-                .read(autoDownloadProvider)
-                .showAutoDownloadOverrides[_currentShowId];
-
-      final action = _planner.evaluatePosition(
-        position: position,
-        duration: player.state.duration,
-        countdownSeconds: ref.read(nextEpisodeCountdownSecondsProvider),
-        resumePromptVisible: _showResumePrompt,
-        continueWatchingOn: cwOverride == true,
-        hasAnyNextEpisode: _hasNextEpisode(),
-      );
-
-      switch (action) {
-        case NextEpisodeAction.showOverlay:
-          setState(() {});
-        case NextEpisodeAction.none:
-          break;
-      }
-    });
-
-    // Resolve next-episode info in the background — TMDB is authoritative
-    // (so we don't skip episodes) but slow, so checking this *after*
-    // attaching the listener avoids the early-exit race.
-    await _checkTmdbForNextEpisode();
-
-    if (_nextEpisodeFromTmdb != null) {
-      final showName = widget.file.showName;
-      if (showName != null) {
-        final scanner = ref.read(localMediaScannerProvider);
-        final files = await scanner.scanDirectory();
-
-        final downloadedNextEp = scanner.findEpisodeFile(
-          files,
-          showName: showName,
-          season: _nextEpisodeFromTmdb!.seasonNumber,
-          episode: _nextEpisodeFromTmdb!.episodeNumber,
-        );
-
-        if (downloadedNextEp != null) {
-          AppLog.d(
-            '[NextEpisode] Found downloaded next episode: ${downloadedNextEp.fileName}',
-          );
-          if (mounted) {
-            setState(() {
-              _nextEpisode = downloadedNextEp;
-              _nextEpisodeFromTmdb = null;
-            });
-          }
-        } else {
-          AppLog.d(
-            '[NextEpisode] Next episode S${_nextEpisodeFromTmdb!.seasonNumber}E${_nextEpisodeFromTmdb!.episodeNumber} not downloaded - will offer download',
-          );
-        }
-      }
-    } else {
-      // TMDB didn't find next episode (network failure, no TMDB match).
-      // Fall back to local-only check.
-      final localNext = ref.read(nextLocalEpisodeProvider(widget.file));
-      if (localNext != null && mounted) {
-        setState(() => _nextEpisode = localNext);
-      }
-    }
-  }
-
-  bool _hasNextEpisode() =>
-      _nextEpisode != null || _nextEpisodeFromTmdb != null;
-
-  /// Check TMDB for next episode when no downloaded episode is available
-  Future<void> _checkTmdbForNextEpisode() async {
-    final file = widget.file;
-    final showName = file.showName;
-    final season = file.seasonNumber;
-    final episode = file.episodeNumber;
-
-    AppLog.d(
-      '[AutoDownload] Checking TMDB for next episode: $showName S${season}E$episode',
-    );
-
-    if (showName == null || season == null || episode == null) {
-      AppLog.w('[AutoDownload] Missing show info, skipping TMDB check');
-      return;
-    }
-
-    try {
-      final tmdbService = ref.read(tmdbApiServiceProvider);
-      final shows = await tmdbService.searchShows(showName);
-
-      AppLog.d(
-        '[AutoDownload] TMDB search results: ${shows.length} shows found',
-      );
-
-      if (shows.isEmpty) return;
-
-      final show = shows.first;
-      // setState rather than bare assign — VideoControlsOverlay reads
-      // `_currentShowId` to decide whether to render the per-show
-      // Continue Watching toggle. Without the rebuild signal the pill
-      // wouldn't appear until some other state change triggered build().
-      if (mounted) {
-        setState(() => _currentShowId = show.id);
-      } else {
-        _currentShowId = show.id;
-      }
-      unawaited(
-        ref
-            .read(watchProgressProvider.notifier)
-            .attachShowId(widget.file.path, show.id),
-      );
-
-      // Get full show details with IMDB ID (using append_to_response for external_ids)
-      final showDetails = await tmdbService.getShowDetailsWithImdb(show.id);
-      _currentImdbId = showDetails.imdbId;
-
-      AppLog.d(
-        '[AutoDownload] Show: ${show.name}, TMDB ID: ${show.id}, IMDB ID: $_currentImdbId',
-      );
-
-      // Set subtitle context for OpenSubtitles
-      if (_currentImdbId != null) {
-        ref
-            .read(subtitleContextProvider.notifier)
-            .setSeriesContext(
-              imdbId: _currentImdbId!,
-              season: season,
-              episode: episode,
-            );
-        AppLog.d(
-          '[Subtitles] Set series context: $_currentImdbId S${season}E$episode',
-        );
-      }
-
-      // Use auto-download service to get next episode info
-      final autoDownloadService = ref.read(autoDownloadServiceProvider);
-      final result = await autoDownloadService.getNextEpisode(
-        showId: show.id,
-        currentSeason: season,
-        currentEpisode: episode,
-      );
-
-      AppLog.d(
-        '[AutoDownload] Next episode result: ${result.nextEpisode?.episodeCode ?? "none"}, hasNext: ${result.hasNextEpisode}',
-      );
-
-      if (mounted) {
-        setState(() => _nextEpisodeFromTmdb = result.nextEpisode);
-      }
-    } catch (e) {
-      AppLog.e('[AutoDownload] Failed to check TMDB for next episode: $e');
-    }
-  }
-
-  /// Called when the user flips Continue Watching to explicit-On for this
-  /// show. Prefetches the next episode only if we're already past the
-  /// progress threshold (so turning On during credits still works). Earlier
-  /// than that, the position watcher starts the prefetch at the threshold —
-  /// never by jumping to the next episode.
-  void _onContinueWatchingActivated() {
-    final player = ref.read(playerProvider);
-    final state = ref.read(autoDownloadProvider);
-    if (!_planner.claimAutoDownloadAtThreshold(
-      gateOpen: true,
-      position: player.state.position,
-      duration: player.state.duration,
-      threshold: state.progressThreshold,
-    )) {
-      AppLog.d(
-        '[ContinueWatching] activated — waiting for '
-        '${(state.progressThreshold * 100).toInt()}% before prefetch',
-      );
-      return;
-    }
-    AppLog.d(
-      '[ContinueWatching] activated past threshold — prefetching next episode',
-    );
-    _triggerAutoDownload();
-  }
-
-  void _setupAutoDownloadWatcher() {
-    final player = ref.read(playerProvider);
-    final state = ref.read(autoDownloadProvider);
-    final notifier = ref.read(autoDownloadProvider.notifier);
-
-    AppLog.d(
-      '[AutoDownload] Attached watcher: '
-      'global.enabled=${state.enabled} '
-      'global.downloadOnProgress=${state.downloadOnProgress} '
-      'overrides=${state.showAutoDownloadOverrides} '
-      'threshold=${state.progressThreshold} '
-      'active(now)=${notifier.isAutoDownloadActiveForShow(_currentShowId)} '
-      'showId=$_currentShowId',
-    );
-
-    // Throttle the per-tick "we crossed threshold but gate is closed" log so
-    // we don't spam every position event.
-    var lastDecisionLogAt = DateTime.fromMillisecondsSinceEpoch(0);
-
-    _autoDownloadSubscription = player.stream.position.listen((position) {
-      if (!mounted) return;
-
-      // Re-resolve every tick so toggling the per-show pill (or the global
-      // setting) takes effect without restarting playback.
-      final state = ref.read(autoDownloadProvider);
-      final notifier = ref.read(autoDownloadProvider.notifier);
-      final active = notifier.isAutoDownloadActiveForShow(_currentShowId);
-      final duration = player.state.duration;
-
-      if (_planner.claimAutoDownloadAtThreshold(
-        gateOpen: active,
-        position: position,
-        duration: duration,
-        threshold: state.progressThreshold,
-      )) {
-        AppLog.d(
-          '[AutoDownload] Crossed threshold (${state.progressThreshold}) — '
-          'triggering download',
-        );
-        _triggerAutoDownload();
-        return;
-      }
-
-      // Diagnostic only: we're past the threshold but the gate is shut.
-      // Throttled so a closed gate doesn't log on every position event.
-      if (active || duration.inMilliseconds <= 0) return;
-      final progress = position.inMilliseconds / duration.inMilliseconds;
-      if (progress < state.progressThreshold) return;
-      final now = DateTime.now();
-      if (now.difference(lastDecisionLogAt).inSeconds < 5) return;
-      lastDecisionLogAt = now;
-      AppLog.d(
-        '[AutoDownload] At ${(progress * 100).toStringAsFixed(1)}% '
-        'but gate is closed: enabled=${state.enabled} '
-        'overrideForShow=${_currentShowId == null ? "<no-show>" : state.showAutoDownloadOverrides[_currentShowId]} '
-        'downloadOnProgress=${state.downloadOnProgress}',
-      );
-    });
-  }
-
-  Future<void> _triggerAutoDownload() async {
-    final file = widget.file;
-
-    final showName = file.showName;
-    final season = file.seasonNumber;
-    final episode = file.episodeNumber;
-    final quality = file.quality ?? '1080p';
-
-    if (showName == null || season == null || episode == null) return;
-
-    try {
-      // Prefer the show id + imdb id we already resolved in
-      // `_checkTmdbForNextEpisode` (which uses `getShowDetailsWithImdb`).
-      // Falling back to a fresh search-then-details pair would also work,
-      // but the older path used `getShowDetails` which doesn't request
-      // external IDs and so always returned a null imdb id — auto-download
-      // bailed out one step later because the torrent search needs imdb.
-      var showId = _currentShowId;
-      var imdbId = _currentImdbId;
-
-      if (showId == null || imdbId == null) {
-        final tmdbService = ref.read(tmdbApiServiceProvider);
-        final shows = await tmdbService.searchShows(showName);
-        if (shows.isEmpty) {
-          AppLog.d(
-            '[AutoDownload] _triggerAutoDownload: TMDB returned no shows for $showName',
-          );
-          return;
-        }
-        final show = shows.first;
-        final details = await tmdbService.getShowDetailsWithImdb(show.id);
-        showId = show.id;
-        imdbId = details.imdbId;
-        if (mounted) {
-          setState(() {
-            _currentShowId = showId;
-            _currentImdbId = imdbId;
-          });
-        }
-        unawaited(
-          ref
-              .read(watchProgressProvider.notifier)
-              .attachShowId(widget.file.path, show.id),
-        );
-      }
-
-      // Continue Watching On prefetches the next episode through
-      // StreamingService so the hand-off already has a proxy URL — but
-      // as a *background* session. The overlay Stream button is the
-      // play-now path; reusing it here used to steal `activeSessionId`
-      // and the nav safety-net would open ep N+1 on top of ep N.
-      final state = ref.read(autoDownloadProvider);
-      final cwOverride = state.showAutoDownloadOverrides[showId];
-      if (cwOverride == true && _nextEpisodeFromTmdb != null) {
-        AppLog.d(
-          '[AutoDownload] _triggerAutoDownload → prefetch next episode '
-          '(CW on for show $showId)',
-        );
-        await _prefetchNextEpisode(playWhenReady: false);
-        return;
-      }
-
-      AppLog.d(
-        '[AutoDownload] _triggerAutoDownload → onWatchProgress '
-        'showId=$showId imdbId=$imdbId',
-      );
-
-      // Not awaited: this reaches out to the indexer and qBittorrent.
-      // Playback must not wait on it.
-      unawaited(
-        ref
-            .read(autoDownloadProvider.notifier)
-            .onWatchProgress(
-              showId: showId,
-              imdbId: imdbId,
-              showName: showName,
-              season: season,
-              episode: episode,
-              progress: state.progressThreshold,
-              currentQuality: quality,
-            ),
-      );
-    } catch (e) {
-      AppLog.e('[AutoDownload] _triggerAutoDownload failed: $e');
-    }
-  }
-
-  /// Watch for playback completion to auto-play next episode if available.
-  ///
-  /// Only Continue Watching **On** jumps automatically here. Auto uses the
-  /// Up Next card (and its countdown); Off does nothing.
-  void _setupPlaybackCompletionWatcher() {
-    final player = ref.read(playerProvider);
-
-    _completedSubscription = player.stream.completed.listen((completed) async {
-      if (!completed || !mounted) return;
-
-      final cwOverride = _currentShowId == null
-          ? null
-          : ref
-                .read(autoDownloadProvider)
-                .showAutoDownloadOverrides[_currentShowId];
-      if (cwOverride != true) return;
-
-      AppLog.d(
-        '[ContinueWatching] Playback completed — handing off to next episode',
-      );
-
-      if (_nextEpisode != null) {
-        _onPlayNextEpisode();
-        return;
-      }
-
-      await _playNextEpisodeFromDisk(
-        target: _nextEpisodeDownloadStarted ? _downloadingEpisode : null,
-      );
-    });
-  }
-
-  /// Find the next episode on disk and hand the player over to it.
-  ///
-  /// [target] is the episode a prefetch was downloading, when there is one;
-  /// that path waits for the file to be finalised before scanning. Otherwise
-  /// the candidates come from TMDB's answer if we have it, falling back to
-  /// "next in this season, then first of the next".
-  ///
-  /// Replaces two methods that answered the same question by different rules.
-  /// The fallback one hardcoded `season + 1, episode 1` while ignoring the
-  /// TMDB result this screen was already holding, so a show whose season
-  /// numbering does not follow that shape jumped to the wrong episode or to
-  /// none at all.
-  Future<void> _playNextEpisodeFromDisk({Episode? target}) async {
-    final showName = widget.file.showName;
-    if (showName == null) return;
-
-    final season = widget.file.seasonNumber;
-    final episode = widget.file.episodeNumber;
-    final fromTmdb = _nextEpisodeFromTmdb;
-
-    final candidates = <({int season, int episode})>[
-      if (target != null)
-        (season: target.seasonNumber, episode: target.episodeNumber)
-      else ...[
-        // TMDB is authoritative about what comes next; the arithmetic below
-        // is only a fallback for when the lookup failed.
-        if (fromTmdb != null)
-          (season: fromTmdb.seasonNumber, episode: fromTmdb.episodeNumber),
-        if (season != null && episode != null) ...[
-          (season: season, episode: episode + 1),
-          (season: season + 1, episode: 1),
-        ],
-      ],
-    ];
-    if (candidates.isEmpty) return;
-
-    if (target != null) {
-      // The file may have landed seconds ago — let the scanner catch up.
-      await ref.read(refreshLocalMediaProvider)();
-      await Future.delayed(const Duration(seconds: 2));
-      if (!mounted) return;
-    }
-
-    final scanner = ref.read(localMediaScannerProvider);
-    final files = await scanner.scanDirectory();
-    if (!mounted) return;
-
-    for (final candidate in candidates) {
-      final match = scanner.findEpisodeFile(
-        files,
-        showName: showName,
-        season: candidate.season,
-        episode: candidate.episode,
-      );
-      if (match == null) continue;
-
-      AppLog.d('[NextEpisode] Playing ${match.fileName} from disk');
-      _dismissStreamingStatus();
-      _dismissNextPrefetch();
-      await ref.read(playerServiceProvider).stop();
-      if (!mounted) return;
-
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => VideoPlayerScreen(file: match)),
-      );
-      return;
-    }
-
-    if (target != null) {
-      AppLog.w('[NextEpisode] ${target.episodeCode} is not on disk yet');
-      _setNextEpisodePrefetch(
-        status: StreamingStatus.buffering,
-        message: 'Still downloading. Check Library when ready.',
-        episodeCode: target.episodeCode,
-      );
-    }
-  }
-
-  void _onPlayNextEpisode() async {
-    unawaited(_positionSubscription?.cancel());
-    _dismissStreamingStatus();
-    _dismissNextPrefetch();
-    _consumeNextEpisodePrompt();
-
-    final nextEpisode = _nextEpisode;
-    if (nextEpisode == null) return;
-
-    // Stop current playback
-    final playerService = ref.read(playerServiceProvider);
-    await playerService.stop();
-
-    if (mounted) {
-      final streamingHash = _nextEpisodeStreamingTorrentHash;
-      // Hand the prefetch session to the replacement screen. Nulled here so
-      // our dispose() — which runs right after pushReplacement — doesn't
-      // cancel the session the next episode is about to play from.
-      final handoffSessionId = _prefetchSessionId;
-      _prefetchSessionId = null;
-      AppLog.d(
-        '[NextEpisodeProxy] handing off to player streaming=${streamingHash != null} '
-        'hash=$streamingHash '
-        'fileIdx=$_nextEpisodeStreamingFileIndex '
-        'url=$_nextEpisodeStreamingProxyUrl '
-        'session=$handoffSessionId',
-      );
-      // Navigate to next episode
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => VideoPlayerScreen(
-            file: nextEpisode,
-            isStreaming: streamingHash != null,
-            streamingTorrentHash: streamingHash,
-            streamingFileIndex: _nextEpisodeStreamingFileIndex,
-            streamingProxyUrl: _nextEpisodeStreamingProxyUrl,
-            streamingSessionId: handoffSessionId,
-          ),
-        ),
-      );
-    }
-  }
-
-  void _minimizeNextEpisode() {
-    setState(() => _planner.minimizeOverlay());
-  }
-
-  void _restoreNextEpisode() {
-    setState(() => _planner.restoreOverlay());
-  }
-
-  void _consumeNextEpisodePrompt() {
-    setState(() => _planner.consumeOverlay());
-  }
-
   void _startHideControlsTimer() {
     _hideControlsTimer?.cancel();
     _hideControlsTimer = Timer(const Duration(seconds: 3), () {
@@ -983,7 +440,8 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     });
   }
 
-  void _onUserInteraction() {
+  @override
+  void onUserInteraction() {
     setState(() => _showControls = true);
     _startHideControlsTimer();
   }
@@ -1094,7 +552,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       _dragStartPosition = details.globalPosition;
       _dragStartTime = player.state.position;
     });
-    _onUserInteraction();
+    onUserInteraction();
   }
 
   void _onHorizontalDragUpdate(DragUpdateDetails details) {
@@ -1137,19 +595,19 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   /// of which still show the ripple.
   void _onDoubleTap() {
     ref.read(playerServiceProvider).playOrPause();
-    _onUserInteraction();
+    onUserInteraction();
   }
 
   void _seekBackward() {
     _showSkipIndicator(forward: false);
     ref.read(playerServiceProvider).seekBackward(seconds: 10);
-    _onUserInteraction();
+    onUserInteraction();
   }
 
   void _seekForward() {
     _showSkipIndicator(forward: true);
     ref.read(playerServiceProvider).seekForward(seconds: 10);
-    _onUserInteraction();
+    onUserInteraction();
   }
 
   void _showSkipIndicator({required bool forward}) {
@@ -1168,15 +626,44 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     });
   }
 
+  // ── PlayerNextEpisodeController contract ─────────────────────────────
+
+  @override
+  LocalMediaFile get playingFile => widget.file;
+
+  @override
+  NextEpisodePlanner get planner => _planner;
+
+  @override
+  bool get resumePromptVisible => _showResumePrompt;
+
+  @override
+  void openReplacementPlayer(
+    LocalMediaFile file, {
+    String? torrentHash,
+    int? fileIndex,
+    String? proxyUrl,
+    String? sessionId,
+  }) {
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => VideoPlayerScreen(
+          file: file,
+          isStreaming: torrentHash != null,
+          streamingTorrentHash: torrentHash,
+          streamingFileIndex: fileIndex,
+          streamingProxyUrl: proxyUrl,
+          streamingSessionId: sessionId,
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _hideControlsTimer?.cancel();
     _skipIndicatorTimer?.cancel();
-    _positionSubscription?.cancel();
-    _completedSubscription?.cancel();
-    _autoDownloadSubscription?.cancel();
-    _nextEpisodeSubscription?.cancel();
-    _nextPrefetchHideTimer?.cancel();
+    disposeNextEpisodeController();
     _bufferingDebounceTimer?.cancel();
     _bufferingSubscription?.cancel();
     // Synchronous and ref-free — the monitor owns its own timer and stream
@@ -1186,7 +673,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     // Release the sessions this screen owns: cancelSession stops the 2 s
     // monitoring timer and shuts down the LocalStreamingServer. Uses the
     // notifier captured in initState, not ref.read — see below.
-    for (final sessionId in {_ownedSessionId, _prefetchSessionId}) {
+    for (final sessionId in {_ownedSessionId, prefetchSessionId}) {
       if (sessionId != null) {
         unawaited(_streamingSessions.cancelSession(sessionId));
       }
@@ -1236,13 +723,13 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         },
         child: MouseRegion(
           cursor: _showControls ? MouseCursor.defer : SystemMouseCursors.none,
-          onHover: (_) => _onUserInteraction(),
+          onHover: (_) => onUserInteraction(),
           child: Stack(
             fit: StackFit.expand,
             children: [
               // Main video area with gesture detection
               GestureDetector(
-                onTap: _onUserInteraction,
+                onTap: onUserInteraction,
                 onDoubleTap: _onDoubleTap,
                 onHorizontalDragStart: _onHorizontalDragStart,
                 onHorizontalDragUpdate: _onHorizontalDragUpdate,
@@ -1329,10 +816,10 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
                             bufferedSpans: widget.isStreaming
                                 ? _bufferedSpans
                                 : const [],
-                            showId: _currentShowId,
+                            showId: currentShowId,
                             onContinueWatchingActivated:
-                                _onContinueWatchingActivated,
-                            nextEpisodePrefetch: _nextPrefetch,
+                                onContinueWatchingActivated,
+                            nextEpisodePrefetch: nextPrefetch,
                           ),
                         ),
                       ),
@@ -1344,29 +831,29 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
               // tappable. Stays offered (expanded or minimized) after the
               // trigger percentage; Play/Stream consumes it.
               if (_planner.overlayActive &&
-                  (_nextEpisode != null || _nextEpisodeFromTmdb != null))
+                  (nextEpisode != null || nextEpisodeFromTmdb != null))
                 Positioned(
                   right: AppSpacing.lg,
                   bottom: 110,
                   child: NextEpisodeOverlay(
                     episodeCode:
-                        _nextEpisode?.episodeCode ??
-                        _nextEpisodeFromTmdb?.episodeCode ??
+                        nextEpisode?.episodeCode ??
+                        nextEpisodeFromTmdb?.episodeCode ??
                         '',
-                    title: _nextEpisode != null
-                        ? (_nextEpisode!.showName ?? _nextEpisode!.fileName)
-                        : (_nextEpisodeFromTmdb?.name ?? ''),
-                    countdownSeconds: _nextEpisode != null
+                    title: nextEpisode != null
+                        ? (nextEpisode!.showName ?? nextEpisode!.fileName)
+                        : (nextEpisodeFromTmdb?.name ?? ''),
+                    countdownSeconds: nextEpisode != null
                         ? ref.read(nextEpisodeCountdownSecondsProvider)
                         : null,
                     minimized: _planner.overlayMinimized,
-                    playLabel: _nextEpisode != null ? 'Play' : 'Stream',
-                    onPlay: _nextEpisode != null
-                        ? _onPlayNextEpisode
-                        : _onStreamNextEpisode,
-                    onMinimize: _minimizeNextEpisode,
-                    onDismiss: _consumeNextEpisodePrompt,
-                    onRestore: _restoreNextEpisode,
+                    playLabel: nextEpisode != null ? 'Play' : 'Stream',
+                    onPlay: nextEpisode != null
+                        ? onPlayNextEpisode
+                        : onStreamNextEpisode,
+                    onMinimize: minimizeNextEpisode,
+                    onDismiss: consumeNextEpisodePrompt,
+                    onRestore: restoreNextEpisode,
                   ),
                 ),
 
@@ -1385,7 +872,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
                         message: _streamingMessage,
                         episodeCode: _streamingEpisodeCode,
                         progress: _streamingProgress,
-                        onDismiss: _dismissStreamingStatus,
+                        onDismiss: dismissStreamingStatus,
                       ),
                     ),
                   ),
@@ -1397,7 +884,8 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     );
   }
 
-  void _dismissStreamingStatus() {
+  @override
+  void dismissStreamingStatus() {
     if (mounted) {
       setState(() {
         _streamingStatus = null;
@@ -1405,40 +893,6 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         _streamingEpisodeCode = null;
         _streamingProgress = null;
       });
-    }
-  }
-
-  void _dismissNextPrefetch() {
-    _nextPrefetchHideTimer?.cancel();
-    if (!mounted) return;
-    setState(() => _nextPrefetch = null);
-  }
-
-  void _setNextEpisodePrefetch({
-    required StreamingStatus status,
-    String? episodeCode,
-    double? progress,
-    String? message,
-    int downloadRateBytesPerSec = 0,
-  }) {
-    if (!mounted) return;
-    final firstAppearance = _nextPrefetch == null;
-    _nextPrefetchHideTimer?.cancel();
-    setState(() {
-      _nextPrefetch = NextEpisodePrefetch(
-        status: status,
-        episodeCode: episodeCode ?? _nextPrefetch?.episodeCode,
-        progress: progress,
-        message: message,
-        downloadRateBytesPerSec: downloadRateBytesPerSec,
-      );
-    });
-    if (firstAppearance) _onUserInteraction();
-    if (status == StreamingStatus.ready) {
-      _nextPrefetchHideTimer = Timer(
-        const Duration(seconds: 4),
-        _dismissNextPrefetch,
-      );
     }
   }
 
@@ -1467,242 +921,8 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
     }
   }
 
-  /// Overlay "Stream" button — prefetch and open the next episode as soon
-  /// as the buffer is ready. Continue Watching On uses the same fetch with
-  /// [playWhenReady] false so the current episode keeps playing.
-  Future<void> _onStreamNextEpisode() =>
-      _prefetchNextEpisode(playWhenReady: true);
-
-  /// Start a next-episode streaming session without making it the global
-  /// active session (that would trip the nav safety-net into opening it).
-  Future<void> _prefetchNextEpisode({required bool playWhenReady}) async {
-    AppLog.d(
-      '[StreamingService] Prefetch next episode playWhenReady=$playWhenReady',
-    );
-    final episode = _nextEpisodeFromTmdb;
-    AppLog.d(
-      '[StreamingService] Episode: ${episode?.episodeCode}, IMDB: $_currentImdbId',
-    );
-
-    if (episode == null || _currentImdbId == null) {
-      AppLog.w('[StreamingService] Missing episode or IMDB ID, canceling');
-      if (playWhenReady) _consumeNextEpisodePrompt();
-      return;
-    }
-
-    final autoDownloadService = ref.read(autoDownloadServiceProvider);
-    final settings = ref.read(settingsProvider);
-    final quality =
-        widget.file.quality ?? ref.read(autoDownloadProvider).defaultQuality;
-
-    AppLog.d(
-      '[StreamingService] Searching for torrent: S${episode.seasonNumber}E${episode.episodeNumber} quality: $quality',
-    );
-
-    if (playWhenReady) {
-      _consumeNextEpisodePrompt();
-    }
-
-    _setNextEpisodePrefetch(
-      status: StreamingStatus.searching,
-      message: playWhenReady
-          ? 'Finding torrent...'
-          : 'Next episode: finding source…',
-      episodeCode: episode.episodeCode,
-    );
-
-    // Find torrent for the episode
-    final torrent = await autoDownloadService.findTorrentForEpisode(
-      imdbId: _currentImdbId!,
-      season: episode.seasonNumber,
-      episode: episode.episodeNumber,
-      preferredQuality: quality,
-    );
-
-    if (!mounted) return;
-
-    AppLog.d('[StreamingService] Torrent found: ${torrent?.title ?? "null"}');
-
-    if (torrent == null) {
-      _setNextEpisodePrefetch(
-        status: StreamingStatus.error,
-        message: 'No torrent found',
-        episodeCode: episode.episodeCode,
-      );
-      return;
-    }
-
-    AppLog.d(
-      '[StreamingService] Starting stream download: ${torrent.magnetUrl.substring(0, 50)}...',
-    );
-    if (torrent.fileIdx != null) {
-      AppLog.d(
-        '[StreamingService] Season pack detected - will select file index: ${torrent.fileIdx}',
-      );
-    }
-
-    // Route through StreamingService rather than adding the torrent here.
-    // This path used to call AutoDownloadService.downloadNextEpisode and then
-    // re-implement the whole readiness workflow — file selection, the buffer
-    // threshold, the on-disk file lookup and the proxy standup — in this
-    // screen. Two copies meant two behaviours: notably the local copy added
-    // torrents with firstLastPiecePrio: true, which StreamingService
-    // deliberately sets to false because prioritising the LAST piece breaks
-    // the strict in-order delivery sequential mode exists to provide.
-    final session = await ref
-        .read(streamingSessionsProvider.notifier)
-        .startStreamingRequest(
-          request: StreamRequest.fromEztv(torrent),
-          showImdbId: _currentImdbId,
-          showName: widget.file.showName,
-          season: episode.seasonNumber,
-          episode: episode.episodeNumber,
-          episodeCode: episode.episodeCode,
-          savePath: settings.defaultSavePath,
-          makeActive: false,
-          // Competing with the current episode for disk/peers — a 10-minute
-          // projected wait is normal. Aborting would freeze the pill on
-          // "too slow" and stop progress updates.
-          allowSlowBuffer: !playWhenReady,
-        );
-
-    if (!mounted) return;
-
-    if (session == null) {
-      _setNextEpisodePrefetch(
-        status: StreamingStatus.error,
-        message: 'Failed to start stream',
-        episodeCode: episode.episodeCode,
-      );
-      return;
-    }
-
-    // Track the show for future auto-downloads
-    if (_currentShowId != null) {
-      // Not awaited: registering interest is bookkeeping, not something
-      // the user waits on before the episode starts.
-      unawaited(
-        ref
-            .read(autoDownloadProvider.notifier)
-            .trackShow(
-              showId: _currentShowId!,
-              imdbId: _currentImdbId,
-              showName: widget.file.showName ?? '',
-              season: episode.seasonNumber,
-              episode: episode.episodeNumber,
-              quality: torrent.quality,
-            ),
-      );
-    }
-
-    _prefetchSessionId = session.id;
-    setState(() {
-      _nextEpisodeDownloadStarted = true;
-      _downloadingEpisode = episode;
-    });
-
-    _setNextEpisodePrefetch(
-      status: StreamingStatus.buffering,
-      message: playWhenReady ? 'Buffering started' : 'Next episode: buffering…',
-      episodeCode: episode.episodeCode,
-      progress: 0.0,
-    );
-
-    _monitorNextEpisodeStream(
-      session.id,
-      episode,
-      playWhenReady: playWhenReady,
-    );
-  }
-
-  /// Mirror a next-episode [StreamingService] session into this screen's
-  /// status indicator, and capture the proxy details when it turns ready.
-  ///
-  /// This used to be a hand-rolled 10-minute poll loop that re-derived file
-  /// selection, the buffer threshold, the on-disk path and the proxy — all
-  /// of which `StreamingService` already does for the primary playback path.
-  /// Subscribing to the session means one implementation, and the session
-  /// (not this screen) owns the proxy's lifetime, so it correctly survives
-  /// the `pushReplacement` that pops us before the next screen mounts.
-  void _monitorNextEpisodeStream(
-    String sessionId,
-    Episode episode, {
-    required bool playWhenReady,
-  }) {
-    _nextEpisodeSubscription?.cancel();
-    final service = ref.read(streamingServiceProvider);
-
-    void apply(StreamingSession session) {
-      if (!mounted) return;
-
-      switch (session.state) {
-        case StreamingState.addingTorrent:
-        case StreamingState.selectingFiles:
-        case StreamingState.buffering:
-          _setNextEpisodePrefetch(
-            status: StreamingStatus.buffering,
-            message: playWhenReady
-                ? 'Buffering...'
-                : 'Next episode: buffering…',
-            episodeCode: episode.episodeCode,
-            progress: session.bufferProgress,
-            downloadRateBytesPerSec: session.downloadRateBytesPerSec,
-          );
-
-        case StreamingState.ready:
-        case StreamingState.playing:
-          final videoFile = session.videoFile;
-          if (videoFile == null) return;
-          setState(() {
-            _nextEpisode = videoFile;
-            _nextEpisodeFromTmdb = null; // Clear TMDB version
-            _nextEpisodeStreamingTorrentHash = session.torrentHash;
-            _nextEpisodeStreamingFileIndex = session.selectedFileIndex;
-            _nextEpisodeStreamingProxyUrl = session.streamUrl;
-          });
-          _nextEpisodeSubscription?.cancel();
-          _nextEpisodeSubscription = null;
-          if (playWhenReady) {
-            _onPlayNextEpisode();
-          } else {
-            _setNextEpisodePrefetch(
-              status: StreamingStatus.ready,
-              message: 'Next episode ready',
-              episodeCode: episode.episodeCode,
-              progress: session.bufferProgress,
-            );
-          }
-
-        case StreamingState.error:
-          _setNextEpisodePrefetch(
-            status: StreamingStatus.error,
-            message: session.errorMessage ?? 'Streaming failed',
-            episodeCode: episode.episodeCode,
-          );
-          _nextEpisodeSubscription?.cancel();
-          _nextEpisodeSubscription = null;
-
-        case StreamingState.cancelled:
-        case StreamingState.idle:
-          _prefetchSessionId = null;
-          _dismissNextPrefetch();
-          _nextEpisodeSubscription?.cancel();
-          _nextEpisodeSubscription = null;
-      }
-    }
-
-    // Broadcast streams don't replay — apply the snapshot we already have
-    // so the pill isn't stuck on "finding source" until the next 2 s poll.
-    final current = service.getSession(sessionId);
-    if (current != null) apply(current);
-
-    _nextEpisodeSubscription = service
-        .getSessionStream(sessionId)
-        ?.listen(apply);
-  }
-
   void _showShortcutsDialog() {
-    showPlayerShortcutsDialog(context, onUserInteraction: _onUserInteraction);
+    showPlayerShortcutsDialog(context, onUserInteraction: onUserInteraction);
   }
 
   void _handleKeyEvent(KeyEvent event, WidgetRef ref) {
@@ -1710,7 +930,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
       event,
       ref: ref,
       isFullscreen: _isFullscreen,
-      onUserInteraction: _onUserInteraction,
+      onUserInteraction: onUserInteraction,
       onSeekBackward: _seekBackward,
       onSeekForward: _seekForward,
       onToggleFullscreen: _toggleFullscreen,
