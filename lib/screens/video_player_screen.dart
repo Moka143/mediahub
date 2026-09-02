@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,7 +9,6 @@ import 'package:window_manager/window_manager.dart';
 
 import '../design/app_tokens.dart';
 import '../models/local_media_file.dart';
-import '../providers/connection_provider.dart';
 import '../providers/local_media_provider.dart';
 import '../providers/player_provider.dart';
 import '../providers/settings_provider.dart';
@@ -20,7 +18,6 @@ import '../providers/watch_progress_provider.dart';
 import '../services/app_logger.dart';
 import '../services/local_streaming_server.dart';
 import '../services/next_episode_planner.dart';
-import '../services/playback_health_monitor.dart';
 import '../services/streaming_service.dart';
 import '../widgets/next_episode_overlay.dart';
 import '../widgets/player/buffering_indicator.dart';
@@ -31,6 +28,7 @@ import '../widgets/player/skip_ripple_indicator.dart';
 import '../widgets/streaming_status_indicator.dart';
 import '../widgets/video_controls.dart';
 import '_player_next_episode_controller.dart';
+import '_player_streaming_health.dart';
 
 /// Full-screen video player screen with gesture controls
 class VideoPlayerScreen extends ConsumerStatefulWidget {
@@ -97,7 +95,9 @@ class VideoPlayerScreen extends ConsumerStatefulWidget {
 }
 
 class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
-    with PlayerNextEpisodeController<VideoPlayerScreen> {
+    with
+        PlayerNextEpisodeController<VideoPlayerScreen>,
+        PlayerStreamingHealth<VideoPlayerScreen> {
   bool _showControls = true;
   Timer? _hideControlsTimer;
   bool _isFullscreen = false;
@@ -130,38 +130,6 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
   // lives in [PlayerNextEpisodeController]. This screen holds the planner
   // only because `build()` reads it to decide whether to draw the overlay.
   late final NextEpisodePlanner _planner;
-  // Streaming status indicator (current-episode health monitor only —
-  // next-episode prefetch lives in [nextPrefetch] beside the CW pill).
-  StreamingStatus? _streamingStatus;
-  String _streamingMessage = '';
-  String? _streamingEpisodeCode;
-  double? _streamingProgress;
-
-  // Debounced buffering state for streaming mode —
-  // mpv's buffering signal flickers rapidly when reading at the edge
-  // of partially-downloaded data, so we smooth it out.
-  bool _streamBuffering = false;
-  bool _streamBufferingGrace = false; // suppress indicator right after open
-  Timer? _bufferingDebounceTimer;
-  StreamSubscription<bool>? _bufferingSubscription;
-
-  /// Watches the player position vs. the torrent's download edge and
-  /// pauses/resumes/recovers accordingly. Only created while streaming; owns
-  /// all of its own timers and subscriptions. See [PlaybackHealthMonitor].
-  PlaybackHealthMonitor? _healthMonitor;
-
-  // Latest 0.0–1.0 download progress for the streaming target file.
-  // Drives the buffering overlay's percentage, and the seek-bar's buffered
-  // track when no piece map is available. Fed by the monitor's
-  // onDownloadedRatio callback; read by build().
-  double? _streamingDownloadedRatio;
-
-  // Where those bytes actually are, from the torrent's piece map. Preferred
-  // over the scalar above for the seek-bar track: once the user seeks we turn
-  // sequential download off, after which "60% downloaded" no longer means
-  // "the first 60% is playable". Empty until the first piece-map poll lands,
-  // or permanently if qBittorrent won't give us one.
-  List<BufferedSpan> _bufferedSpans = const [];
 
   /// Captured in [initState] so [dispose] can reach it without `ref.read`,
   /// which is not safe there.
@@ -186,7 +154,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
     // first frame instead of going dark for ~2 s until the first health
     // poll lands. Updated continuously thereafter by [PlaybackHealthMonitor].
     if (widget.isStreaming && widget.initialBufferedRatio != null) {
-      _streamingDownloadedRatio = widget.initialBufferedRatio!.clamp(0.0, 1.0);
+      streamingDownloadedRatio = widget.initialBufferedRatio!.clamp(0.0, 1.0);
     }
     // Delay initialization to after widget tree is built
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -252,7 +220,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
       }
       // Open the file FIRST, then wire up streaming-specific listeners.
       //
-      // Earlier this called `_setupStreamingBufferingDebounce()` before
+      // Earlier this called `setupStreamingBufferingDebounce()` before
       // `openFile()`, with the intent of "not missing any initial buffering
       // events". In practice that order made `waitForFirstPlay` (called
       // from inside the debounce setup) capture a stale baseline from the
@@ -268,8 +236,8 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
       );
       if (mounted) setState(() => _mediaOpened = true);
       if (widget.isStreaming) {
-        _setupStreamingBufferingDebounce();
-        _startPlaybackHealthMonitor();
+        setupStreamingBufferingDebounce();
+        startPlaybackHealthMonitor();
       }
 
       // Auto-load a previously selected / sidecar subtitle. Best-effort —
@@ -327,108 +295,6 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
     } catch (e) {
       AppLog.e('[Subtitles] Auto-load failed: $e');
     }
-  }
-
-  static const _bufferingShowDelay = Duration(milliseconds: 400);
-  static const _bufferingHideDelay = Duration(seconds: 1);
-  // Keep this in sync with PlayerService.waitForFirstPlay's default — both
-  // values gate the same "still loading?" deadline.
-  static const _firstPlayTimeout = Duration(seconds: 7);
-  static const _postPlayGrace = Duration(milliseconds: 500);
-
-  /// Build and start the playback health monitor for this streaming session.
-  ///
-  /// Called from both `_initializePlayer` and `_handleResume`; safe to call
-  /// twice because the previous instance is disposed first and the monitor
-  /// resets all of its counters in `start()`.
-  void _startPlaybackHealthMonitor() {
-    final hash = widget.streamingTorrentHash;
-    if (hash == null) {
-      // Without a hash we can't query torrent state — only the stall detector
-      // would be useful, and it'd fire on legitimate user pauses too. Skip.
-      return;
-    }
-
-    _healthMonitor?.dispose();
-    _healthMonitor = PlaybackHealthMonitor(
-      player: ref.read(playerProvider),
-      qbt: ref.read(qbApiServiceProvider),
-      torrentHash: hash,
-      fileIndex: widget.streamingFileIndex,
-      usingProxy: widget.streamingProxyUrl != null,
-      isActive: () => mounted,
-      onDownloadedRatio: (ratio) {
-        if (!mounted) return;
-        if (_streamingDownloadedRatio == null ||
-            (ratio - _streamingDownloadedRatio!).abs() > 0.001) {
-          setState(() => _streamingDownloadedRatio = ratio);
-        }
-      },
-      onBufferedSpans: (spans) {
-        if (!mounted) return;
-        if (!listEquals(spans, _bufferedSpans)) {
-          setState(() => _bufferedSpans = spans);
-        }
-      },
-      onBuffering: (message, progress) => _showStreamingStatus(
-        status: StreamingStatus.buffering,
-        message: message,
-        progress: progress,
-      ),
-      onBufferingResolved: dismissStreamingStatus,
-    )..start();
-  }
-
-  /// Smooth out mpv's rapid buffering signal during streaming.
-  ///
-  /// • Suppress the indicator until mpv actually starts playing (dynamic grace
-  ///   period), plus 1 s stabilisation — avoids a second "loading" right after
-  ///   the streaming overlay just disappeared.
-  /// • Show the indicator only after buffering has been true for 400 ms
-  ///   (ignores sub-second micro-stalls).
-  /// • Once shown, keep it visible for at least 1 s after buffering clears
-  ///   (prevents rapid on/off flicker).
-  void _setupStreamingBufferingDebounce() {
-    // Restart-safe: _handleResume calls this a second time after the resume
-    // prompt, and a second listener on the same stream would double every
-    // buffering transition.
-    _bufferingSubscription?.cancel();
-
-    // Grace period — suppress indicator until mpv actually starts playing,
-    // rather than using a fixed timer that may expire too early for large files.
-    _streamBufferingGrace = true;
-    final playerService = ref.read(playerServiceProvider);
-    playerService.waitForFirstPlay(timeout: _firstPlayTimeout).then((_) {
-      // Extra stabilisation after first play to absorb initial decode stalls.
-      Future.delayed(_postPlayGrace, () {
-        if (mounted) setState(() => _streamBufferingGrace = false);
-      });
-    });
-
-    final player = ref.read(playerProvider);
-    _bufferingSubscription = player.stream.buffering.listen((isBuffering) {
-      if (!mounted) return;
-      // Always (re)schedule a transition based on the latest signal. Without
-      // this, a sequence of buffering=true→false→true→false at the download
-      // edge could leave us with `_streamBuffering=true` permanently: the
-      // hide-timer scheduled on the false event gets cancelled by the next
-      // true event but no fresh hide-timer is set when buffering eventually
-      // settles to false (because `_streamBuffering` is already true so the
-      // first branch's guard `&& !_streamBuffering` was false).
-      _bufferingDebounceTimer?.cancel();
-
-      if (isBuffering) {
-        if (_streamBuffering) return;
-        _bufferingDebounceTimer = Timer(_bufferingShowDelay, () {
-          if (mounted) setState(() => _streamBuffering = true);
-        });
-      } else {
-        if (!_streamBuffering) return;
-        _bufferingDebounceTimer = Timer(_bufferingHideDelay, () {
-          if (mounted) setState(() => _streamBuffering = false);
-        });
-      }
-    });
   }
 
   void _startHideControlsTimer() {
@@ -511,8 +377,8 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
     );
     if (mounted) setState(() => _mediaOpened = true);
     if (widget.isStreaming) {
-      _setupStreamingBufferingDebounce();
-      _startPlaybackHealthMonitor();
+      setupStreamingBufferingDebounce();
+      startPlaybackHealthMonitor();
     }
   }
 
@@ -638,6 +504,15 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
   bool get resumePromptVisible => _showResumePrompt;
 
   @override
+  String? get streamingTorrentHash => widget.streamingTorrentHash;
+
+  @override
+  int? get streamingFileIndex => widget.streamingFileIndex;
+
+  @override
+  String? get streamingProxyUrl => widget.streamingProxyUrl;
+
+  @override
   void openReplacementPlayer(
     LocalMediaFile file, {
     String? torrentHash,
@@ -664,11 +539,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
     _hideControlsTimer?.cancel();
     _skipIndicatorTimer?.cancel();
     disposeNextEpisodeController();
-    _bufferingDebounceTimer?.cancel();
-    _bufferingSubscription?.cancel();
-    // Synchronous and ref-free — the monitor owns its own timer and stream
-    // subscription and needs no providers to shut down.
-    _healthMonitor?.dispose();
+    disposeStreamingHealth();
     _keyboardFocus.dispose();
     // Release the sessions this screen owns: cancelSession stops the 2 s
     // monitoring timer and shuts down the LocalStreamingServer. Uses the
@@ -706,7 +577,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
     // When streaming, use the debounced buffering state (with grace period)
     // to avoid the indicator flickering every time mpv hits the download edge.
     final isBuffering = widget.isStreaming
-        ? (_streamBuffering && !_streamBufferingGrace)
+        ? (streamBuffering && !streamBufferingGrace)
         : rawBuffering;
 
     return Scaffold(
@@ -749,7 +620,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
                     if (isBuffering && _mediaOpened)
                       BufferingIndicator(
                         label: widget.isStreaming
-                            ? _bufferingLabel(_streamingDownloadedRatio)
+                            ? bufferingLabel(streamingDownloadedRatio)
                             : null,
                       ),
 
@@ -811,10 +682,10 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
                             onClose: _exitPlayer,
                             onShowShortcuts: _showShortcutsDialog,
                             streamingDownloadedRatio: widget.isStreaming
-                                ? _streamingDownloadedRatio
+                                ? streamingDownloadedRatio
                                 : null,
                             bufferedSpans: widget.isStreaming
-                                ? _bufferedSpans
+                                ? bufferedSpans
                                 : const [],
                             showId: currentShowId,
                             onContinueWatchingActivated:
@@ -859,7 +730,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
 
               // Current-episode health-monitor chip (next-episode prefetch
               // is the spinner beside the Continue Watching pill).
-              if (_streamingStatus != null)
+              if (streamingStatus != null)
                 Positioned(
                   top: MediaQuery.of(context).padding.top + AppSpacing.md,
                   left: 0,
@@ -868,10 +739,10 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 400),
                       child: StreamingStatusIndicator(
-                        status: _streamingStatus!,
-                        message: _streamingMessage,
-                        episodeCode: _streamingEpisodeCode,
-                        progress: _streamingProgress,
+                        status: streamingStatus!,
+                        message: streamingMessage,
+                        episodeCode: streamingEpisodeCode,
+                        progress: streamingProgress,
                         onDismiss: dismissStreamingStatus,
                       ),
                     ),
@@ -882,43 +753,6 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
         ),
       ),
     );
-  }
-
-  @override
-  void dismissStreamingStatus() {
-    if (mounted) {
-      setState(() {
-        _streamingStatus = null;
-        _streamingMessage = '';
-        _streamingEpisodeCode = null;
-        _streamingProgress = null;
-      });
-    }
-  }
-
-  /// Compose the chip text shown under the buffering spinner during
-  /// streaming. Falls back to a plain "Buffering…" when we don't have
-  /// the download ratio yet (very first frames after open).
-  String _bufferingLabel(double? downloadedRatio) {
-    if (downloadedRatio == null) return 'Buffering…';
-    final pct = (downloadedRatio * 100).clamp(0, 100).toStringAsFixed(1);
-    return 'Buffering — $pct% downloaded';
-  }
-
-  void _showStreamingStatus({
-    required StreamingStatus status,
-    required String message,
-    String? episodeCode,
-    double? progress,
-  }) {
-    if (mounted) {
-      setState(() {
-        _streamingStatus = status;
-        _streamingMessage = message;
-        _streamingEpisodeCode = episodeCode;
-        _streamingProgress = progress;
-      });
-    }
   }
 
   void _showShortcutsDialog() {
