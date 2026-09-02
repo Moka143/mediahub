@@ -9,6 +9,7 @@ import '../models/local_media_file.dart';
 import '../services/app_logger.dart';
 import '../utils/constants.dart';
 import '../utils/formatters.dart';
+import '../utils/poll_loop.dart';
 import 'watch_progress_provider.dart';
 
 /// Notifier for current playing file
@@ -139,7 +140,10 @@ final playbackCompletedProvider = StreamProvider<bool>((ref) {
 /// Service class for player operations
 class PlayerService {
   final Ref ref;
-  Timer? _progressSaveTimer;
+  late final PollLoop _progressSave = PollLoop(
+    name: 'progress-save',
+    onTick: _saveCurrentProgress,
+  );
   LocalMediaFile? _currentFile;
   Completer<void>? _firstPlayCompleter;
   StreamSubscription<Duration>? _firstPlaySubscription;
@@ -262,7 +266,11 @@ class PlayerService {
       await nativePlayer.setProperty('force-seekable', 'yes');
       try {
         await nativePlayer.setProperty('cache', 'no');
-      } catch (_) {}
+      } catch (e) {
+        // Not every libmpv build exposes `cache`; the readahead tweaks above
+        // are the ones that matter.
+        AppLog.d('[Player] setting cache=no not supported: $e');
+      }
     } else {
       // Streaming-mode properties are set on the *global* mpv instance and
       // persist across files. If a streaming session ran earlier, restore
@@ -338,7 +346,7 @@ class PlayerService {
     final baseline = _player.state.position;
 
     _firstPlayCompleter = Completer<void>();
-    _firstPlaySubscription?.cancel();
+    unawaited(_firstPlaySubscription?.cancel());
 
     _firstPlaySubscription = _player.stream.position.listen((pos) {
       // Require a real advancement past the baseline (not just any equal/
@@ -354,7 +362,7 @@ class PlayerService {
     return _firstPlayCompleter!.future.timeout(
       timeout,
       onTimeout: () async {
-        _firstPlaySubscription?.cancel();
+        unawaited(_firstPlaySubscription?.cancel());
         _firstPlaySubscription = null;
         // A forward-then-back seek forces mpv to flush its demuxer cache,
         // which is what actually clears `paused-for-cache` when mpv has
@@ -377,10 +385,7 @@ class PlayerService {
 
   /// Start saving progress periodically
   void _startProgressSaveTimer() {
-    _progressSaveTimer?.cancel();
-    _progressSaveTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-      _saveCurrentProgress();
-    });
+    _progressSave.start(const Duration(seconds: 10));
   }
 
   /// Save current playback progress
@@ -490,8 +495,8 @@ class PlayerService {
 
   /// Stop playback and save progress
   Future<void> stop() async {
-    _progressSaveTimer?.cancel();
-    _firstPlaySubscription?.cancel();
+    _progressSave.stop();
+    unawaited(_firstPlaySubscription?.cancel());
     _firstPlaySubscription = null;
     if (!(_firstPlayCompleter?.isCompleted ?? true)) {
       _firstPlayCompleter?.complete();
@@ -533,8 +538,8 @@ class PlayerService {
 
   /// Dispose resources
   void dispose() {
-    _progressSaveTimer?.cancel();
-    _firstPlaySubscription?.cancel();
+    _progressSave.dispose();
+    unawaited(_firstPlaySubscription?.cancel());
   }
 }
 

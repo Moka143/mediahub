@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
-import '../design/app_tokens.dart';
+import '../design/app_colors.dart';
 import '../design/app_theme.dart';
+import '../design/app_tokens.dart';
 import '../models/movie.dart';
 import '../models/show.dart';
 import '../providers/favorites_provider.dart';
 import '../providers/navigation_provider.dart';
 import '../providers/watchlist_provider.dart';
-import '../design/app_colors.dart';
 import '../widgets/common/empty_state.dart';
 import '../widgets/common/loading_state.dart';
 import '../widgets/media/media_poster_card.dart';

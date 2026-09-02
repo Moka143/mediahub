@@ -4,8 +4,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
-import 'qbittorrent_api_service.dart';
 import 'app_logger.dart';
+import 'qbittorrent_api_service.dart';
 
 /// Outcome of parsing a `Range:` request header against a known file size.
 ///
@@ -243,7 +243,10 @@ class LocalStreamingServer {
     _activeRequests.clear();
     try {
       await _server?.close(force: true);
-    } catch (_) {}
+    } catch (e) {
+      // Teardown is best-effort; the socket is going away regardless.
+      AppLog.d('[$_logTag] server close during stop failed: $e');
+    }
     _server = null;
   }
 
@@ -684,7 +687,10 @@ class LocalStreamingServer {
       AppLog.e('[$_logTag] request error: $e\n$st');
       try {
         await req.response.close();
-      } catch (_) {}
+      } catch (_) {
+        // The original error above is the useful one; a failure to close a
+        // response we already gave up on adds nothing.
+      }
     } finally {
       _activeRequests.remove(req);
     }

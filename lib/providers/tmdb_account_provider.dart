@@ -3,9 +3,9 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../services/app_logger.dart';
 import '../services/tmdb_account_service.dart';
 import 'settings_provider.dart';
-import '../services/app_logger.dart';
 
 // New v4 storage keys.
 const _accessTokenKey = 'tmdb_v4_access_token';

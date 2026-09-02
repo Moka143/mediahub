@@ -13,6 +13,7 @@ import '../services/app_logger.dart';
 import '../services/qbittorrent_api_service.dart';
 import '../utils/constants.dart';
 import '../utils/debouncer.dart';
+import '../utils/poll_loop.dart';
 import 'auto_download_provider.dart';
 import 'connection_provider.dart';
 import 'local_media_provider.dart';
@@ -120,8 +121,7 @@ final torrentSearchQueryProvider =
 
 /// Notifier for torrent list
 class TorrentListNotifier extends Notifier<TorrentListState> {
-  Timer? _pollingTimer;
-  Duration? _currentPollingInterval;
+  late final PollLoop _poll = PollLoop(name: 'torrents', onTick: _pollTick);
   final Debouncer _refreshDebouncer = Debouncer(
     delay: const Duration(milliseconds: 500),
   );
@@ -133,7 +133,7 @@ class TorrentListNotifier extends Notifier<TorrentListState> {
 
     // Clean up timer and debouncer on dispose
     ref.onDispose(() {
-      _pollingTimer?.cancel();
+      _poll.dispose();
       _refreshDebouncer.dispose();
     });
 
@@ -141,8 +141,7 @@ class TorrentListNotifier extends Notifier<TorrentListState> {
     if (connectionState.isConnected) {
       Future.microtask(() => startPolling());
     } else {
-      _pollingTimer?.cancel();
-      _pollingTimer = null;
+      _poll.stop();
       _isFirstFetch = true;
     }
 
@@ -168,35 +167,27 @@ class TorrentListNotifier extends Notifier<TorrentListState> {
     }
   }
 
-  /// Start polling for updates
+  /// Start polling for updates.
+  ///
+  /// The first fetch is a full update; subsequent ticks use the sync delta.
   void startPolling() {
-    _pollingTimer?.cancel();
-    _currentPollingInterval = _updateInterval;
-    refresh(fullUpdate: _isFirstFetch); // Full update on first fetch
-    _pollingTimer = Timer.periodic(_currentPollingInterval!, (_) {
-      _checkAndAdjustPolling();
-      refresh();
-    });
+    unawaited(refresh(fullUpdate: _isFirstFetch));
+    _poll.start(_updateInterval);
   }
 
-  /// Check if polling interval should be adjusted based on activity
-  void _checkAndAdjustPolling() {
-    final newInterval = _updateInterval;
-    if (_currentPollingInterval != newInterval) {
-      _currentPollingInterval = newInterval;
-      // Restart timer with new interval
-      _pollingTimer?.cancel();
-      _pollingTimer = Timer.periodic(newInterval, (_) {
-        _checkAndAdjustPolling();
-        refresh();
-      });
-    }
+  /// One poll tick: re-evaluate the adaptive cadence, then fetch.
+  ///
+  /// [PollLoop.setInterval] ignores an unchanged value, so re-deriving it
+  /// every tick costs nothing and never resets the schedule out from under
+  /// the fetch.
+  Future<void> _pollTick() async {
+    _poll.setInterval(_updateInterval);
+    await refresh();
   }
 
   /// Stop polling
   void stopPolling() {
-    _pollingTimer?.cancel();
-    _pollingTimer = null;
+    _poll.stop();
   }
 
   /// Refresh torrent list using sync endpoint for efficiency
@@ -656,7 +647,7 @@ final torrentFilesProvider = FutureProvider.family<List<TorrentFile>, String>((
 
   if (!connectionState.isConnected) return [];
 
-  return await apiService.getTorrentFiles(hash);
+  return apiService.getTorrentFiles(hash);
 });
 
 /// Provider for torrent peers
@@ -669,7 +660,7 @@ final torrentPeersProvider = FutureProvider.family<List<Peer>, String>((
 
   if (!connectionState.isConnected) return [];
 
-  return await apiService.getTorrentPeers(hash);
+  return apiService.getTorrentPeers(hash);
 });
 
 /// Provider for torrent trackers
@@ -682,7 +673,7 @@ final torrentTrackersProvider = FutureProvider.family<List<Tracker>, String>((
 
   if (!connectionState.isConnected) return [];
 
-  return await apiService.getTorrentTrackers(hash);
+  return apiService.getTorrentTrackers(hash);
 });
 
 /// Provider for global transfer info
@@ -692,7 +683,7 @@ final transferInfoProvider = FutureProvider<Map<String, dynamic>?>((ref) async {
 
   if (!connectionState.isConnected) return null;
 
-  return await apiService.getTransferInfo();
+  return apiService.getTransferInfo();
 });
 
 /// Provider for active downloads count (for navigation badge)

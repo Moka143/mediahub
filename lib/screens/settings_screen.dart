@@ -4,12 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../design/app_colors.dart';
-import '../widgets/common/mediahub_confirm_dialog.dart';
-import '../widgets/common/mediahub_topbar.dart';
 import '../providers/connection_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/debouncer.dart';
 import '../utils/feedback_utils.dart';
+import '../widgets/common/mediahub_confirm_dialog.dart';
+import '../widgets/common/mediahub_topbar.dart';
 import 'settings/about_tab.dart';
 import 'settings/appearance_tab.dart';
 import 'settings/connection_tab.dart';

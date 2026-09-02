@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../design/app_colors.dart';
 import '../design/app_theme.dart';
 import '../design/app_tokens.dart';
 import '../models/torrent.dart';
@@ -9,7 +10,6 @@ import '../utils/feedback_utils.dart';
 import '../utils/formatters.dart';
 import '../widgets/common/app_progress_bar.dart';
 import '../widgets/common/delete_confirmation_dialog.dart';
-import '../design/app_colors.dart';
 import '../widgets/editorial/editorial.dart';
 import '../widgets/torrent_files_tab.dart';
 import '../widgets/torrent_info_tab.dart';

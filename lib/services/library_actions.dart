@@ -12,8 +12,8 @@ import '../providers/torrent_provider.dart';
 import '../providers/watch_progress_provider.dart';
 import '../utils/media_names.dart';
 import '../utils/platform_utils.dart';
-import 'tmdb_account_service.dart';
 import 'app_logger.dart';
+import 'tmdb_account_service.dart';
 
 /// Cache of show-name → TMDB show id so the watched-sync doesn't hit
 /// `/search/tv` on every Mark watched / Mark not watched click.

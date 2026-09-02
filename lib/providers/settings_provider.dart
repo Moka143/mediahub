@@ -4,9 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/settings.dart';
+import '../services/app_logger.dart';
 import '../utils/constants.dart';
 import 'local_media_provider.dart';
-import '../services/app_logger.dart';
 
 /// Key for storing settings in SharedPreferences
 const _settingsKey = 'app_settings';

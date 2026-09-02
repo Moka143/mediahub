@@ -134,7 +134,7 @@ class StreamingSessionsNotifier extends Notifier<StreamingSessionsState> {
     );
 
     if (makeActive) {
-      _activeSubscription?.cancel();
+      unawaited(_activeSubscription?.cancel());
       _activeSubscription = streamingService
           .getSessionStream(session.id)
           ?.listen((updatedSession) {
@@ -157,7 +157,7 @@ class StreamingSessionsNotifier extends Notifier<StreamingSessionsState> {
     // so leaving it attached puts the cancelled session straight back into
     // the map, where nothing would ever clean it up again.
     if (wasActive) {
-      _activeSubscription?.cancel();
+      unawaited(_activeSubscription?.cancel());
       _activeSubscription = null;
     }
 

@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
 import '../design/app_typography.dart';
-import 'editorial/editorial.dart';
 import '../services/app_logger.dart';
+import 'editorial/editorial.dart';
 
 /// Cinematic backdrop hero for the Show / Movie detail screens.
 ///

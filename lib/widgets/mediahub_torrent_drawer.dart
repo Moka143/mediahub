@@ -5,10 +5,10 @@ import '../design/app_tokens.dart';
 import '../design/app_typography.dart';
 import '../models/torrentio_stream.dart';
 import '../services/torrentio_api_service.dart';
+import '../utils/media_quality.dart';
 import 'common/mediahub_drawer_header.dart';
 import 'editorial/editorial.dart';
 import 'mediahub_drawer.dart';
-import '../utils/media_quality.dart';
 
 /// Result from a stream-picker presentation. Returned by
 /// [MediaHubTorrentDrawer.show] when the user selects a source.

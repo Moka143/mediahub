@@ -5,11 +5,11 @@ import '../models/eztv_torrent.dart';
 import '../models/local_media_file.dart';
 import '../utils/formatters.dart';
 import '../utils/media_quality.dart';
+import 'app_logger.dart';
 import 'eztv_api_service.dart';
 import 'qbittorrent_api_service.dart';
 import 'tmdb_api_service.dart';
 import 'torrentio_api_service.dart';
-import 'app_logger.dart';
 
 /// Represents the status of an episode for auto-download tracking
 enum EpisodeDownloadStatus {
@@ -437,7 +437,7 @@ class AutoDownloadService {
       );
 
       // Prefer single-episode torrents over season packs
-      var preferredStreams = singleEpisodeTorrents.isNotEmpty
+      final preferredStreams = singleEpisodeTorrents.isNotEmpty
           ? singleEpisodeTorrents
           : seasonPacks;
 

@@ -1,14 +1,15 @@
 import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/movie.dart';
 import '../models/show.dart';
-import '../services/tmdb_account_service.dart';
-import 'shows_provider.dart';
-import 'settings_provider.dart';
-import 'tmdb_account_provider.dart';
 import '../services/app_logger.dart';
 import '../services/prefs_recovery.dart';
+import '../services/tmdb_account_service.dart';
+import 'settings_provider.dart';
+import 'shows_provider.dart';
+import 'tmdb_account_provider.dart';
 
 const _watchlistTvKey = 'watchlist_tv';
 const _watchlistMoviesKey = 'watchlist_movies';
@@ -142,7 +143,10 @@ class WatchlistNotifier extends Notifier<WatchlistState> {
               mediaId: id,
               watchlist: true,
             );
-          } catch (_) {}
+          } catch (e) {
+            // Best-effort per item — one rejection must not abort the union.
+            AppLog.w('[Watchlist] push tv $id to TMDB failed: $e');
+          }
         }
         for (final id in state.movieIds) {
           try {
@@ -152,7 +156,9 @@ class WatchlistNotifier extends Notifier<WatchlistState> {
               mediaId: id,
               watchlist: true,
             );
-          } catch (_) {}
+          } catch (e) {
+            AppLog.w('[Watchlist] push movie $id to TMDB failed: $e');
+          }
         }
       }
 
@@ -191,7 +197,9 @@ final watchlistShowsProvider = FutureProvider<List<Show>>((ref) async {
   for (final id in wl.showIds) {
     try {
       out.add(await tmdb.getShowDetails(id));
-    } catch (_) {}
+    } catch (e) {
+      AppLog.w('[Watchlist] omitting show $id from list: $e');
+    }
   }
   return out;
 });
@@ -204,7 +212,9 @@ final watchlistMoviesProvider = FutureProvider<List<Movie>>((ref) async {
   for (final id in wl.movieIds) {
     try {
       out.add(await tmdb.getMovieDetails(id));
-    } catch (_) {}
+    } catch (e) {
+      AppLog.w('[Watchlist] omitting movie $id from list: $e');
+    }
   }
   return out;
 });

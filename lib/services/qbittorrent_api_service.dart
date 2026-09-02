@@ -9,9 +9,9 @@ import '../models/peer.dart';
 import '../models/torrent.dart';
 import '../models/torrent_file.dart';
 import '../models/tracker.dart';
-import 'app_logger.dart';
 import '../utils/constants.dart';
 import '../utils/platform_utils.dart';
+import 'app_logger.dart';
 
 /// Exception for qBittorrent API errors
 class QBittorrentApiException implements Exception {
@@ -232,7 +232,7 @@ class QBittorrentApiService {
   /// Ensure authenticated before making API calls
   Future<bool> _ensureAuthenticated() async {
     if (!_isAuthenticated) {
-      return await login();
+      return login();
     }
     return true;
   }

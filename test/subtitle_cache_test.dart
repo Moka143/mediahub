@@ -1,11 +1,10 @@
-import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
+import 'package:flutter_test/flutter_test.dart';
 import 'package:mediahub/models/local_media_file.dart';
 import 'package:mediahub/providers/settings_provider.dart';
 import 'package:mediahub/providers/subtitle_provider.dart';
 import 'package:mediahub/services/opensubtitles_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   group('computeSubtitleCacheKey', () {

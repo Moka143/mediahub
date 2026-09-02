@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -122,7 +124,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           .read(watchlistProvider.notifier)
           .syncFromTmdb(pushLocalFirst: true);
       if (!mounted) return;
-      _navigateToHome();
+      unawaited(_navigateToHome());
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {

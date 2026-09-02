@@ -1,7 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../models/show.dart';
-import '../models/season.dart';
+
 import '../models/episode.dart';
+import '../models/season.dart';
+import '../models/show.dart';
 import '../services/tmdb_api_service.dart';
 import 'settings_provider.dart';
 import 'tmdb_account_provider.dart';

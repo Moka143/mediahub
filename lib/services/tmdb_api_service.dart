@@ -1,8 +1,9 @@
 import 'package:dio/dio.dart';
-import '../models/movie.dart';
-import '../models/show.dart';
-import '../models/season.dart';
+
 import '../models/episode.dart';
+import '../models/movie.dart';
+import '../models/season.dart';
+import '../models/show.dart';
 import 'http_client.dart';
 
 /// Service for interacting with TMDB (The Movie Database) API.

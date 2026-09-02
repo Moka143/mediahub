@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -7,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/watch_progress.dart';
 import '../models/watched_index.dart';
+import '../services/app_logger.dart';
 import '../services/tmdb_account_service.dart';
 import '../utils/formatters.dart';
 import '../utils/media_names.dart';
@@ -15,7 +17,6 @@ import 'local_media_provider.dart';
 import 'settings_provider.dart';
 import 'shows_provider.dart';
 import 'tmdb_account_provider.dart';
-import '../services/app_logger.dart';
 
 /// Key for storing watch progress in SharedPreferences
 const _watchProgressKey = 'watch_progress';
@@ -305,7 +306,7 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
     if (justCompleted) {
       // Fire-and-forget — local state is already saved, network errors
       // are reconciled on the next `reconcileWatchedWithTmdb` pass.
-      _pushWatchedToTmdb(updatedProgress);
+      unawaited(_pushWatchedToTmdb(updatedProgress));
     }
   }
 
@@ -394,7 +395,8 @@ class WatchProgressNotifier extends Notifier<Map<String, WatchProgress>> {
     state = {...state, hash: updated};
     await _saveProgress();
     if (updated.isEffectivelyWatched) {
-      _pushWatchedToTmdb(updated);
+      // Fire-and-forget, as above.
+      unawaited(_pushWatchedToTmdb(updated));
     }
   }
 

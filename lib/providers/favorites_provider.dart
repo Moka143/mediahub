@@ -1,16 +1,17 @@
 import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/movie.dart';
 import '../models/show.dart';
-import '../services/tmdb_account_service.dart';
-import '../services/tmdb_api_service.dart';
-import 'shows_provider.dart';
-import 'settings_provider.dart';
-import 'tmdb_account_provider.dart';
 import '../services/app_logger.dart';
 import '../services/prefs_recovery.dart';
+import '../services/tmdb_account_service.dart';
+import '../services/tmdb_api_service.dart';
+import 'settings_provider.dart';
+import 'shows_provider.dart';
+import 'tmdb_account_provider.dart';
 
 /// Key for storing favorites in SharedPreferences (TV — kept for back-compat).
 const String _favoritesKey = 'favorite_shows';
@@ -220,7 +221,12 @@ class FavoritesNotifier extends Notifier<FavoritesState> {
               mediaId: id,
               favorite: true,
             );
-          } catch (_) {}
+          } catch (e) {
+            // Best-effort per item: one rejected push must not abort the
+            // whole union, but a silent skip is how a favorite quietly
+            // fails to reach TMDB forever.
+            AppLog.w('[Favorites] push tv $id to TMDB failed: $e');
+          }
         }
         for (final id in state.favoriteMovieIds) {
           try {
@@ -230,7 +236,9 @@ class FavoritesNotifier extends Notifier<FavoritesState> {
               mediaId: id,
               favorite: true,
             );
-          } catch (_) {}
+          } catch (e) {
+            AppLog.w('[Favorites] push movie $id to TMDB failed: $e');
+          }
         }
       }
 
@@ -274,7 +282,10 @@ class FavoritesNotifier extends Notifier<FavoritesState> {
         if (!newCache.containsKey(id)) {
           try {
             newCache[id] = await _tmdbService.getShowDetails(id);
-          } catch (_) {}
+          } catch (e) {
+            // Leave the id uncached; a later refresh retries it.
+            AppLog.w('[Favorites] show details $id unavailable: $e');
+          }
         }
       }
       state = state.copyWith(cachedShows: newCache, isLoading: false);
@@ -332,7 +343,9 @@ final favoriteShowsProvider = FutureProvider<List<Show>>((ref) async {
   for (final id in favorites.favoriteIds) {
     try {
       shows.add(await tmdbService.getShowDetails(id));
-    } catch (_) {}
+    } catch (e) {
+      AppLog.w('[Favorites] omitting show $id from list: $e');
+    }
   }
   return shows;
 });
@@ -346,7 +359,9 @@ final favoriteMoviesProvider = FutureProvider<List<Movie>>((ref) async {
   for (final id in favorites.favoriteMovieIds) {
     try {
       movies.add(await tmdbService.getMovieDetails(id));
-    } catch (_) {}
+    } catch (e) {
+      AppLog.w('[Favorites] omitting movie $id from list: $e');
+    }
   }
   return movies;
 });
@@ -367,7 +382,9 @@ final upcomingEpisodesProvider = FutureProvider<List<UpcomingEpisode>>((
           UpcomingEpisode(show: show, airDate: show.nextEpisodeToAir!),
         );
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLog.w('[Favorites] upcoming lookup for show $showId failed: $e');
+    }
   }
   upcoming.sort((a, b) => a.airDate.compareTo(b.airDate));
   return upcoming;
@@ -502,10 +519,16 @@ class NewEpisodeNotificationsNotifier
                 newCount++;
               }
             }
-          } catch (_) {}
+          } catch (e) {
+            AppLog.w(
+              '[Favorites] season $numSeasons of show $showId unavailable: $e',
+            );
+          }
         }
         if (newCount > 0) newCounts[showId] = newCount;
-      } catch (_) {}
+      } catch (e) {
+        AppLog.w('[Favorites] new-episode check for show $showId failed: $e');
+      }
     }
 
     state = state.copyWith(newEpisodeCounts: newCounts, lastChecked: now);

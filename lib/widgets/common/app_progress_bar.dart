@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../design/app_colors.dart';
-import '../../design/app_tokens.dart';
 import '../../design/app_theme.dart';
+import '../../design/app_tokens.dart';
 import '../../utils/formatters.dart';
 
 /// Types of progress bars for different contexts
@@ -147,7 +147,7 @@ class AppProgressBar extends StatelessWidget {
     final radius = borderRadius ?? AppRadius.xs;
 
     // Build the progress indicator with modern styling
-    Widget progressBar = Container(
+    final Widget progressBar = Container(
       height: height,
       decoration: BoxDecoration(
         color: bgColor,

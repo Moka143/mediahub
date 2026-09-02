@@ -5,12 +5,16 @@ import 'package:process_run/process_run.dart';
 
 import '../utils/constants.dart';
 import '../utils/platform_utils.dart';
+import '../utils/poll_loop.dart';
 import 'app_logger.dart';
 
 /// Service for managing the qBittorrent process lifecycle
 class QBittorrentProcessService {
   Process? _process;
-  Timer? _healthCheckTimer;
+  late final PollLoop _healthCheck = PollLoop(
+    name: 'qb-process-health',
+    onTick: _performHealthCheck,
+  );
   bool _isStarting = false;
 
   /// Not final: [start] rewrites it when [findExecutable] locates qBittorrent
@@ -88,7 +92,7 @@ class QBittorrentProcessService {
     if (!managesLocalProcess) {
       _log('qBittorrent is remote ($_host) — not starting a local process');
       _isStarting = false;
-      return await isRunning();
+      return isRunning();
     }
 
     _isStarting = true;
@@ -217,11 +221,7 @@ class QBittorrentProcessService {
 
   /// Start health check timer
   void _startHealthCheck() {
-    _healthCheckTimer?.cancel();
-    _healthCheckTimer = Timer.periodic(
-      AppConstants.connectionCheckInterval,
-      (_) => _performHealthCheck(),
-    );
+    _healthCheck.start(AppConstants.connectionCheckInterval);
   }
 
   /// Perform a health check
@@ -241,8 +241,7 @@ class QBittorrentProcessService {
 
   /// Stop qBittorrent process
   Future<void> stop() async {
-    _healthCheckTimer?.cancel();
-    _healthCheckTimer = null;
+    _healthCheck.stop();
 
     if (_process != null) {
       _log('Stopping qBittorrent process...');
@@ -255,7 +254,7 @@ class QBittorrentProcessService {
 
   /// Dispose of resources
   void dispose() {
-    _healthCheckTimer?.cancel();
+    _healthCheck.dispose();
     // Note: We don't kill the process on dispose as qBittorrent should keep running
   }
 

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
 
 import '../models/torrent_file.dart';
+import '../utils/poll_loop.dart';
 import 'app_logger.dart';
 import 'local_streaming_server.dart';
 import 'qbittorrent_api_service.dart';
@@ -195,7 +196,10 @@ class PlaybackHealthMonitor {
   // State
   // ---------------------------------------------------------------------
 
-  Timer? _timer;
+  late final PollLoop _poll = PollLoop(
+    name: 'playback-health',
+    onTick: _runCheck,
+  );
   StreamSubscription<Duration>? _positionSub;
 
   Duration _lastObservedPosition = Duration.zero;
@@ -413,8 +417,8 @@ class PlaybackHealthMonitor {
   void start() {
     if (_disposed) return;
 
-    _timer?.cancel();
-    _positionSub?.cancel();
+    _poll.stop();
+    unawaited(_positionSub?.cancel());
 
     _lastObservedPosition = Duration.zero;
     _lastPositionAdvanceAt = DateTime.now();
@@ -435,19 +439,17 @@ class PlaybackHealthMonitor {
       }
     });
 
-    _timer = Timer.periodic(pollInterval, (_) => _runCheck());
     // Fire once immediately so the seek-bar's buffered region populates
     // without waiting a full poll interval.
-    _runCheck();
+    _poll.start(pollInterval, fireImmediately: true);
   }
 
   /// Stop monitoring. Synchronous and dependency-free so the player screen can
   /// call it from `dispose()`, where providers may already be torn down.
   void dispose() {
     _disposed = true;
-    _timer?.cancel();
-    _timer = null;
-    _positionSub?.cancel();
+    _poll.dispose();
+    unawaited(_positionSub?.cancel());
     _positionSub = null;
   }
 

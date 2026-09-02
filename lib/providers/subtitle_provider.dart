@@ -4,10 +4,10 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/local_media_file.dart';
+import '../services/app_logger.dart';
 import '../services/opensubtitles_service.dart';
 import '../utils/formatters.dart';
 import 'settings_provider.dart';
-import '../services/app_logger.dart';
 
 /// Provider for OpenSubtitles service
 final openSubtitlesServiceProvider = Provider<OpenSubtitlesService>((ref) {

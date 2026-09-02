@@ -62,7 +62,9 @@ Future<String?> _lookupShowPoster(Ref ref, String showName) async {
         : null;
   } catch (e) {
     AppLog.w('[LocalMedia] show poster lookup failed for "$showName": $e');
-    _showPosterRequests.remove(showName);
+    // The map holds Futures, so `remove` hands this very future back. We
+    // want the eviction, not the value — a later rebuild retries the lookup.
+    unawaited(_showPosterRequests.remove(showName));
     return null;
   }
 }
@@ -83,7 +85,7 @@ Future<String?> _lookupMoviePoster(Ref ref, String movieName) async {
     return movies.isNotEmpty ? movies.first.posterUrl : null;
   } catch (e) {
     AppLog.w('[LocalMedia] movie poster lookup failed for "$movieName": $e');
-    _moviePosterRequests.remove(movieName);
+    unawaited(_moviePosterRequests.remove(movieName));
     return null;
   }
 }

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../design/app_colors.dart';
-import '../../design/app_tokens.dart';
 import '../../design/app_theme.dart';
+import '../../design/app_tokens.dart';
 
 /// Types of empty states for different contexts
 enum EmptyStateType {

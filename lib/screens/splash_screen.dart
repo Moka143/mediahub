@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../screens/main_navigation_screen.dart';
+
 import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
 import '../providers/settings_provider.dart';
 import '../providers/tmdb_account_provider.dart';
+import '../screens/main_navigation_screen.dart';
 import '../widgets/editorial/editorial.dart';
 import 'onboarding_screen.dart';
 

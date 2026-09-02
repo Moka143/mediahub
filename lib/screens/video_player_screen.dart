@@ -16,23 +16,24 @@ import '../providers/auto_download_provider.dart';
 import '../providers/connection_provider.dart';
 import '../providers/local_media_provider.dart';
 import '../providers/player_provider.dart';
-import '../providers/shows_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/shows_provider.dart';
+import '../providers/streaming_provider.dart';
 import '../providers/subtitle_provider.dart';
 import '../providers/watch_progress_provider.dart';
-import '../providers/streaming_provider.dart';
+import '../services/app_logger.dart';
 import '../services/local_streaming_server.dart';
 import '../services/next_episode_planner.dart';
 import '../services/playback_health_monitor.dart';
 import '../services/streaming_service.dart';
 import '../widgets/next_episode_overlay.dart';
+import '../widgets/player/buffering_indicator.dart';
 import '../widgets/player/player_keyboard.dart';
 import '../widgets/player/resume_prompt.dart';
 import '../widgets/player/seek_indicator.dart';
 import '../widgets/player/skip_ripple_indicator.dart';
 import '../widgets/streaming_status_indicator.dart';
 import '../widgets/video_controls.dart';
-import '../services/app_logger.dart';
 
 /// Full-screen video player screen with gesture controls
 class VideoPlayerScreen extends ConsumerStatefulWidget {
@@ -788,17 +789,21 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
         'showId=$showId imdbId=$imdbId',
       );
 
-      ref
-          .read(autoDownloadProvider.notifier)
-          .onWatchProgress(
-            showId: showId,
-            imdbId: imdbId,
-            showName: showName,
-            season: season,
-            episode: episode,
-            progress: state.progressThreshold,
-            currentQuality: quality,
-          );
+      // Not awaited: this reaches out to the indexer and qBittorrent.
+      // Playback must not wait on it.
+      unawaited(
+        ref
+            .read(autoDownloadProvider.notifier)
+            .onWatchProgress(
+              showId: showId,
+              imdbId: imdbId,
+              showName: showName,
+              season: season,
+              episode: episode,
+              progress: state.progressThreshold,
+              currentQuality: quality,
+            ),
+      );
     } catch (e) {
       AppLog.e('[AutoDownload] _triggerAutoDownload failed: $e');
     }
@@ -915,7 +920,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
   }
 
   void _onPlayNextEpisode() async {
-    _positionSubscription?.cancel();
+    unawaited(_positionSubscription?.cancel());
     _dismissStreamingStatus();
     _dismissNextPrefetch();
     _consumeNextEpisodePrompt();
@@ -1255,7 +1260,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
                     // download progress so a long pause-for-cache shows the
                     // user the torrent is actually progressing.
                     if (isBuffering && _mediaOpened)
-                      _BufferingIndicator(
+                      BufferingIndicator(
                         label: widget.isStreaming
                             ? _bufferingLabel(_streamingDownloadedRatio)
                             : null,
@@ -1574,16 +1579,20 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
 
     // Track the show for future auto-downloads
     if (_currentShowId != null) {
-      ref
-          .read(autoDownloadProvider.notifier)
-          .trackShow(
-            showId: _currentShowId!,
-            imdbId: _currentImdbId,
-            showName: widget.file.showName ?? '',
-            season: episode.seasonNumber,
-            episode: episode.episodeNumber,
-            quality: torrent.quality,
-          );
+      // Not awaited: registering interest is bookkeeping, not something
+      // the user waits on before the episode starts.
+      unawaited(
+        ref
+            .read(autoDownloadProvider.notifier)
+            .trackShow(
+              showId: _currentShowId!,
+              imdbId: _currentImdbId,
+              showName: widget.file.showName ?? '',
+              season: episode.seasonNumber,
+              episode: episode.episodeNumber,
+              quality: torrent.quality,
+            ),
+      );
     }
 
     _prefetchSessionId = session.id;
@@ -1716,105 +1725,3 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen> {
 // ---------------------------------------------------------------------------
 // Buffering indicator — branded, frosted-glass feel
 // ---------------------------------------------------------------------------
-
-/// Center-screen buffering ring shown while mpv is paused-for-cache.
-///
-/// Theme-driven (violet on-brand spinner, surface-tinted glass background,
-/// soft shadow, outline-variant rim) and animated in with a subtle
-/// scale + fade so it doesn't hard-cut on screen.
-///
-/// Optional [label] renders a small chip below the spinner — useful when
-/// the surrounding context wants to explain *why* we're buffering (e.g.
-/// "Fetching pieces around new position…" after a seek-past-head). Left
-/// null on the default call site.
-class _BufferingIndicator extends StatelessWidget {
-  final String? label;
-
-  const _BufferingIndicator({this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-
-    return Center(
-      child: TweenAnimationBuilder<double>(
-        tween: Tween(begin: 0.0, end: 1.0),
-        duration: AppDuration.normal,
-        curve: Curves.easeOutCubic,
-        builder: (context, t, child) {
-          // 0.94 → 1.0 scale + 0 → 1 fade
-          return Opacity(
-            opacity: t,
-            child: Transform.scale(scale: 0.94 + (0.06 * t), child: child),
-          );
-        },
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                color: scheme.surface.withValues(
-                  alpha: AppOpacity.heavy / 255.0,
-                ),
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: scheme.outlineVariant.withValues(
-                    alpha: AppOpacity.light / 255.0,
-                  ),
-                  width: AppBorderWidth.thin,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(
-                      alpha: AppOpacity.semi / 255.0,
-                    ),
-                    blurRadius: AppElevation.lg,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(AppSpacing.lg),
-                child: CircularProgressIndicator(
-                  strokeWidth: 3.0,
-                  valueColor: AlwaysStoppedAnimation<Color>(scheme.primary),
-                ),
-              ),
-            ),
-            if (label != null) ...[
-              const SizedBox(height: AppSpacing.md),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.md,
-                  vertical: AppSpacing.xs,
-                ),
-                decoration: BoxDecoration(
-                  color: scheme.surface.withValues(
-                    alpha: AppOpacity.heavy / 255.0,
-                  ),
-                  borderRadius: BorderRadius.circular(AppRadius.full),
-                  border: Border.all(
-                    color: scheme.outlineVariant.withValues(
-                      alpha: AppOpacity.light / 255.0,
-                    ),
-                    width: AppBorderWidth.thin,
-                  ),
-                ),
-                child: Text(
-                  label!,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: scheme.onSurface,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}

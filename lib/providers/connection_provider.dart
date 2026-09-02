@@ -3,10 +3,11 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../services/app_logger.dart';
 import '../services/qbittorrent_api_service.dart';
 import '../services/qbittorrent_process_service.dart';
+import '../utils/poll_loop.dart';
 import 'settings_provider.dart';
-import '../services/app_logger.dart';
 
 /// Connection status enum
 enum ConnectionStatus { disconnected, connecting, connected, error }
@@ -83,14 +84,15 @@ final connectionProvider =
 
 /// Notifier for managing connection state
 class ConnectionNotifier extends Notifier<ConnectionState> {
-  Timer? _connectionCheckTimer;
+  late final PollLoop _connectionCheck = PollLoop(
+    name: 'connection',
+    onTick: _checkConnection,
+  );
 
   @override
   ConnectionState build() {
     // Clean up timer on dispose
-    ref.onDispose(() {
-      _connectionCheckTimer?.cancel();
-    });
+    ref.onDispose(_connectionCheck.dispose);
 
     // Schedule initialization
     Future.microtask(() => _initialize());
@@ -207,11 +209,7 @@ class ConnectionNotifier extends Notifier<ConnectionState> {
 
   /// Start periodic connection check
   void _startConnectionCheck() {
-    _connectionCheckTimer?.cancel();
-    _connectionCheckTimer = Timer.periodic(
-      const Duration(seconds: 30),
-      (_) => _checkConnection(),
-    );
+    _connectionCheck.start(const Duration(seconds: 30));
   }
 
   /// Sync speed limits from settings to qBittorrent
@@ -248,19 +246,19 @@ class ConnectionNotifier extends Notifier<ConnectionState> {
         status: ConnectionStatus.disconnected,
         errorMessage: 'Connection lost',
       );
-      _connectionCheckTimer?.cancel();
+      _connectionCheck.stop();
     }
   }
 
   /// Disconnect from qBittorrent
   Future<void> disconnect() async {
-    _connectionCheckTimer?.cancel();
+    _connectionCheck.stop();
     await _apiService.logout();
     state = const ConnectionState(status: ConnectionStatus.disconnected);
   }
 
   /// Retry connection
   Future<bool> retry() async {
-    return await connect();
+    return connect();
   }
 }

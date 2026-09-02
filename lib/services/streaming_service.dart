@@ -7,241 +7,41 @@ import 'package:path/path.dart' as p;
 
 import '../models/local_media_file.dart';
 import '../models/stream_request.dart';
-import '../models/torrentio_stream.dart';
+import '../models/streaming_session.dart';
 import '../models/torrent.dart';
 import '../models/torrent_file.dart';
+import '../models/torrentio_stream.dart';
 import '../utils/formatters.dart';
 import '../utils/platform_utils.dart';
+import '../utils/poll_loop.dart';
+import 'app_logger.dart';
 import 'local_streaming_server.dart';
 import 'qbittorrent_api_service.dart';
-import 'app_logger.dart';
 
-/// Represents the state of a streaming session
-enum StreamingState {
-  /// Initial state before adding torrent
-  idle,
+// Re-exported so callers keep importing the session types from the
+// service that produces them, rather than tracking a second path.
+export '../models/streaming_session.dart';
 
-  /// Torrent added, waiting for metadata
-  addingTorrent,
-
-  /// Metadata received, selecting files
-  selectingFiles,
-
-  /// Files selected, buffering initial pieces
-  buffering,
-
-  /// Ready to play - enough data buffered
-  ready,
-
-  /// Currently playing
-  playing,
-
-  /// Error occurred
-  error,
-
-  /// Session cancelled
-  cancelled,
-}
-
-/// What to do about a session that hasn't reached its buffer threshold yet.
-enum BufferOutcome {
-  /// Enough bytes are down — start playing.
-  ready,
-
-  /// Progressing at a workable rate; keep waiting.
-  waiting,
-
-  /// No bytes arriving at all. A peer problem, not a speed problem.
-  stalled,
-
-  /// Moving, but so slowly that reaching the threshold isn't worth waiting
-  /// for. Better to say so than to spin and fail later.
-  tooSlow,
-
-  /// [StreamingService.bufferHardCeiling] elapsed. Distinct from [tooSlow]
-  /// because it is the one outcome `allowSlowBuffer` must NOT swallow — a
-  /// background prefetch is allowed to be slow indefinitely by the rate
-  /// checks, so without a deadline it polls qBittorrent forever.
-  gaveUp,
-}
-
-/// Download-rate telemetry for one session's buffering phase.
-///
-/// Exists so [StreamingService.assessBuffering] can tell "slow but viable"
-/// from "not happening" — a distinction a wall-clock deadline cannot make.
-class _BufferWatch {
-  _BufferWatch(this.startedAt) : lastProgressAt = startedAt;
-
-  final DateTime startedAt;
-  int lastBytes = 0;
-  DateTime lastProgressAt;
-  double bytesPerSecond = 0;
-
-  /// Fold in a new observation. Rate is exponentially smoothed so one slow
-  /// poll doesn't condemn a torrent and one fast poll doesn't rescue it.
-  void observe(int bytes, DateTime now) {
-    if (bytes <= lastBytes) return;
-    final seconds = now.difference(lastProgressAt).inMilliseconds / 1000.0;
-    if (seconds > 0) {
-      final sample = (bytes - lastBytes) / seconds;
-      bytesPerSecond = bytesPerSecond == 0
-          ? sample
-          : bytesPerSecond * 0.7 + sample * 0.3;
-    }
-    lastBytes = bytes;
-    lastProgressAt = now;
-  }
-}
-
-/// Represents a streaming session for a single video
-class StreamingSession {
-  final String id;
-
-  /// What we were asked to stream, normalised away from whichever indexer
-  /// produced it. See [StreamRequest].
-  final StreamRequest request;
-
-  final String? showImdbId;
-  final String? showName;
-  final String? movieImdbId;
-  final int? season;
-  final int? episode;
-  final String? episodeCode;
-
-  /// When this session was first created. Drives the [metadataTimeout] check
-  /// in the monitoring loop and seeds the buffering rate window.
-  ///
-  /// **Must be threaded through [copyWith].** `_updateSession` copies the
-  /// session on every 2 s poll tick as a heartbeat; if `copyWith` let the
-  /// constructor default this back to `DateTime.now()`, session age would
-  /// never exceed one poll interval and both timeouts would be dead code.
-  final DateTime createdAt;
-
-  StreamingState state;
-  String? torrentHash;
-  String? contentPath;
-  String? selectedFilePath;
-  int? selectedFileIndex;
-  double bufferProgress;
-  String? errorMessage;
-  LocalMediaFile? videoFile;
-
-  /// HTTP URL the player should open instead of [videoFile.path] while the
-  /// torrent is still downloading. Populated once the local streaming proxy
-  /// is up. Null when streaming isn't available (or once the file is
-  /// fully downloaded and direct file playback is fine).
-  String? streamUrl;
-
-  /// Latest qBittorrent download rate for this torrent in bytes/second.
-  /// Refreshed on every monitoring poll. Drives the "X MB/s" hint in the
-  /// prep overlay so the user can tell whether the torrent has peers vs.
-  /// is stuck waiting on metadata.
-  int downloadRateBytesPerSec;
-
-  /// When true, [assessBuffering] outcomes of `tooSlow` / `stalled` do
-  /// **not** fail the session. Used for background next-episode prefetch:
-  /// that torrent shares the pipe with the episode currently playing, so
-  /// a 10-minute projected wait is expected — aborting would freeze the
-  /// pill on "Too slow to stream" and never update again.
-  final bool allowSlowBuffer;
-
-  StreamingSession({
-    required this.id,
-    required this.request,
-    this.showImdbId,
-    this.showName,
-    this.movieImdbId,
-    this.season,
-    this.episode,
-    this.episodeCode,
-    this.state = StreamingState.idle,
-    this.torrentHash,
-    this.contentPath,
-    this.selectedFilePath,
-    this.selectedFileIndex,
-    this.bufferProgress = 0.0,
-    this.errorMessage,
-    this.videoFile,
-    this.streamUrl,
-    this.downloadRateBytesPerSec = 0,
-    this.allowSlowBuffer = false,
-    DateTime? createdAt,
-  }) : createdAt = createdAt ?? DateTime.now();
-
-  bool get isActive =>
-      state != StreamingState.idle &&
-      state != StreamingState.error &&
-      state != StreamingState.cancelled;
-
-  bool get isReady =>
-      state == StreamingState.ready || state == StreamingState.playing;
-
-  /// Deliberately NOT `??`-merged: an error belongs to one update, so every
-  /// subsequent copy clears it. Pass it explicitly on any copy that must keep
-  /// it — a `finally` that only flips a loading flag will otherwise wipe the
-  /// `catch` above it.
-  StreamingSession copyWith({
-    StreamingState? state,
-    String? torrentHash,
-    String? contentPath,
-    String? selectedFilePath,
-    int? selectedFileIndex,
-    double? bufferProgress,
-    String? errorMessage,
-    LocalMediaFile? videoFile,
-    String? streamUrl,
-    int? downloadRateBytesPerSec,
-  }) {
-    return StreamingSession(
-      id: id,
-      request: request,
-      showImdbId: showImdbId,
-      showName: showName,
-      movieImdbId: movieImdbId,
-      season: season,
-      episode: episode,
-      episodeCode: episodeCode,
-      state: state ?? this.state,
-      torrentHash: torrentHash ?? this.torrentHash,
-      contentPath: contentPath ?? this.contentPath,
-      selectedFilePath: selectedFilePath ?? this.selectedFilePath,
-      selectedFileIndex: selectedFileIndex ?? this.selectedFileIndex,
-      bufferProgress: bufferProgress ?? this.bufferProgress,
-      errorMessage: errorMessage,
-      videoFile: videoFile ?? this.videoFile,
-      streamUrl: streamUrl ?? this.streamUrl,
-      downloadRateBytesPerSec:
-          downloadRateBytesPerSec ?? this.downloadRateBytesPerSec,
-      allowSlowBuffer: allowSlowBuffer,
-      // Preserved deliberately — see the field doc.
-      createdAt: createdAt,
-    );
-  }
-}
-
-/// Service for managing robust streaming of torrents
-///
-/// This service handles the complete streaming workflow:
-/// 1. Add torrent with streaming-optimized settings
-/// 2. Wait for metadata and file list
-/// 3. Select the correct file (using fileIdx for season packs)
-/// 4. Monitor buffering progress
-/// 5. Provide ready callback when enough is buffered
-///
-/// Based on Stremio's approach to torrent streaming.
 class StreamingService {
   final QBittorrentApiService _qbtService;
 
   final Map<String, StreamingSession> _sessions = {};
-  final Map<String, Timer> _monitoringTimers = {};
+  final Map<String, PollLoop> _monitoringLoops = {};
   final Map<String, StreamController<StreamingSession>> _sessionControllers =
       {};
-  final Set<String> _checkingProgress =
-      {}; // prevents concurrent checks per session
 
-  /// Buffering telemetry per session — see [_BufferWatch]. Cleared when the
+  /// Sessions whose progress check is mid-flight.
+  ///
+  /// Mostly subsumed by [PollLoop], which already drops a tick that arrives
+  /// while the previous one is still running. It is kept for the one case
+  /// the loop cannot see: `_startMonitoring` called twice for the same
+  /// session replaces the loop, and the outgoing loop's in-flight tick would
+  /// otherwise overlap the incoming loop's immediate one.
+  final Set<String> _checkingProgress = {};
+
+  /// Buffering telemetry per session — see [BufferWatch]. Cleared when the
   /// session ends or gives up.
-  final Map<String, _BufferWatch> _bufferWatch = {};
+  final Map<String, BufferWatch> _bufferWatch = {};
 
   /// Local HTTP proxy keyed by session id. Started when a session reaches
   /// [StreamingState.ready] and torn down on cancel/dispose. mpv reads from
@@ -300,7 +100,7 @@ class StreamingService {
   /// the first seconds of a torrent are all handshakes and no payload.
   ///
   /// 30 s was not enough. A torrent routinely sits near zero while it finds
-  /// peers and then climbs to megabytes a second, and [_BufferWatch]'s rate
+  /// peers and then climbs to megabytes a second, and [BufferWatch]'s rate
   /// is exponentially smoothed, so at 30 s the estimate is still dominated
   /// by the dead start — it takes several polls to catch up with a ramp.
   /// Judging there gave up on streams that were about to be fine.
@@ -510,8 +310,7 @@ class StreamingService {
     AppLog.d('[StreamingService] Cancelling session $sessionId');
 
     // Stop monitoring
-    _monitoringTimers[sessionId]?.cancel();
-    _monitoringTimers.remove(sessionId);
+    _monitoringLoops.remove(sessionId)?.dispose();
     _bufferWatch.remove(sessionId);
 
     // Tear down the local HTTP proxy if one was started for this session.
@@ -533,14 +332,17 @@ class StreamingService {
 
   /// Start monitoring a session for file selection and buffering
   void _startMonitoring(String sessionId) {
-    final timer = Timer.periodic(pollingInterval, (timer) async {
-      await _checkSessionProgress(sessionId);
-    });
-
-    _monitoringTimers[sessionId] = timer;
-
-    // Also do an immediate check
-    _checkSessionProgress(sessionId);
+    _monitoringLoops[sessionId]?.dispose();
+    _monitoringLoops[sessionId] =
+        PollLoop(
+          name: 'stream:$sessionId',
+          onTick: () => _checkSessionProgress(sessionId),
+        )..start(
+          pollingInterval,
+          // Check immediately rather than making the first buffering update
+          // wait a full interval.
+          fireImmediately: true,
+        );
   }
 
   /// Check progress of a streaming session
@@ -551,7 +353,7 @@ class StreamingService {
 
     final session = _sessions[sessionId];
     if (session == null || !session.isActive) {
-      _monitoringTimers[sessionId]?.cancel();
+      _monitoringLoops[sessionId]?.stop();
       _checkingProgress.remove(sessionId);
       return;
     }
@@ -840,7 +642,7 @@ class StreamingService {
         state: StreamingState.error,
         errorMessage: 'Could not locate video file on disk',
       );
-      _monitoringTimers[sessionId]?.cancel();
+      _monitoringLoops[sessionId]?.stop();
       return;
     }
 
@@ -882,7 +684,7 @@ class StreamingService {
 
     // Stop readiness monitoring. VideoPlayerScreen tracks the download edge
     // while playback continues.
-    _monitoringTimers[sessionId]?.cancel();
+    _monitoringLoops[sessionId]?.stop();
   }
 
   /// Handle buffering state for a streaming session.
@@ -931,7 +733,7 @@ class StreamingService {
     final now = DateTime.now();
     final watch = _bufferWatch.putIfAbsent(
       sessionId,
-      () => _BufferWatch(session.createdAt),
+      () => BufferWatch(session.createdAt),
     )..observe(bufferedBytes, now);
 
     final prefixReady = await _prefixIsPlayable(session, torrent);
@@ -1168,7 +970,7 @@ class StreamingService {
       state: StreamingState.error,
       errorMessage: message,
     );
-    _monitoringTimers[sessionId]?.cancel();
+    _monitoringLoops[sessionId]?.stop();
     _bufferWatch.remove(sessionId);
   }
 
@@ -1305,10 +1107,10 @@ class StreamingService {
 
   /// Dispose all resources
   void dispose() {
-    for (final timer in _monitoringTimers.values) {
-      timer.cancel();
+    for (final loop in _monitoringLoops.values) {
+      loop.dispose();
     }
-    _monitoringTimers.clear();
+    _monitoringLoops.clear();
     _bufferWatch.clear();
 
     for (final server in _streamingServers.values) {

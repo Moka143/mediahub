@@ -89,7 +89,7 @@ class SettingsDownloadsTab extends ConsumerWidget {
                   onPressed: () async {
                     final result = await FilePicker.platform.getDirectoryPath();
                     if (result != null) {
-                      ref
+                      await ref
                           .read(settingsProvider.notifier)
                           .setDefaultSavePath(result);
                     }

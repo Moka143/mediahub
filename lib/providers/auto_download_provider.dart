@@ -7,8 +7,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/auto_download_event.dart';
 import '../models/eztv_torrent.dart';
+import '../services/app_logger.dart';
 import '../services/auto_download_service.dart';
 import '../utils/formatters.dart';
+import '../utils/poll_loop.dart';
 import 'auto_download_events_provider.dart';
 import 'connection_provider.dart';
 import 'eztv_provider.dart';
@@ -16,7 +18,6 @@ import 'local_media_provider.dart';
 import 'settings_provider.dart';
 import 'shows_provider.dart';
 import 'torrentio_provider.dart';
-import '../services/app_logger.dart';
 
 const _autoDownloadStateKey = 'auto_download_state';
 
@@ -176,17 +177,20 @@ final autoDownloadProvider =
 
 /// Notifier for auto-download functionality
 class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
-  Timer? _checkTimer;
-  // In-memory lock prevents concurrent periodic + progress-triggered runs
+  late final PollLoop _periodicCheck = PollLoop(
+    name: 'auto-download',
+    onTick: checkAndDownloadNextEpisodes,
+  );
+
+  // Still needed beyond PollLoop's own overlap guard: a progress-triggered
+  // run can start between two ticks, and the two must not interleave.
   bool _isRunning = false;
 
   @override
   AutoDownloadState build() {
     final prefs = ref.watch(sharedPreferencesProvider);
 
-    ref.onDispose(() {
-      _checkTimer?.cancel();
-    });
+    ref.onDispose(_periodicCheck.dispose);
 
     // Start periodic check if enabled
     final loadedState = _loadState(prefs);
@@ -226,8 +230,7 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
     if (enabled) {
       _startPeriodicCheck();
     } else {
-      _checkTimer?.cancel();
-      _checkTimer = null;
+      _periodicCheck.stop();
     }
   }
 
@@ -302,11 +305,7 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
 
   /// Start periodic check for next episodes
   void _startPeriodicCheck() {
-    _checkTimer?.cancel();
-    // Check every 5 minutes
-    _checkTimer = Timer.periodic(const Duration(minutes: 5), (_) {
-      checkAndDownloadNextEpisodes();
-    });
+    _periodicCheck.start(const Duration(minutes: 5));
   }
 
   /// Trigger auto-download check when watching progress reaches threshold.
@@ -453,7 +452,7 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
 
     if (!nextResult.hasNextEpisode) {
       if (!announceMisses) return false;
-      ref
+      await ref
           .read(autoDownloadEventsProvider.notifier)
           .addEvent(
             AutoDownloadEvent(
@@ -517,7 +516,7 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
         '(quality=$quality)',
       );
       if (!announceMisses) return false;
-      ref
+      await ref
           .read(autoDownloadEventsProvider.notifier)
           .addEvent(
             AutoDownloadEvent(
@@ -567,7 +566,7 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
         ),
       );
 
-      ref
+      await ref
           .read(autoDownloadEventsProvider.notifier)
           .addEvent(
             AutoDownloadEvent(
@@ -655,7 +654,7 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
         );
 
         // Log the event
-        ref
+        await ref
             .read(autoDownloadEventsProvider.notifier)
             .addEvent(
               AutoDownloadEvent(

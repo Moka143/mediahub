@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../design/app_tokens.dart';
-import '../widgets/common/mediahub_confirm_dialog.dart';
 import '../models/local_media_file.dart';
 import '../models/watch_progress.dart';
 import '../providers/local_media_provider.dart';
@@ -13,6 +12,7 @@ import '../utils/feedback_utils.dart';
 import '../utils/platform_utils.dart';
 import '../widgets/common/empty_state.dart';
 import '../widgets/common/loading_state.dart';
+import '../widgets/common/mediahub_confirm_dialog.dart';
 import '../widgets/library/library.dart';
 import 'video_player_screen.dart';
 
@@ -296,7 +296,12 @@ class _WatchScreenState extends ConsumerState<WatchScreen> {
       destructive: true,
     );
     if (confirmed != true || !mounted) return;
-    ref.read(watchProgressProvider.notifier).clearProgress(progress.filePath);
+    // Awaited: the confirmation below claims the removal happened, so it
+    // must actually have been persisted before we say so.
+    await ref
+        .read(watchProgressProvider.notifier)
+        .clearProgress(progress.filePath);
+    if (!mounted) return;
     AppSnackBar.showInfo(context, message: 'Removed from Continue Watching');
   }
 

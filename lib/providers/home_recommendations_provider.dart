@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/movie.dart';
 import '../models/show.dart';
+import '../services/app_logger.dart';
 import 'favorites_provider.dart';
 import 'shows_provider.dart';
 import 'watch_progress_provider.dart';
@@ -150,7 +151,10 @@ final homeRecommendationsProvider = FutureProvider<HomeRecommendationFeed?>((
           }
         }
         showBatches.add((id: seed.id, name: name, recs: recs));
-      } catch (_) {}
+      } catch (e) {
+        // Skip this seed; other seeds still produce rows.
+        AppLog.w('[Home] show recommendations for ${seed.id} failed: $e');
+      }
     } else {
       try {
         final recs = await tmdb.getRecommendedMovies(seed.id);
@@ -163,7 +167,9 @@ final homeRecommendationsProvider = FutureProvider<HomeRecommendationFeed?>((
           }
         }
         movieBatches.add((id: seed.id, name: name, recs: recs));
-      } catch (_) {}
+      } catch (e) {
+        AppLog.w('[Home] movie recommendations for ${seed.id} failed: $e');
+      }
     }
   }
 

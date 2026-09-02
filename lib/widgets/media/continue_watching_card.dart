@@ -3,8 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/watch_progress.dart';
 import '../../providers/local_media_provider.dart';
-import 'media_poster_card.dart';
 import '../../utils/media_names.dart';
+import 'media_poster_card.dart';
 
 /// Continue-watching card — thin wrapper over [MediaPosterCard] so the
 /// library tab can render Continue Watching alongside Movies / Shows / Recent

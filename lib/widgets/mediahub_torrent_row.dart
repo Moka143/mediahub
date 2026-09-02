@@ -7,9 +7,9 @@ import '../design/app_typography.dart';
 import '../models/torrent.dart';
 import '../utils/constants.dart';
 import '../utils/formatters.dart';
+import '../utils/media_quality.dart';
 import 'common/mediahub_popup_menu.dart';
 import 'editorial/editorial.dart';
-import '../utils/media_quality.dart';
 
 /// Sortable column-header strip matching the design's Transfers screen.
 ///

@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
-import '../design/app_typography.dart';
 import '../models/episode.dart';
 import '../models/season.dart';
 import '../models/show.dart';
@@ -12,6 +10,10 @@ import '../providers/torrent_provider.dart';
 import '../providers/watch_progress_provider.dart';
 import '../utils/formatters.dart';
 import 'common/mediahub_drawer_header.dart';
+import 'episodes/episode_picker.dart';
+import 'episodes/episode_row.dart';
+import 'episodes/episode_states.dart';
+import 'episodes/season_tabs.dart';
 import 'mediahub_drawer.dart';
 
 /// Right-side drawer presenting a show's seasons + episodes — replaces
@@ -100,7 +102,7 @@ class _MediaHubEpisodesDrawerState
   /// Determine an episode's lifecycle state by joining torrent list
   /// + watch progress. Returns a single status — `watched` wins over
   /// `downloaded` wins over `downloading` wins over `none`.
-  _EpisodeStatus _statusFor(Episode ep) {
+  EpisodeStatus _statusFor(Episode ep) {
     final code = Formatters.episodeCode(ep.seasonNumber, ep.episodeNumber);
     final showName = widget.show.name.toLowerCase();
 
@@ -120,7 +122,7 @@ class _MediaHubEpisodesDrawerState
       episode: ep.episodeNumber,
       showName: showName,
     )) {
-      return _EpisodeStatus.watched;
+      return EpisodeStatus.watched;
     }
 
     final torrents = ref.read(torrentListProvider).torrents;
@@ -130,11 +132,11 @@ class _MediaHubEpisodesDrawerState
       // Match the show roughly: at least the first significant token.
       final showFirst = showName.split(' ').first;
       if (showFirst.length < 3 || n.contains(showFirst)) {
-        if (t.isDownloading) return _EpisodeStatus.downloading;
-        return _EpisodeStatus.downloaded;
+        if (t.isDownloading) return EpisodeStatus.downloading;
+        return EpisodeStatus.downloaded;
       }
     }
-    return _EpisodeStatus.none;
+    return EpisodeStatus.none;
   }
 
   Future<void> _loadSeason(int season) async {
@@ -184,7 +186,7 @@ class _MediaHubEpisodesDrawerState
             subtitleUppercase: true,
             onClose: () => Navigator.of(context).pop(),
           ),
-          _SeasonTabs(
+          SeasonTabs(
             seasonNumbers: seasonNumbers,
             selected: _season,
             onSelect: (n) {
@@ -193,16 +195,16 @@ class _MediaHubEpisodesDrawerState
             },
           ),
           if (eps.isNotEmpty)
-            _EpisodePicker(
+            EpisodePicker(
               episodes: eps,
               onSelect: _scrollToEpisode,
               statusFor: _statusFor,
             ),
           Expanded(
             child: _loading && eps.isEmpty
-                ? const _EpisodesSkeleton()
+                ? const EpisodesSkeleton()
                 : _error != null && eps.isEmpty
-                ? _ErrorState(onRetry: () => _loadSeason(_season))
+                ? EpisodesErrorState(onRetry: () => _loadSeason(_season))
                 : ListView.builder(
                     controller: _listController,
                     padding: const EdgeInsets.all(AppSpacing.md),
@@ -213,7 +215,7 @@ class _MediaHubEpisodesDrawerState
                         ep.episodeNumber,
                         () => GlobalKey(),
                       );
-                      return _EpisodeRow(
+                      return EpisodeRow(
                         key: key,
                         episode: ep,
                         status: _statusFor(ep),
@@ -243,756 +245,5 @@ class _MediaHubEpisodesDrawerState
       return (p.position.inMilliseconds / dur).clamp(0.0, 1.0);
     }
     return null;
-  }
-}
-
-class _SeasonTabs extends StatelessWidget {
-  const _SeasonTabs({
-    required this.seasonNumbers,
-    required this.selected,
-    required this.onSelect,
-  });
-
-  final List<int> seasonNumbers;
-  final int selected;
-  final ValueChanged<int> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.xl,
-        vertical: AppSpacing.md,
-      ),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: AppColors.line, width: 1)),
-      ),
-      child: Row(
-        children: [
-          Text(
-            'SEASON',
-            style: AppType.mono(
-              size: 10,
-              color: AppColors.fg2,
-              weight: FontWeight.w700,
-              letterSpacing: 0.088,
-            ),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  for (final n in seasonNumbers) ...[
-                    _SeasonChip(
-                      number: n,
-                      selected: n == selected,
-                      onTap: () => onSelect(n),
-                    ),
-                    const SizedBox(width: 4),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SeasonChip extends StatelessWidget {
-  const _SeasonChip({
-    required this.number,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final int number;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        width: 36,
-        height: 28,
-        decoration: BoxDecoration(
-          color: selected ? AppColors.seedColor : AppColors.bgSurface,
-          border: Border.all(
-            color: selected ? AppColors.seedColor : AppColors.line,
-          ),
-          borderRadius: BorderRadius.circular(AppRadius.sm),
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          number.toString().padLeft(2, '0'),
-          style: AppType.mono(
-            size: 12,
-            color: selected ? Colors.white : AppColors.fg1,
-            weight: FontWeight.w700,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Per-episode lifecycle status. Reused by the picker pills + the
-/// row to give a single visual language across the drawer.
-enum _EpisodeStatus { none, downloading, downloaded, watched }
-
-extension on _EpisodeStatus {
-  Color get color => switch (this) {
-    _EpisodeStatus.watched => AppColors.seeding,
-    _EpisodeStatus.downloaded => AppColors.seedColor,
-    _EpisodeStatus.downloading => AppColors.downloading,
-    _EpisodeStatus.none => AppColors.fg3,
-  };
-
-  IconData? get icon => switch (this) {
-    _EpisodeStatus.watched => Icons.check_rounded,
-    _EpisodeStatus.downloaded => Icons.download_done_rounded,
-    _EpisodeStatus.downloading => Icons.downloading_rounded,
-    _EpisodeStatus.none => null,
-  };
-
-  String get label => switch (this) {
-    _EpisodeStatus.watched => 'Watched',
-    _EpisodeStatus.downloaded => 'Downloaded',
-    _EpisodeStatus.downloading => 'Downloading',
-    _EpisodeStatus.none => '',
-  };
-}
-
-/// Quick-jump pill row above the episode list — each pill is one
-/// episode. Tapping scrolls the list to that episode. Watched
-/// episodes are dimmed; downloaded episodes get a small dot.
-class _EpisodePicker extends StatelessWidget {
-  const _EpisodePicker({
-    required this.episodes,
-    required this.onSelect,
-    required this.statusFor,
-  });
-
-  final List<Episode> episodes;
-  final ValueChanged<int> onSelect;
-  final _EpisodeStatus Function(Episode) statusFor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.xl,
-        AppSpacing.md,
-        AppSpacing.xl,
-        AppSpacing.md,
-      ),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: AppColors.line, width: 1)),
-      ),
-      child: Row(
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(right: AppSpacing.sm, top: 6),
-            child: Text(
-              'EPISODE',
-              style: AppType.mono(
-                size: 10,
-                color: AppColors.fg2,
-                weight: FontWeight.w700,
-                letterSpacing: 0.088,
-              ),
-            ),
-          ),
-          Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  for (final ep in episodes) ...[
-                    _EpisodePill(
-                      episode: ep,
-                      status: statusFor(ep),
-                      onTap: () => onSelect(ep.episodeNumber),
-                    ),
-                    const SizedBox(width: 4),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _EpisodePill extends StatelessWidget {
-  const _EpisodePill({
-    required this.episode,
-    required this.status,
-    required this.onTap,
-  });
-
-  final Episode episode;
-  final _EpisodeStatus status;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final isWatched = status == _EpisodeStatus.watched;
-    final hasStatus = status != _EpisodeStatus.none;
-
-    // Three visual classes for the picker pill:
-    //   - none         → surface fill, hairline border
-    //   - watched      → soft tinted fill, status-colored border + number
-    //     (no corner badge: the whole pill says "done" at a glance)
-    //   - downloading / downloaded
-    //                  → surface fill, faint status border, thin status
-    //     stripe along the bottom edge (replaces the floating green dot
-    //     that was visually misaligned inside the rounded rect)
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: ClipRRect(
-        // Bottom stripe needs hard clipping so the rounded corners
-        // don't leak the accent color past the radius.
-        borderRadius: BorderRadius.circular(AppRadius.sm),
-        child: Container(
-          width: 36,
-          height: 28,
-          decoration: BoxDecoration(
-            color: isWatched
-                ? status.color.withAlpha(0x26) // ~15% tint
-                : AppColors.bgSurface,
-            border: Border.all(
-              color: hasStatus
-                  ? status.color.withAlpha(isWatched ? 0x80 : 0x4D)
-                  : AppColors.line,
-              width: 1,
-            ),
-            borderRadius: BorderRadius.circular(AppRadius.sm),
-          ),
-          alignment: Alignment.center,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              Text(
-                episode.episodeNumber.toString().padLeft(2, '0'),
-                style: AppType.mono(
-                  size: 12,
-                  color: isWatched ? status.color : AppColors.fg1,
-                  weight: FontWeight.w700,
-                ),
-              ),
-              if (hasStatus && !isWatched)
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: Container(height: 2, color: status.color),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _EpisodeRow extends StatefulWidget {
-  const _EpisodeRow({
-    super.key,
-    required this.episode,
-    required this.status,
-    required this.onTap,
-    this.watchedRatio,
-  });
-
-  final Episode episode;
-  final _EpisodeStatus status;
-  final VoidCallback onTap;
-
-  /// 0.0–1.0 if the user has watched part/all of the episode. Renders a
-  /// thin tertiary-colored progress bar at the bottom of the still.
-  final double? watchedRatio;
-
-  @override
-  State<_EpisodeRow> createState() => _EpisodeRowState();
-}
-
-class _EpisodeRowState extends State<_EpisodeRow> {
-  bool _hover = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final ep = widget.episode;
-    final hue = (ep.name.codeUnits.fold<int>(0, (a, b) => a + b)) % 360;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: widget.onTap,
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedScale(
-          // Subtle hover lift so the row feels tactile.
-          scale: _hover ? 1.012 : 1.0,
-          duration: AppDuration.fast,
-          curve: Curves.easeOutCubic,
-          child: AnimatedContainer(
-            duration: AppDuration.fast,
-            margin: const EdgeInsets.only(bottom: 4),
-            padding: const EdgeInsets.all(AppSpacing.md),
-            decoration: BoxDecoration(
-              color: _hover ? AppColors.bgSurfaceHi : AppColors.bgSurface,
-              border: Border.all(
-                color: _hover ? const Color(0x33FFFFFF) : AppColors.line,
-              ),
-              borderRadius: BorderRadius.circular(AppRadius.md),
-              boxShadow: _hover
-                  ? const [
-                      BoxShadow(
-                        color: Color(0x40000000),
-                        blurRadius: 14,
-                        offset: Offset(0, 4),
-                      ),
-                    ]
-                  : const [],
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                SizedBox(
-                  width: 36,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        ep.episodeNumber.toString().padLeft(2, '0'),
-                        textAlign: TextAlign.center,
-                        // Watched episodes dim slightly so the user
-                        // can scan unwatched ones at a glance.
-                        style: AppType.mono(
-                          size: 18,
-                          color: widget.status == _EpisodeStatus.watched
-                              ? AppColors.fg2
-                              : AppColors.fg,
-                          weight: FontWeight.w800,
-                          letterSpacing: -0.02,
-                        ),
-                      ),
-                      if (widget.status.icon != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Container(
-                            width: 16,
-                            height: 16,
-                            decoration: BoxDecoration(
-                              color: widget.status.color.withAlpha(36),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              widget.status.icon,
-                              size: 10,
-                              color: widget.status.color,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(AppRadius.sm),
-                  child: SizedBox(
-                    width: 100,
-                    height: 60,
-                    child: _EpisodeStill(
-                      stillUrl: ep.stillUrl,
-                      hue: hue,
-                      watchedRatio: widget.watchedRatio,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        ep.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.fg,
-                        ),
-                      ),
-                      if (ep.overview != null && ep.overview!.isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          ep.overview!,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: AppColors.fg1,
-                            height: 1.4,
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Text(
-                            [
-                              if (ep.airDate != null) ep.airDate!.toUpperCase(),
-                              if (ep.runtime != null) '${ep.runtime}m',
-                            ].join(' · '),
-                            style: AppType.mono(
-                              size: 10,
-                              color: AppColors.fg2,
-                              letterSpacing: 0.04,
-                            ),
-                          ),
-                          if (widget.status != _EpisodeStatus.none) ...[
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 5,
-                                vertical: 1,
-                              ),
-                              decoration: BoxDecoration(
-                                color: widget.status.color.withAlpha(36),
-                                borderRadius: BorderRadius.circular(
-                                  AppRadius.xs,
-                                ),
-                              ),
-                              child: Text(
-                                widget.status.label.toUpperCase(),
-                                style: AppType.mono(
-                                  size: 9,
-                                  color: widget.status.color,
-                                  weight: FontWeight.w700,
-                                  letterSpacing: 0.055,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                _ActionButton(
-                  status: widget.status,
-                  hover: _hover,
-                  onTap: widget.onTap,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Episode-row action button — switches label + icon + accent color
-/// based on the lifecycle status. Replaces the always-`GET` button.
-class _ActionButton extends StatelessWidget {
-  const _ActionButton({
-    required this.status,
-    required this.hover,
-    required this.onTap,
-  });
-
-  final _EpisodeStatus status;
-  final bool hover;
-  final VoidCallback onTap;
-
-  ({IconData icon, String label, Color color}) _spec() {
-    return switch (status) {
-      _EpisodeStatus.watched => (
-        icon: Icons.replay_rounded,
-        label: 'REWATCH',
-        color: AppColors.seeding,
-      ),
-      _EpisodeStatus.downloaded => (
-        icon: Icons.play_arrow_rounded,
-        label: 'OPEN',
-        color: AppColors.seeding,
-      ),
-      _EpisodeStatus.downloading => (
-        icon: Icons.downloading_rounded,
-        label: 'IN PROGRESS',
-        color: AppColors.downloading,
-      ),
-      _EpisodeStatus.none => (
-        icon: Icons.download_rounded,
-        label: 'GET',
-        color: AppColors.seedColor,
-      ),
-    };
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final spec = _spec();
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.sm,
-        ),
-        decoration: BoxDecoration(
-          color: hover ? spec.color : spec.color.withAlpha(36),
-          border: Border.all(color: spec.color.withAlpha(0x66)),
-          borderRadius: BorderRadius.circular(AppRadius.sm),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(spec.icon, size: 11, color: hover ? Colors.white : spec.color),
-            const SizedBox(width: 4),
-            Text(
-              spec.label,
-              style: AppType.mono(
-                size: 11,
-                color: hover ? Colors.white : spec.color,
-                weight: FontWeight.w700,
-                letterSpacing: 0.05,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ErrorState extends StatelessWidget {
-  const _ErrorState({required this.onRetry});
-
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(
-            Icons.error_outline_rounded,
-            color: Color(0xFFFB7185),
-            size: 32,
-          ),
-          const SizedBox(height: AppSpacing.md),
-          const Text(
-            'Failed to load episodes',
-            style: TextStyle(color: AppColors.fg1),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          TextButton(onPressed: onRetry, child: const Text('Retry')),
-        ],
-      ),
-    );
-  }
-}
-
-/// Pulsing skeleton rows shown while a season's episodes are being
-/// fetched. Replaces the bare `CircularProgressIndicator` so the drawer
-/// shows shape immediately and feels more responsive.
-class _EpisodesSkeleton extends StatefulWidget {
-  const _EpisodesSkeleton();
-
-  @override
-  State<_EpisodesSkeleton> createState() => _EpisodesSkeletonState();
-}
-
-class _EpisodesSkeletonState extends State<_EpisodesSkeleton>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1100),
-    )..repeat(reverse: true);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView.builder(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      itemCount: 6,
-      itemBuilder: (_, _) => AnimatedBuilder(
-        animation: _controller,
-        builder: (_, _) {
-          // Sweeping alpha from subtle → light → subtle for a calm pulse.
-          final t = Curves.easeInOut.transform(_controller.value);
-          final alpha =
-              (AppOpacity.subtle + (AppOpacity.light - AppOpacity.subtle) * t) /
-              255.0;
-          final base = Colors.white.withValues(alpha: alpha);
-          return Container(
-            margin: const EdgeInsets.only(bottom: 4),
-            padding: const EdgeInsets.all(AppSpacing.md),
-            decoration: BoxDecoration(
-              color: AppColors.bgSurface,
-              border: Border.all(color: AppColors.line),
-              borderRadius: BorderRadius.circular(AppRadius.md),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 36,
-                  height: 22,
-                  decoration: BoxDecoration(
-                    color: base,
-                    borderRadius: BorderRadius.circular(AppRadius.xs),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Container(
-                  width: 100,
-                  height: 60,
-                  decoration: BoxDecoration(
-                    color: base,
-                    borderRadius: BorderRadius.circular(AppRadius.sm),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: 160,
-                        height: 12,
-                        decoration: BoxDecoration(
-                          color: base,
-                          borderRadius: BorderRadius.circular(AppRadius.xs),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Container(
-                        width: 220,
-                        height: 9,
-                        decoration: BoxDecoration(
-                          color: base,
-                          borderRadius: BorderRadius.circular(AppRadius.xs),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Container(
-                        width: 100,
-                        height: 9,
-                        decoration: BoxDecoration(
-                          color: base,
-                          borderRadius: BorderRadius.circular(AppRadius.xs),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-/// Episode still image with a deterministic gradient placeholder fallback
-/// (driven by the episode title hash so each row is visually distinct
-/// while loading or when TMDB has no still).
-///
-/// When [watchedRatio] is set, a thin tertiary-tinted progress bar runs
-/// along the bottom of the still showing the user how far they got — a
-/// glanceable "you watched this much" cue.
-class _EpisodeStill extends StatelessWidget {
-  const _EpisodeStill({
-    required this.stillUrl,
-    required this.hue,
-    this.watchedRatio,
-  });
-
-  final String? stillUrl;
-  final int hue;
-  final double? watchedRatio;
-
-  @override
-  Widget build(BuildContext context) {
-    final placeholder = _gradientPlaceholder();
-    final url = stillUrl;
-    final image = (url == null || url.isEmpty)
-        ? placeholder
-        : Image.network(
-            url,
-            fit: BoxFit.cover,
-            gaplessPlayback: true,
-            loadingBuilder: (context, child, progress) {
-              if (progress == null) return child;
-              return placeholder;
-            },
-            errorBuilder: (_, _, _) => placeholder,
-          );
-
-    final ratio = watchedRatio;
-    if (ratio == null || ratio <= 0) return image;
-
-    final scheme = Theme.of(context).colorScheme;
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        image,
-        // Subtle dim on already-watched portion so unwatched stills pop.
-        Container(
-          color: Colors.black.withValues(alpha: AppOpacity.light / 255.0),
-        ),
-        // Progress bar pinned to the bottom edge.
-        Align(
-          alignment: Alignment.bottomLeft,
-          child: FractionallySizedBox(
-            widthFactor: ratio.clamp(0.0, 1.0),
-            child: Container(height: 3, color: scheme.tertiary),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _gradientPlaceholder() {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            HSLColor.fromAHSL(1, hue.toDouble(), 0.5, 0.32).toColor(),
-            HSLColor.fromAHSL(1, (hue + 30) % 360, 0.5, 0.16).toColor(),
-          ],
-        ),
-      ),
-    );
   }
 }

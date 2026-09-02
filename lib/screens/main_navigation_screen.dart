@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -76,9 +78,12 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
       await migrateManualWatchedMarks(ref);
       if (!mounted) return;
       if (ref.read(tmdbSessionProvider) != null) {
-        ref.read(favoritesProvider.notifier).syncFromTmdb();
-        ref.read(watchlistProvider.notifier).syncFromTmdb();
-        reconcileWatchedWithTmdb(ref);
+        // Deliberately not awaited: these three reconcile in the
+        // background so the first frame is not held behind three round
+        // trips to TMDB. Each reports its own failures.
+        unawaited(ref.read(favoritesProvider.notifier).syncFromTmdb());
+        unawaited(ref.read(watchlistProvider.notifier).syncFromTmdb());
+        unawaited(reconcileWatchedWithTmdb(ref));
       }
     });
   }

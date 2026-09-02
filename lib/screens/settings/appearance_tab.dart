@@ -8,9 +8,9 @@ import '../../providers/auto_download_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../services/app_logger.dart';
 import '../../utils/feedback_utils.dart';
+import '../../utils/media_quality.dart';
 import '../../widgets/common/section_header.dart';
 import 'settings_tiles.dart';
-import '../../utils/media_quality.dart';
 
 class SettingsAppearanceTab extends ConsumerWidget {
   const SettingsAppearanceTab({super.key});

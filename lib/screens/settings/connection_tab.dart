@@ -290,7 +290,7 @@ class SettingsConnectionTab extends ConsumerWidget {
                           final path = result.files.first.path;
                           if (path != null) {
                             qbPathController.text = path;
-                            ref
+                            await ref
                                 .read(settingsProvider.notifier)
                                 .setQBittorrentPath(path);
                           }

@@ -6,18 +6,18 @@ import 'package:intl/intl.dart';
 import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
 import '../design/app_typography.dart';
-import '../widgets/editorial/editorial.dart';
 import '../models/auto_download_event.dart';
 import '../providers/auto_download_events_provider.dart';
 import '../providers/auto_download_provider.dart';
-import '../utils/formatters.dart';
 import '../providers/favorites_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/shows_provider.dart';
 import '../services/auto_download_service.dart';
 import '../utils/feedback_utils.dart';
+import '../utils/formatters.dart';
 import '../widgets/common/empty_state.dart';
 import '../widgets/common/loading_state.dart';
+import '../widgets/editorial/editorial.dart';
 import 'show_details_screen.dart';
 
 /// Model for calendar episode with additional date information
@@ -366,7 +366,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                 'No torrent found for ${episode.showName} ${episode.episodeCode}',
           );
         }
-        ref
+        await ref
             .read(autoDownloadEventsProvider.notifier)
             .addEvent(
               AutoDownloadEvent(
@@ -404,7 +404,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       }
 
       if (success) {
-        ref
+        await ref
             .read(autoDownloadEventsProvider.notifier)
             .addEvent(
               AutoDownloadEvent(

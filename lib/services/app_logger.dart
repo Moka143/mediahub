@@ -161,7 +161,10 @@ class AppLog {
       // bound. Losing history beats filling the user's disk.
       try {
         await file.writeAsString('');
-      } catch (_) {}
+      } catch (_) {
+        // Deliberately terminal: this *is* the logger. Reporting a logging
+        // failure through the logger would recurse, so give up quietly.
+      }
     }
     _bytesWritten = 0;
   }
