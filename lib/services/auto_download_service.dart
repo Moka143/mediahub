@@ -250,8 +250,15 @@ class AutoDownloadService {
 
     return downloadedFiles.any((file) {
       // Match by show name (case-insensitive) and episode code
-      final fileShowName = file.showName?.toLowerCase() ?? '';
-      final targetShowName = showName.toLowerCase();
+      final fileShowName = file.showName?.toLowerCase().trim() ?? '';
+      final targetShowName = showName.toLowerCase().trim();
+
+      // An empty name on either side matches everything, because
+      // `anything.contains('')` is true and both normalise to ''. A scanned
+      // file whose show name never parsed would therefore claim to be every
+      // show's S02E04 at once, and auto-download would skip the real one
+      // without saying why.
+      if (fileShowName.isEmpty || targetShowName.isEmpty) return false;
 
       // Fuzzy match show name (handle slight variations)
       final showMatches =
