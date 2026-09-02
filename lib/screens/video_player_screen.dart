@@ -3,9 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
-import 'package:window_manager/window_manager.dart';
 
 import '../design/app_tokens.dart';
 import '../models/local_media_file.dart';
@@ -29,6 +27,7 @@ import '../widgets/streaming_status_indicator.dart';
 import '../widgets/video_controls.dart';
 import '_player_next_episode_controller.dart';
 import '_player_streaming_health.dart';
+import '_player_window_chrome.dart';
 
 /// Full-screen video player screen with gesture controls
 class VideoPlayerScreen extends ConsumerStatefulWidget {
@@ -97,16 +96,10 @@ class VideoPlayerScreen extends ConsumerStatefulWidget {
 class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
     with
         PlayerNextEpisodeController<VideoPlayerScreen>,
-        PlayerStreamingHealth<VideoPlayerScreen> {
+        PlayerStreamingHealth<VideoPlayerScreen>,
+        PlayerWindowChrome<VideoPlayerScreen> {
   bool _showControls = true;
   Timer? _hideControlsTimer;
-  bool _isFullscreen = false;
-
-  /// Window size captured the first time we go into fullscreen — used
-  /// to restore the user's prior window size on exit. macOS in
-  /// particular will not preserve the previous bounds when leaving
-  /// `setFullScreen(false)`, so we replay it ourselves.
-  Size? _preFullscreenSize;
   bool _showResumePrompt = false;
   Duration? _resumePosition;
   bool _mediaOpened = false;
@@ -312,59 +305,6 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
     _startHideControlsTimer();
   }
 
-  Future<void> _toggleFullscreen() async {
-    // Snapshot selected subtitles before the window resizes — on some
-    // platforms the video surface is recreated during fullscreen transitions
-    // and mpv drops the active external/embedded track. We re-apply below.
-    final externalSub = ref.read(currentExternalSubtitleProvider);
-    final embeddedSub = ref.read(playerProvider).state.track.subtitle;
-
-    final newFullscreen = !_isFullscreen;
-    // Capture the user's window size before going fullscreen so we
-    // can restore it on exit (macOS otherwise resizes to default).
-    if (newFullscreen) {
-      try {
-        _preFullscreenSize = await windowManager.getSize();
-      } catch (_) {
-        _preFullscreenSize = null;
-      }
-    }
-    setState(() => _isFullscreen = newFullscreen);
-
-    // On Windows, setFullScreen leaves WS_CAPTION on the window so the title
-    // bar (with min/max/close) still shows. Hide it explicitly before going
-    // fullscreen and restore it on exit.
-    if (newFullscreen) {
-      await windowManager.setTitleBarStyle(
-        TitleBarStyle.hidden,
-        windowButtonVisibility: false,
-      );
-    }
-    await windowManager.setFullScreen(newFullscreen);
-    if (!newFullscreen) {
-      await windowManager.setTitleBarStyle(
-        TitleBarStyle.normal,
-        windowButtonVisibility: true,
-      );
-      // Restore pre-fullscreen size so the user's window doesn't snap
-      // to the platform's default size.
-      if (_preFullscreenSize != null) {
-        await windowManager.setSize(_preFullscreenSize!);
-      }
-    }
-
-    // Let the surface settle, then restore whichever subtitle was selected.
-    await Future.delayed(const Duration(milliseconds: 200));
-    if (!mounted) return;
-    final playerService = ref.read(playerServiceProvider);
-    if (externalSub != null) {
-      await playerService.loadExternalSubtitle(externalSub.url);
-    } else if (embeddedSub != SubtitleTrack.no() &&
-        embeddedSub != SubtitleTrack.auto()) {
-      await playerService.setSubtitleTrack(embeddedSub);
-    }
-  }
-
   Future<void> _handleResume(bool resume) async {
     setState(() => _showResumePrompt = false);
 
@@ -389,17 +329,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
       if (_mediaOpened) {
         await ref.read(playerServiceProvider).stop();
       }
-      if (_isFullscreen) {
-        await windowManager.setFullScreen(false);
-        await windowManager.setTitleBarStyle(
-          TitleBarStyle.normal,
-          windowButtonVisibility: true,
-        );
-        final pre = _preFullscreenSize;
-        if (pre != null) {
-          await windowManager.setSize(pre);
-        }
-      }
+      await exitWindowFullscreen();
       if (mounted) {
         Navigator.of(context).pop();
       }
@@ -550,21 +480,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
       }
     }
     // Note: Don't use ref.read() in dispose - providers will clean up themselves.
-    // Only call setFullScreen / setTitleBarStyle when we're actually in
-    // fullscreen — otherwise the framework's own resize logic gets
-    // triggered and the user's window size is reset to platform default.
-    if (_isFullscreen) {
-      windowManager.setFullScreen(false);
-      windowManager.setTitleBarStyle(
-        TitleBarStyle.normal,
-        windowButtonVisibility: true,
-      );
-      // Restore the size that was active before fullscreen, if known.
-      final pre = _preFullscreenSize;
-      if (pre != null) {
-        windowManager.setSize(pre);
-      }
-    }
+    unawaited(exitWindowFullscreen());
     super.dispose();
   }
 
@@ -673,12 +589,12 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
                           child: VideoControlsOverlay(
                             file: widget.file,
                             isPlaying: isPlaying,
-                            isFullscreen: _isFullscreen,
+                            isFullscreen: isWindowFullscreen,
                             onPlayPause: () =>
                                 ref.read(playerServiceProvider).playOrPause(),
                             onSeekForward: _seekForward,
                             onSeekBackward: _seekBackward,
-                            onToggleFullscreen: _toggleFullscreen,
+                            onToggleFullscreen: toggleWindowFullscreen,
                             onClose: _exitPlayer,
                             onShowShortcuts: _showShortcutsDialog,
                             streamingDownloadedRatio: widget.isStreaming
@@ -763,11 +679,11 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
     handlePlayerKeyEvent(
       event,
       ref: ref,
-      isFullscreen: _isFullscreen,
+      isFullscreen: isWindowFullscreen,
       onUserInteraction: onUserInteraction,
       onSeekBackward: _seekBackward,
       onSeekForward: _seekForward,
-      onToggleFullscreen: _toggleFullscreen,
+      onToggleFullscreen: toggleWindowFullscreen,
       onExitPlayer: _exitPlayer,
       onShowShortcuts: _showShortcutsDialog,
       mediaOpened: _mediaOpened,
