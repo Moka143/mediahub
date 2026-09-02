@@ -151,6 +151,76 @@ void main() {
     });
   });
 
+  group('a backend that refuses to write', () {
+    test('leaves the plaintext in prefs rather than destroying it', () async {
+      // The bug a real macOS run found. Every Keychain write was failing with
+      // errSecMissingEntitlement, `write` swallowed the error, and the
+      // migration scrubbed both TMDB tokens anyway — so they existed in
+      // neither place. Restoring needed a backup taken beforehand.
+      final prefs = await prefsWith(legacyStore());
+      final store = await SecretStore.open(
+        prefs,
+        backend: _WriteFailsBackend(),
+      );
+
+      // Nothing was persisted...
+      expect(
+        store.read(Secret.tmdbAccessToken),
+        'eyJhbGciOiJIUzI1NiJ9.oauth',
+        reason: 'the session still works from cache',
+      );
+      // ...so nothing may be removed.
+      expect(
+        prefs.getString(SecretStore.legacyAccessTokenKey),
+        'eyJhbGciOiJIUzI1NiJ9.oauth',
+      );
+      expect(settingsBlob(prefs)['password'], 'hunter2');
+      expect(settingsBlob(prefs)['tmdb_api_key'], 'eyJhbGciOiJIUzI1NiJ9.read');
+    });
+
+    test('a later launch with a working backend still migrates', () async {
+      // The point of leaving it: the next run gets another chance.
+      final prefs = await prefsWith(legacyStore());
+      await SecretStore.open(prefs, backend: _WriteFailsBackend());
+
+      final store = await SecretStore.open(
+        prefs,
+        backend: InMemorySecretBackend(),
+      );
+      expect(store.read(Secret.tmdbAccessToken), 'eyJhbGciOiJIUzI1NiJ9.oauth');
+      expect(store.read(Secret.tmdbReadToken), 'eyJhbGciOiJIUzI1NiJ9.read');
+      expect(prefs.getString(SecretStore.legacyAccessTokenKey), isNull);
+      expect(settingsBlob(prefs).containsKey('tmdb_api_key'), isFalse);
+    });
+
+    test('one failing secret does not block the others', () async {
+      // Only the read token fails here; the OAuth token must still move, and
+      // only the read token's plaintext stays behind.
+      final prefs = await prefsWith(legacyStore());
+      final store = await SecretStore.open(
+        prefs,
+        backend: _SelectiveFailBackend(Secret.tmdbReadToken.key),
+      );
+
+      expect(prefs.getString(SecretStore.legacyAccessTokenKey), isNull);
+      expect(settingsBlob(prefs).containsKey('password'), isFalse);
+      expect(settingsBlob(prefs)['tmdb_api_key'], 'eyJhbGciOiJIUzI1NiJ9.read');
+      expect(store.read(Secret.tmdbAccessToken), isNotNull);
+    });
+
+    test('write reports whether it reached the backend', () async {
+      final prefs = await prefsWith({});
+      final ok = await SecretStore.open(
+        prefs,
+        backend: InMemorySecretBackend(),
+      );
+      expect(await ok.write(Secret.tmdbReadToken, 'v'), isTrue);
+
+      final bad = await SecretStore.open(prefs, backend: _WriteFailsBackend());
+      expect(await bad.write(Secret.tmdbReadToken, 'v'), isFalse);
+    });
+  });
+
   group('read and write', () {
     test('a written secret is readable immediately and persists', () async {
       final prefs = await prefsWith({});
@@ -160,7 +230,7 @@ void main() {
       await store.write(Secret.qbittorrentPassword, 's3cret');
       expect(store.read(Secret.qbittorrentPassword), 's3cret');
       expect(
-        await backend.readAll(),
+        backend.values,
         containsPair(Secret.qbittorrentPassword.key, 's3cret'),
       );
 
@@ -177,10 +247,7 @@ void main() {
       await store.write(Secret.tmdbAccessToken, 'token');
       await store.write(Secret.tmdbAccessToken, null);
       expect(store.read(Secret.tmdbAccessToken), isNull);
-      expect(
-        await backend.readAll(),
-        isNot(contains(Secret.tmdbAccessToken.key)),
-      );
+      expect(backend.values, isNot(contains(Secret.tmdbAccessToken.key)));
 
       await store.write(Secret.tmdbAccessToken, 'token');
       await store.write(Secret.tmdbAccessToken, '');
@@ -189,7 +256,8 @@ void main() {
 
     test('a failing backend still serves the session', () async {
       // A locked Keychain must not break the running app: the value is used
-      // for this session, and only persistence is lost.
+      // for this session, and only persistence is lost. See the migration
+      // group for the other half — it must not delete anything either.
       final prefs = await prefsWith({});
       final store = await SecretStore.open(
         prefs,
@@ -227,9 +295,29 @@ void main() {
   });
 }
 
+/// Writes fail for one named key only.
+class _SelectiveFailBackend implements SecretBackend {
+  _SelectiveFailBackend(this.failingKey);
+
+  final String failingKey;
+  final Map<String, String> _values = {};
+
+  @override
+  Future<String?> read(String key) async => _values[key];
+
+  @override
+  Future<void> write(String key, String value) async {
+    if (key == failingKey) throw StateError('refused');
+    _values[key] = value;
+  }
+
+  @override
+  Future<void> delete(String key) async => _values.remove(key);
+}
+
 class _WriteFailsBackend implements SecretBackend {
   @override
-  Future<Map<String, String>> readAll() async => {};
+  Future<String?> read(String key) async => null;
 
   @override
   Future<void> write(String key, String value) async =>
@@ -241,7 +329,7 @@ class _WriteFailsBackend implements SecretBackend {
 
 class _ReadFailsBackend implements SecretBackend {
   @override
-  Future<Map<String, String>> readAll() async =>
+  Future<String?> read(String key) async =>
       throw StateError('libsecret missing');
 
   @override

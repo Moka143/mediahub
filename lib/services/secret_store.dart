@@ -35,7 +35,8 @@ enum Secret {
 /// an in-memory store instead of writing to the developer's real Keychain,
 /// and so a platform without a working backend degrades in one place.
 abstract class SecretBackend {
-  Future<Map<String, String>> readAll();
+  /// One key at a time, deliberately — see [PlatformSecretBackend].
+  Future<String?> read(String key);
   Future<void> write(String key, String value);
   Future<void> delete(String key);
 }
@@ -44,14 +45,31 @@ abstract class SecretBackend {
 class PlatformSecretBackend implements SecretBackend {
   const PlatformSecretBackend([
     this._storage = const FlutterSecureStorage(
-      mOptions: MacOsOptions(accessibility: KeychainAccessibility.first_unlock),
+      // The data-protection keychain — the plugin's default — requires the
+      // app to be signed with a `keychain-access-groups` entitlement, and
+      // this app ships ad-hoc signed with no team identifier, so every write
+      // failed with errSecMissingEntitlement (-34018). The classic
+      // file-based Keychain needs no entitlement for a non-sandboxed app and
+      // is still the real Keychain: encrypted at rest, ACL'd per app.
+      //
+      // `accessibility` is deliberately not set alongside it.
+      // `kSecAttrAccessible` only exists on the data-protection keychain, so
+      // passing both makes every call fail with errSecParam (-50) instead.
+      mOptions: MacOsOptions(usesDataProtectionKeychain: false),
     ),
   ]);
 
   final FlutterSecureStorage _storage;
 
+  /// Reads are per-key rather than a single `readAll()`.
+  ///
+  /// The classic keychain rejects `kSecMatchLimitAll` together with
+  /// `kSecReturnData` — a `readAll()` comes back errSecParam (-50) every
+  /// time. There are three keys, so asking for each by name is both the
+  /// working call and the narrower one: it never reads an entry this app
+  /// did not write.
   @override
-  Future<Map<String, String>> readAll() => _storage.readAll();
+  Future<String?> read(String key) => _storage.read(key: key);
 
   @override
   Future<void> write(String key, String value) =>
@@ -71,8 +89,11 @@ class InMemorySecretBackend implements SecretBackend {
 
   final Map<String, String> _values;
 
+  /// The stored entries, for tests to assert against.
+  Map<String, String> get values => Map.of(_values);
+
   @override
-  Future<Map<String, String>> readAll() async => Map.of(_values);
+  Future<String?> read(String key) async => _values[key];
 
   @override
   Future<void> write(String key, String value) async => _values[key] = value;
@@ -115,10 +136,16 @@ class SecretStore {
     SharedPreferences prefs, {
     SecretBackend backend = const PlatformSecretBackend(),
   }) async {
-    Map<String, String> stored;
+    final cache = <Secret, String>{};
     try {
-      stored = await backend.readAll();
+      for (final secret in Secret.values) {
+        final value = await backend.read(secret.key);
+        if (value != null && value.isNotEmpty) cache[secret] = value;
+      }
     } catch (e) {
+      // Any failure disqualifies the whole backend: we cannot tell a missing
+      // secret from an unreadable one, and migrating against a store we
+      // cannot read would scrub plaintext we might not be able to replace.
       AppLog.e(
         '[SecretStore] secure storage unavailable ($e) — credentials will '
         'not persist this session',
@@ -126,11 +153,6 @@ class SecretStore {
       return SecretStore._(InMemorySecretBackend(), {});
     }
 
-    final cache = <Secret, String>{
-      for (final secret in Secret.values)
-        if (stored[secret.key] case final value? when value.isNotEmpty)
-          secret: value,
-    };
     final store = SecretStore._(backend, cache);
     await store._migrateFromPrefs(prefs);
     return store;
@@ -139,7 +161,13 @@ class SecretStore {
   String? read(Secret secret) => _cache[secret];
 
   /// Persist [value], or clear the secret when it is null or empty.
-  Future<void> write(Secret secret, String? value) async {
+  ///
+  /// Returns whether it actually reached the backend. The cache is updated
+  /// either way, so the running session behaves correctly even when the
+  /// Keychain refuses — but callers that are about to destroy their only
+  /// other copy of the value must check this. [_migrateFromPrefs] is exactly
+  /// that caller.
+  Future<bool> write(Secret secret, String? value) async {
     try {
       if (value == null || value.isEmpty) {
         _cache.remove(secret);
@@ -148,10 +176,10 @@ class SecretStore {
         _cache[secret] = value;
         await _backend.write(secret.key, value);
       }
+      return true;
     } catch (e) {
-      // The cache is already updated, so the current session behaves
-      // correctly; only persistence is lost.
       AppLog.e('[SecretStore] failed to persist ${secret.key}: $e');
+      return false;
     }
   }
 
@@ -164,18 +192,32 @@ class SecretStore {
   ///
   /// Two of them live inside the `app_settings` JSON blob rather than under
   /// their own keys, so that blob is rewritten without them.
+  ///
+  /// **A credential is only ever removed once it is confirmed stored.** The
+  /// first run of this on a real machine scrubbed both TMDB tokens while
+  /// every Keychain write was failing with errSecMissingEntitlement, because
+  /// [write] swallowed the error — the tokens existed nowhere afterwards. A
+  /// backend that refuses now leaves the plaintext in place so the next
+  /// launch can retry.
   Future<void> _migrateFromPrefs(SharedPreferences prefs) async {
     var migrated = 0;
 
-    Future<void> adopt(Secret secret, String? legacy) async {
-      if (legacy == null || legacy.isEmpty) return;
-      if (_cache.containsKey(secret)) return; // secure storage already wins
-      await write(secret, legacy);
-      migrated++;
+    /// Copy [legacy] into secure storage. Returns whether the plaintext is
+    /// now safe to delete — true when it was stored, when the secret was
+    /// already there, or when there was nothing to copy.
+    Future<bool> adopt(Secret secret, String? legacy) async {
+      if (legacy == null || legacy.isEmpty) return true;
+      if (_cache.containsKey(secret)) return true; // secure storage wins
+      final stored = await write(secret, legacy);
+      if (stored) migrated++;
+      return stored;
     }
 
-    await adopt(Secret.tmdbAccessToken, prefs.getString(_legacyAccessTokenKey));
-    if (prefs.containsKey(_legacyAccessTokenKey)) {
+    final tokenSafe = await adopt(
+      Secret.tmdbAccessToken,
+      prefs.getString(_legacyAccessTokenKey),
+    );
+    if (tokenSafe && prefs.containsKey(_legacyAccessTokenKey)) {
       await prefs.remove(_legacyAccessTokenKey);
     }
 
@@ -183,13 +225,23 @@ class SecretStore {
     if (raw != null) {
       try {
         final json = jsonDecode(raw) as Map<String, dynamic>;
-        await adopt(Secret.qbittorrentPassword, json['password'] as String?);
-        await adopt(Secret.tmdbReadToken, json['tmdb_api_key'] as String?);
-        // Both removals must run: folding them into one `||` short-circuits
-        // and leaves the second credential in the blob.
-        final hadPassword = json.remove('password') != null;
-        final hadReadToken = json.remove('tmdb_api_key') != null;
-        if (hadPassword || hadReadToken) {
+        final passwordSafe = await adopt(
+          Secret.qbittorrentPassword,
+          json['password'] as String?,
+        );
+        final readTokenSafe = await adopt(
+          Secret.tmdbReadToken,
+          json['tmdb_api_key'] as String?,
+        );
+        // Ternaries rather than `&&`, so the second removal is never skipped
+        // by a short-circuit on the first.
+        final removedPassword = passwordSafe
+            ? json.remove('password') != null
+            : false;
+        final removedReadToken = readTokenSafe
+            ? json.remove('tmdb_api_key') != null
+            : false;
+        if (removedPassword || removedReadToken) {
           await prefs.setString(_legacySettingsKey, jsonEncode(json));
         }
       } catch (e) {
