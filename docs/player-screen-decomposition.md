@@ -1,6 +1,37 @@
 # Decomposing `video_player_screen.dart`
 
-**Status:** plan, not yet executed.
+**Status:** done. Steps 1–4 landed as one commit each; step 5's tests came
+with step 4 and with the service-test pass.
+**Result:** 1,727 → 611 lines, across four mixins and two widgets. Suite 491 →
+553. `flutter analyze` clean throughout.
+
+| Step | Lines after | What came out |
+|---|---|---|
+| 1 | 947 | `_player_next_episode_controller.dart` |
+| 2 | 781 | `_player_streaming_health.dart` |
+| 3 | 697 | `_player_window_chrome.dart` |
+| 4 | 611 | `widgets/player/player_overlay_stack.dart`, `up_next_chip.dart` |
+
+Three things differed from the plan below, all recorded in the commits:
+
+  * **`releaseSessionOwnership()` was not needed.** The plan assumed the
+    handoff cleared the screen's own `_ownedSessionId`; it actually clears
+    `_prefetchSessionId`, which the mixin owns outright. The seam that *was*
+    needed is `openReplacementPlayer` — navigation stays on the screen so the
+    two files do not import each other.
+  * **`isFullscreen` / `toggleFullscreen` had to be renamed.**
+    `media_kit_video` exports top-level functions by both names, and the
+    unqualified identifiers resolved to those rather than the new mixin
+    members. They are now `isWindowFullscreen` / `toggleWindowFullscreen`.
+  * **Step 4 split by test kind rather than by widget.** The `??` chains that
+    decide what the Up Next chip says came out as `UpNextChip`, a pure value
+    with unit tests; only the layering and gating went into the widget, where
+    widget tests fit.
+
+---
+
+## Original plan
+
 **Target:** 1,727 lines / 28 state fields → ~450 lines / 9 state fields, in five
 reviewable steps, with no behaviour change.
 
