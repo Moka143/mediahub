@@ -10,6 +10,7 @@ import 'app.dart';
 import 'providers/settings_provider.dart';
 import 'services/app_logger.dart';
 import 'services/prefs_recovery.dart';
+import 'services/secret_store.dart';
 import 'services/window_state_service.dart';
 import 'utils/constants.dart';
 
@@ -46,6 +47,12 @@ Future<void> _bootstrap() async {
   } else {
     AppLog.i('[Startup] prefs loaded');
   }
+
+  // Reads the Keychain / DPAPI once, and moves any credentials an older
+  // build left in shared_preferences. Done here because the notifiers that
+  // need these values build synchronously.
+  final secretStore = await SecretStore.open(sharedPreferences);
+  AppLog.i('[Startup] secret store ready');
 
   final windowStateService = WindowStateService(sharedPreferences);
   final savedState = windowStateService.loadState();
@@ -89,6 +96,7 @@ Future<void> _bootstrap() async {
     ProviderScope(
       overrides: [
         sharedPreferencesProvider.overrideWithValue(sharedPreferences),
+        secretStoreProvider.overrideWithValue(secretStore),
       ],
       child: const MediaHubApp(),
     ),

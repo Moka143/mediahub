@@ -109,12 +109,16 @@ class AppSettings {
     );
   }
 
+  /// Everything here lands in `shared_preferences` as plain JSON, which is
+  /// why [password] and [tmdbApiKey] are deliberately absent: they live in
+  /// [SecretStore] (Keychain / DPAPI) instead. [fromJson] still reads them so
+  /// an install whose migration failed is not locked out, but nothing writes
+  /// them back.
   Map<String, dynamic> toJson() {
     return {
       'host': host,
       'port': port,
       'username': username,
-      'password': password,
       'qbittorrent_path': qbittorrentPath,
       'auto_start_qbittorrent': autoStartQBittorrent,
       'default_save_path': defaultSavePath,
@@ -129,7 +133,6 @@ class AppSettings {
       'sort_ascending': sortAscending,
       'binge_watching_enabled': bingeWatchingEnabled,
       'next_episode_countdown_seconds': nextEpisodeCountdownSeconds,
-      'tmdb_api_key': tmdbApiKey,
     };
   }
 

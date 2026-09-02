@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/settings.dart';
 import '../services/app_logger.dart';
+import '../services/secret_store.dart';
 import '../utils/constants.dart';
 import 'local_media_provider.dart';
 
@@ -15,6 +16,15 @@ const _settingsKey = 'app_settings';
 final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
   throw UnimplementedError('SharedPreferences must be overridden in main');
 });
+
+/// Credentials, kept out of `shared_preferences`.
+///
+/// Defaults to an in-memory store so nothing in the test suite can reach the
+/// developer's real Keychain, and so a widget test needs no extra override.
+/// `main()` replaces it with the platform-backed one.
+final secretStoreProvider = Provider<SecretStore>(
+  (ref) => SecretStore.inMemory(),
+);
 
 /// Provider for app settings
 final settingsProvider = NotifierProvider<SettingsNotifier, AppSettings>(
@@ -73,10 +83,20 @@ class SettingsNotifier extends Notifier<AppSettings> {
   @override
   AppSettings build() {
     final prefs = ref.watch(sharedPreferencesProvider);
-    return _loadSettings(prefs);
+    final secrets = ref.watch(secretStoreProvider);
+    // The credentials are not in the prefs blob — overlay them from the
+    // secure store, falling back to whatever _loadSettings produced (the
+    // defaults, or a legacy value on an install whose migration failed).
+    final loaded = _loadSettings(prefs);
+    return loaded.copyWith(
+      password: secrets.read(Secret.qbittorrentPassword) ?? loaded.password,
+      tmdbApiKey: secrets.read(Secret.tmdbReadToken) ?? loaded.tmdbApiKey,
+    );
   }
 
   SharedPreferences get _prefs => ref.read(sharedPreferencesProvider);
+
+  SecretStore get _secrets => ref.read(secretStoreProvider);
 
   /// Load settings from SharedPreferences
   static AppSettings _loadSettings(SharedPreferences prefs) {
@@ -116,10 +136,10 @@ class SettingsNotifier extends Notifier<AppSettings> {
     await _saveSettings();
   }
 
-  /// Update password
+  /// Update password. Goes to the Keychain / DPAPI, not to the prefs blob.
   Future<void> setPassword(String password) async {
     state = state.copyWith(password: password);
-    await _saveSettings();
+    await _secrets.write(Secret.qbittorrentPassword, password);
   }
 
   /// Update qBittorrent path
@@ -200,8 +220,9 @@ class SettingsNotifier extends Notifier<AppSettings> {
 
   /// Update TMDB API key (user-provided via onboarding/settings)
   Future<void> setTmdbApiKey(String apiKey) async {
-    state = state.copyWith(tmdbApiKey: apiKey.trim());
-    await _saveSettings();
+    final trimmed = apiKey.trim();
+    state = state.copyWith(tmdbApiKey: trimmed);
+    await _secrets.write(Secret.tmdbReadToken, trimmed);
   }
 
   /// Reset settings to defaults

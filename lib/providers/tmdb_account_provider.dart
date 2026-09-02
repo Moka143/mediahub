@@ -4,11 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/app_logger.dart';
+import '../services/secret_store.dart';
 import '../services/tmdb_account_service.dart';
 import 'settings_provider.dart';
 
 // New v4 storage keys.
-const _accessTokenKey = 'tmdb_v4_access_token';
 const _accountIdKey = 'tmdb_v4_account_id';
 const _accountKey = 'tmdb_v4_account';
 
@@ -77,7 +77,7 @@ class TmdbSessionNotifier extends Notifier<TmdbSession?> {
       prefs.remove(_legacyAccountKey);
     }
 
-    final token = prefs.getString(_accessTokenKey);
+    final token = ref.watch(secretStoreProvider).read(Secret.tmdbAccessToken);
     final accountId = prefs.getInt(_accountIdKey);
     final accJson = prefs.getString(_accountKey);
     if (token == null || accountId == null || accJson == null) return null;
@@ -140,7 +140,11 @@ class TmdbSessionNotifier extends Notifier<TmdbSession?> {
     state = session;
 
     final prefs = ref.read(sharedPreferencesProvider);
-    await prefs.setString(_accessTokenKey, accessToken);
+    // The token acts on the user's behalf, so it goes to the Keychain /
+    // DPAPI; the account id and profile are not secrets.
+    await ref
+        .read(secretStoreProvider)
+        .write(Secret.tmdbAccessToken, accessToken);
     await prefs.setInt(_accountIdKey, account.id);
     await prefs.setString(_accountKey, jsonEncode(account.toJson()));
   }
@@ -157,7 +161,7 @@ class TmdbSessionNotifier extends Notifier<TmdbSession?> {
     }
     state = null;
     final prefs = ref.read(sharedPreferencesProvider);
-    await prefs.remove(_accessTokenKey);
+    await ref.read(secretStoreProvider).write(Secret.tmdbAccessToken, null);
     await prefs.remove(_accountIdKey);
     await prefs.remove(_accountKey);
   }
