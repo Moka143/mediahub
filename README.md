@@ -80,6 +80,14 @@ The onboarding screen guides you through entering these credentials.
 
 Download the latest `mediahub-vX.Y.Z-windows-portable.zip` or the MSIX installer from [Releases](https://github.com/Moka143/mediahub/releases). Both are produced by CI on every tagged release.
 
+**Pick one and stay with it.** The two builds keep separate settings, and switching means setting the app up again.
+
+Windows gives an MSIX-installed app its own private copy of `%APPDATA%`, so the installer and the portable build cannot see each other's settings, credentials or window layout — and neither can migrate from the other. Moving from the portable zip to the installer looks like a fresh install: you re-enter the qBittorrent connection details, your TMDB token, and your save paths once.
+
+Upgrading *within* either channel is unaffected — installer over installer, or a new zip over the old one, both keep everything.
+
+This is how MSIX is designed to work: the isolation is what lets uninstall leave nothing behind. It can only be turned off with a restricted capability that would make the package ineligible for the Microsoft Store, so the split stays.
+
 ### From source
 
 ```bash

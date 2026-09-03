@@ -187,8 +187,10 @@ class SecretStore {
   ///
   /// Every install that predates this store has all three sitting in
   /// `shared_preferences` — a plist under `~/Library/Preferences` on macOS,
-  /// the registry on Windows. Leaving them there after copying would make
-  /// this change cosmetic, so each one is removed once it is safely stored.
+  /// and `shared_preferences.json` in the roaming app-support directory on
+  /// Windows (not the registry: `shared_preferences_windows` has been
+  /// file-backed for years). Leaving them there after copying would make this
+  /// change cosmetic, so each one is removed once it is safely stored.
   ///
   /// Two of them live inside the `app_settings` JSON blob rather than under
   /// their own keys, so that blob is rewritten without them.

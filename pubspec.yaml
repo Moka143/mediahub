@@ -96,6 +96,22 @@ msix_config:
   publisher: CN=MediaHub
   msix_version: 0.4.1.0
   logo_path: assets\icon.png
+  # Deliberately no `unvirtualizedResources` here. MSIX redirects %APPDATA%
+  # into the package container, so the installer build keeps a different
+  # profile from the portable build — measured: a packaged process cannot
+  # read, or even list, the portable %APPDATA%\MediaHub\MediaHub, so the two
+  # never see each other and nothing migrates between them.
+  #
+  # `unvirtualizedResources` looks like the fix and is not: it is only the
+  # permission. The switch is <desktop6:FileSystemWriteVirtualization>, which
+  # the msix package cannot emit and offers no hook to inject. Declaring the
+  # capability alone changes nothing (verified) while making the package
+  # ineligible for Store submission without Microsoft's approval.
+  #
+  # So the split stands, which is also how MSIX is meant to work — it is what
+  # makes uninstall leave nothing behind. It costs a one-time re-entry of
+  # settings and the three credentials for anyone moving from the portable
+  # zip to the installer. Upgrades within either channel are unaffected.
   capabilities: internetClient, privateNetworkClientServer
   architecture: x64
   output_path: build\windows\msix
