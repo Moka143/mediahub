@@ -39,6 +39,18 @@ jobs:
       - name: Run tests
         run: flutter test
 
+      - name: Run integration tests (real platform secret backend)
+        # `flutter test` above only collects test/, and every secret-store
+        # test in there uses a fake backend by design. This suite drives the
+        # real Windows one — DPAPI — which is the only thing that can catch a
+        # platform accepting a credential write and storing nothing. That is
+        # the failure that scrubbed both TMDB tokens, and no fake-backend
+        # test can reproduce it.
+        #
+        # Needs a real windows-latest runner, which is why it lives in this
+        # workflow and not the cross-platform one.
+        run: flutter test integration_test -d windows
+
       - name: Build Windows release
         # Releases ship without a bundled TMDB token — each user pastes
         # their own free Read Access Token on first launch. The bundled
