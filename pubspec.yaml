@@ -65,6 +65,11 @@ dependencies:
   collection: ^1.19.0
   flutter_secure_storage: ^10.3.1
 
+  # Display geometry, so saved window bounds can be checked against the
+  # screens that are actually attached. Already present transitively via
+  # window_manager; declared here because main.dart imports it directly.
+  screen_retriever: ^0.2.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

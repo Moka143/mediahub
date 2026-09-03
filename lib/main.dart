@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
+import 'package:screen_retriever/screen_retriever.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app.dart';
@@ -31,6 +32,33 @@ void main() {
   });
 }
 
+/// Work areas of the connected displays, in logical pixels.
+///
+/// "Work area" rather than full bounds throughout: it excludes the taskbar
+/// (and the macOS menu bar and dock), which is what actually determines
+/// whether a window can be seen and grabbed.
+///
+/// Returns empty lists when the platform cannot be asked. Callers treat that
+/// as "no opinion" and keep whatever was saved, rather than discarding a
+/// perfectly good window position because a display query failed.
+Future<({List<Rect> workAreas, Rect? primaryWorkArea})>
+_displayGeometry() async {
+  Rect workAreaOf(Display d) =>
+      (d.visiblePosition ?? Offset.zero) & (d.visibleSize ?? d.size);
+
+  try {
+    final all = await screenRetriever.getAllDisplays();
+    final primary = await screenRetriever.getPrimaryDisplay();
+    return (
+      workAreas: [for (final d in all) workAreaOf(d)],
+      primaryWorkArea: workAreaOf(primary),
+    );
+  } catch (e) {
+    AppLog.w('[Startup] could not enumerate displays ($e)');
+    return (workAreas: const <Rect>[], primaryWorkArea: null);
+  }
+}
+
 Future<void> _bootstrap() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppLog.init();
@@ -55,32 +83,50 @@ Future<void> _bootstrap() async {
   AppLog.i('[Startup] secret store ready');
 
   final windowStateService = WindowStateService(sharedPreferences);
-  final savedState = windowStateService.loadState();
+
+  // Ask the OS what screens exist before trusting the saved position: a
+  // window last closed on a monitor that has since been unplugged would
+  // otherwise be restored into empty space, visible to Windows and to nobody
+  // else.
+  final displays = await _displayGeometry();
+  final savedState = windowStateService.loadStateFor(displays.workAreas);
+
+  const minimumSize = Size(
+    AppConstants.minWindowWidth,
+    AppConstants.minWindowHeight,
+  );
+  const preferredSize = Size(1100, 720);
 
   final initialSize = savedState.bounds != null
       ? Size(savedState.bounds!.width, savedState.bounds!.height)
-      : const Size(1100, 720);
+      : displays.primaryWorkArea == null
+      ? preferredSize
+      : WindowStateService.fitToWorkArea(
+          preferredSize,
+          displays.primaryWorkArea!.size,
+          minimumSize,
+        );
 
   final windowOptions = WindowOptions(
     size: initialSize,
-    minimumSize: const Size(
-      AppConstants.minWindowWidth,
-      AppConstants.minWindowHeight,
-    ),
+    minimumSize: minimumSize,
     center: savedState.bounds == null,
     title: AppConstants.appName,
   );
 
-  await windowManager.waitUntilReadyToShow(windowOptions, () async {
-    if (savedState.bounds != null) {
-      await windowManager.setBounds(savedState.bounds);
-    }
-    if (savedState.maximized) {
-      await windowManager.maximize();
-    }
-    await windowManager.show();
-    await windowManager.focus();
-  });
+  // Deliberately not using waitUntilReadyToShow's callback parameter: it is
+  // typed VoidCallback and invoked without await, so an async callback's
+  // future is dropped and the rest of main() races the window setup. Doing
+  // the same work here keeps it ordered.
+  await windowManager.waitUntilReadyToShow(windowOptions);
+  if (savedState.bounds != null) {
+    await windowManager.setBounds(savedState.bounds);
+  }
+  if (savedState.maximized) {
+    await windowManager.maximize();
+  }
+  await windowManager.show();
+  await windowManager.focus();
   AppLog.i('[Startup] window shown');
 
   windowManager.addListener(windowStateService);

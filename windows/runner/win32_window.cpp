@@ -150,6 +150,20 @@ bool Win32Window::Create(const std::wstring& title,
 }
 
 bool Win32Window::Show() {
+  // Called from the engine's first-frame callback (see FlutterWindow::
+  // OnCreate), which lands a good ~150ms after startup — long after Dart has
+  // restored the saved window state. SW_SHOWNORMAL *restores* a maximized
+  // window, so using it unconditionally silently undid a maximize that had
+  // already been applied: the state was saved correctly, reapplied
+  // correctly, and then thrown away by the first frame.
+  //
+  // Preserve whatever placement is already in effect instead.
+  WINDOWPLACEMENT placement = {};
+  placement.length = sizeof(WINDOWPLACEMENT);
+  if (GetWindowPlacement(window_handle_, &placement) &&
+      placement.showCmd == SW_SHOWMAXIMIZED) {
+    return ShowWindow(window_handle_, SW_SHOWMAXIMIZED);
+  }
   return ShowWindow(window_handle_, SW_SHOWNORMAL);
 }
 

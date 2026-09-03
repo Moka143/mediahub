@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
+
+import 'app_logger.dart';
 
 /// Persists window bounds (position + size) and maximized state across
 /// launches via SharedPreferences.
@@ -58,10 +61,15 @@ class WindowStateService with WindowListener {
     return (bounds: bounds, maximized: maximized);
   }
 
-  // Reject rectangles that would place the window invisibly: zero/negative
+  // Reject rectangles that are malformed in themselves: zero/negative
   // dimensions, NaN/infinite coordinates, or values too small to host a usable
   // window. (A post-BSOD prefs file recovered as all-zero bytes deserializes
   // to Rect(0,0,0,0), which previously got applied verbatim.)
+  //
+  // Says nothing about *where* the rectangle is — a perfectly well-formed
+  // rectangle can still sit on a monitor that is no longer plugged in. That
+  // is [isOnScreen]'s job, because it needs to know about displays and this
+  // does not.
   @visibleForTesting
   static bool isSane(Rect r) {
     if (!r.left.isFinite ||
@@ -72,6 +80,68 @@ class WindowStateService with WindowListener {
     }
     if (r.width < 200 || r.height < 200) return false;
     return true;
+  }
+
+  /// How much of the window must overlap a display for it to count as
+  /// reachable — enough to see it and to get hold of its title bar.
+  static const double minVisibleExtent = 120;
+
+  /// Whether [window] overlaps any of [workAreas] enough to be usable.
+  ///
+  /// The case this exists for: the window was last closed on a second
+  /// monitor, that monitor is now gone, and the saved position points into
+  /// space that no longer exists. Windows will happily place a window at
+  /// x=3000 on a 1280-wide desktop — `IsWindowVisible` even reports true —
+  /// and the user has no way to see it or drag it back. Undocking a laptop
+  /// is all it takes.
+  ///
+  /// [workAreas] are the usable parts of each display, excluding the taskbar
+  /// or dock, so a window that only overlaps the taskbar strip is correctly
+  /// treated as out of reach.
+  @visibleForTesting
+  static bool isOnScreen(Rect window, List<Rect> workAreas) {
+    for (final area in workAreas) {
+      final overlap = window.intersect(area);
+      // A disjoint intersect() comes back with negative extents, which fails
+      // this comparison without needing a separate emptiness check.
+      if (overlap.width >= minVisibleExtent &&
+          overlap.height >= minVisibleExtent) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Shrink [desired] to fit inside [workArea], but never below [minimum].
+  ///
+  /// The default 1100x720 is taller than the work area of a 720p screen, and
+  /// centring a window taller than the screen puts its title bar above the
+  /// top edge where it cannot be dragged. [minimum] wins over the work area
+  /// when the two conflict: a window clipped at the bottom is still usable,
+  /// one narrower than its own layout is not.
+  static Size fitToWorkArea(Size desired, Size workArea, Size minimum) {
+    return Size(
+      math.max(minimum.width, math.min(desired.width, workArea.width)),
+      math.max(minimum.height, math.min(desired.height, workArea.height)),
+    );
+  }
+
+  /// [loadState], with saved bounds discarded when they no longer land on a
+  /// connected display.
+  ///
+  /// An empty [workAreas] means the platform could not be asked. That is not
+  /// evidence the bounds are bad, so they are kept — losing someone's window
+  /// layout because a display query failed would be its own bug.
+  ({Rect? bounds, bool maximized}) loadStateFor(List<Rect> workAreas) {
+    final state = loadState();
+    if (state.bounds == null || workAreas.isEmpty) return state;
+    if (isOnScreen(state.bounds!, workAreas)) return state;
+
+    AppLog.w(
+      '[WindowState] saved bounds ${state.bounds} are off every connected '
+      'display — opening centred instead',
+    );
+    return (bounds: null, maximized: state.maximized);
   }
 
   /// Persist the current window state immediately. Maximized wins — we don't
