@@ -151,6 +151,62 @@ void main() {
     });
   });
 
+  group('a backend that accepts a write but stores nothing', () {
+    // The case an exception check cannot catch. Everything looks fine and
+    // the credentials are gone — which is what happened the first time this
+    // migration ran for real.
+    test('keeps the plaintext rather than scrubbing it', () async {
+      final prefs = await prefsWith(legacyStore());
+      await SecretStore.open(prefs, backend: _SilentlyDiscardsBackend());
+
+      expect(
+        prefs.getString(SecretStore.legacyAccessTokenKey),
+        'eyJhbGciOiJIUzI1NiJ9.oauth',
+      );
+      expect(settingsBlob(prefs)['password'], 'hunter2');
+      expect(settingsBlob(prefs)['tmdb_api_key'], 'eyJhbGciOiJIUzI1NiJ9.read');
+    });
+
+    test('still serves the credentials for this session', () async {
+      // The cache holds them even though the backend did not, so the user is
+      // not signed out of a session that was working a moment ago.
+      final prefs = await prefsWith(legacyStore());
+      final store = await SecretStore.open(
+        prefs,
+        backend: _SilentlyDiscardsBackend(),
+      );
+
+      expect(store.read(Secret.qbittorrentPassword), 'hunter2');
+      expect(store.read(Secret.tmdbAccessToken), 'eyJhbGciOiJIUzI1NiJ9.oauth');
+    });
+
+    test('a later launch with a working backend migrates properly', () async {
+      final prefs = await prefsWith(legacyStore());
+      await SecretStore.open(prefs, backend: _SilentlyDiscardsBackend());
+
+      final backend = InMemorySecretBackend();
+      final store = await SecretStore.open(prefs, backend: backend);
+
+      expect(store.read(Secret.qbittorrentPassword), 'hunter2');
+      expect(backend.values[Secret.qbittorrentPassword.key], 'hunter2');
+      expect(prefs.getString(SecretStore.legacyAccessTokenKey), isNull);
+      expect(settingsBlob(prefs).containsKey('password'), isFalse);
+    });
+  });
+
+  group('a backend that reads back something else', () {
+    test('treats a mismatch as a failed write', () async {
+      final prefs = await prefsWith(legacyStore());
+      await SecretStore.open(prefs, backend: _CorruptsOnWriteBackend());
+
+      expect(settingsBlob(prefs)['password'], 'hunter2');
+      expect(
+        prefs.getString(SecretStore.legacyAccessTokenKey),
+        'eyJhbGciOiJIUzI1NiJ9.oauth',
+      );
+    });
+  });
+
   group('a backend that refuses to write', () {
     test('leaves the plaintext in prefs rather than destroying it', () async {
       // The bug a real macOS run found. Every Keychain write was failing with
@@ -310,6 +366,37 @@ class _SelectiveFailBackend implements SecretBackend {
     if (key == failingKey) throw StateError('refused');
     _values[key] = value;
   }
+
+  @override
+  Future<void> delete(String key) async => _values.remove(key);
+}
+
+/// Accepts every write, throws nothing, and stores nothing.
+///
+/// The failure the migration cannot detect by watching for exceptions, and
+/// the one that would repeat the original incident: `write` reports success,
+/// the plaintext gets scrubbed, and the credential is nowhere.
+class _SilentlyDiscardsBackend implements SecretBackend {
+  @override
+  Future<String?> read(String key) async => null;
+
+  @override
+  Future<void> write(String key, String value) async {}
+
+  @override
+  Future<void> delete(String key) async {}
+}
+
+/// Stores a value, but hands back a different one on read.
+class _CorruptsOnWriteBackend implements SecretBackend {
+  final Map<String, String> _values = {};
+
+  @override
+  Future<String?> read(String key) async => _values[key];
+
+  @override
+  Future<void> write(String key, String value) async =>
+      _values[key] = '$value-mangled';
 
   @override
   Future<void> delete(String key) async => _values.remove(key);

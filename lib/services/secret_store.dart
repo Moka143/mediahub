@@ -183,6 +183,42 @@ class SecretStore {
     }
   }
 
+  /// Confirm [value] can actually be read back out of the backend.
+  ///
+  /// [write] reports success when the backend did not *throw*, which is not
+  /// the same thing as the value being there. Everywhere else that
+  /// distinction is harmless — a failed settings save leaves the value on
+  /// screen for the user to try again. In [_migrateFromPrefs] it is the
+  /// difference between a credential and no credential anywhere, because the
+  /// caller is about to delete its only other copy.
+  ///
+  /// Both backends that exist today do throw on failure, so this is belt and
+  /// braces rather than a fix for a live bug. It is here because the last
+  /// incident in this file was exactly this shape: the code trusted a
+  /// success signal it had not verified, scrubbed the plaintext, and both
+  /// TMDB tokens were gone. Verifying costs three reads on a one-time
+  /// migration and makes that failure structurally impossible instead of
+  /// merely unlikely.
+  ///
+  /// Reads through [_backend] deliberately, not [read] — the cache was
+  /// populated by the write we are trying to check, so asking it would only
+  /// confirm our own optimism.
+  Future<bool> _readsBackAs(Secret secret, String value) async {
+    try {
+      if (await _backend.read(secret.key) == value) return true;
+      AppLog.e(
+        '[SecretStore] ${secret.key} was written without error but did not '
+        'read back — leaving the plaintext copy in place',
+      );
+    } catch (e) {
+      AppLog.e(
+        '[SecretStore] could not verify ${secret.key} after writing it ($e) '
+        '— leaving the plaintext copy in place',
+      );
+    }
+    return false;
+  }
+
   /// Adopt credentials written by an older build, then scrub them.
   ///
   /// Every install that predates this store has all three sitting in
@@ -195,24 +231,27 @@ class SecretStore {
   /// Two of them live inside the `app_settings` JSON blob rather than under
   /// their own keys, so that blob is rewritten without them.
   ///
-  /// **A credential is only ever removed once it is confirmed stored.** The
-  /// first run of this on a real machine scrubbed both TMDB tokens while
-  /// every Keychain write was failing with errSecMissingEntitlement, because
-  /// [write] swallowed the error — the tokens existed nowhere afterwards. A
-  /// backend that refuses now leaves the plaintext in place so the next
-  /// launch can retry.
+  /// **A credential is only ever removed once it is confirmed stored** —
+  /// confirmed by reading it back, not by the write returning without an
+  /// error. The first run of this on a real machine scrubbed both TMDB
+  /// tokens while every Keychain write was failing with
+  /// errSecMissingEntitlement, because [write] swallowed the error — the
+  /// tokens existed nowhere afterwards. A backend that refuses, or that
+  /// quietly stores nothing, now leaves the plaintext in place so the next
+  /// launch can retry. See [_readsBackAs].
   Future<void> _migrateFromPrefs(SharedPreferences prefs) async {
     var migrated = 0;
 
     /// Copy [legacy] into secure storage. Returns whether the plaintext is
-    /// now safe to delete — true when it was stored, when the secret was
-    /// already there, or when there was nothing to copy.
+    /// now safe to delete — true when it was stored *and read back*, when
+    /// the secret was already there, or when there was nothing to copy.
     Future<bool> adopt(Secret secret, String? legacy) async {
       if (legacy == null || legacy.isEmpty) return true;
       if (_cache.containsKey(secret)) return true; // secure storage wins
-      final stored = await write(secret, legacy);
-      if (stored) migrated++;
-      return stored;
+      if (!await write(secret, legacy)) return false;
+      if (!await _readsBackAs(secret, legacy)) return false;
+      migrated++;
+      return true;
     }
 
     final tokenSafe = await adopt(
