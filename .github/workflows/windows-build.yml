@@ -62,6 +62,36 @@ jobs:
       - name: Package MSIX installer
         run: dart run msix:create --sign-msix false --install-certificate false
 
+      - name: Build Inno Setup installer
+        shell: pwsh
+        # The .exe installer is what most people actually want: double-click,
+        # Start Menu entry, uninstaller. The MSIX next to it is unsigned and
+        # so cannot be installed by double-clicking at all — Windows refuses
+        # an unsigned package without a trusted certificate — which leaves
+        # the portable zip and this as the only usable downloads.
+        #
+        # Neither is code-signed, so SmartScreen shows "Windows protected
+        # your PC" on first run of a downloaded copy. Removing that needs a
+        # purchased certificate; the signing step would go right here.
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress | Out-Null
+          }
+          if (-not (Test-Path $iscc)) { throw "Inno Setup not found at $iscc" }
+
+          # Single source of truth for the version: pubspec.yaml. Taking it
+          # from the tag instead would silently produce 0.0.0 on branch runs.
+          $raw = Select-String -Path pubspec.yaml -Pattern '^version:\s*(.+)$' |
+                 Select-Object -First 1
+          $version = $raw.Matches[0].Groups[1].Value.Trim().Split('+')[0]
+          if (-not $version) { throw "could not read version from pubspec.yaml" }
+          Write-Host "Building installer for version $version"
+
+          & $iscc "/DMyAppVersion=$version" windows\installer\mediahub.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with $LASTEXITCODE" }
+          Get-ChildItem build\windows\installer
+
       - name: Upload unpacked Release build
         uses: actions/upload-artifact@v7
         with:
@@ -76,6 +106,13 @@ jobs:
           path: build/windows/msix/*.msix
           if-no-files-found: error
 
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: mediahub-setup
+          path: build/windows/installer/*.exe
+          if-no-files-found: error
+
   release:
     needs: build-windows
     if: startsWith(github.ref, 'refs/tags/v')
@@ -87,6 +124,12 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: mediahub-msix
+          path: release-assets
+
+      - name: Download Windows installer
+        uses: actions/download-artifact@v8
+        with:
+          name: mediahub-setup
           path: release-assets
 
       - name: Download unpacked Release
