@@ -68,6 +68,12 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+
+  # Drives the real platform secret backend (DPAPI/Keychain/libsecret),
+  # which the fake-backend unit tests cannot reach.
+  integration_test:
+    sdk: flutter
+
   flutter_lints: ^6.0.0
   flutter_launcher_icons: ^0.14.2
 

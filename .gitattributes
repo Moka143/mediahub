@@ -1,0 +1,22 @@
+# Pin the generated plugin registrants to LF.
+#
+# `flutter pub get` and every Windows build rewrite these files with CRLF.
+# The content is byte-identical once the CRs are stripped, but git reports
+# seven modified files — including macos/ and linux/ ones a Windows machine
+# has no business touching — so they get committed by accident and land on
+# other machines as whole-file diffs.
+#
+# Scoped deliberately to the generated files rather than applied repo-wide:
+# a blanket `* text=auto eol=lf` would also renormalise four hand-written
+# sources that are currently stored with CRLF (lib/models/movie.dart,
+# lib/providers/movies_provider.dart, lib/providers/torrentio_provider.dart,
+# lib/widgets/streaming_progress_overlay.dart — 859 lines between them),
+# burying real changes under a whitespace diff and inviting merge conflicts.
+# Worth doing one day, but as its own commit, not as a side effect of this one.
+linux/flutter/generated_plugin_registrant.cc text eol=lf
+linux/flutter/generated_plugin_registrant.h  text eol=lf
+linux/flutter/generated_plugins.cmake        text eol=lf
+macos/Flutter/GeneratedPluginRegistrant.swift text eol=lf
+windows/flutter/generated_plugin_registrant.cc text eol=lf
+windows/flutter/generated_plugin_registrant.h  text eol=lf
+windows/flutter/generated_plugins.cmake        text eol=lf
