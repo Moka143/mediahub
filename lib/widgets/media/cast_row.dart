@@ -67,7 +67,7 @@ class CastRow extends StatelessWidget {
             scrollDirection: Axis.horizontal,
             physics: const ClampingScrollPhysics(),
             padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.screenPadding,
+              horizontal: AppSpacing.detailPadding,
             ),
             itemCount: items.length,
             separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.md),

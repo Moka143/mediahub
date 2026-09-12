@@ -111,7 +111,7 @@ class _FoldableSectionState extends State<FoldableSection>
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.screenPadding,
+            horizontal: AppSpacing.detailPadding,
           ),
           child: InkWell(
             borderRadius: BorderRadius.circular(AppRadius.sm),
@@ -172,7 +172,7 @@ class HoverScrollRow extends StatefulWidget {
     required this.itemCount,
     required this.itemBuilder,
     this.padding = const EdgeInsets.symmetric(
-      horizontal: AppSpacing.screenPadding,
+      horizontal: AppSpacing.detailPadding,
     ),
     this.restingOpacity = 0.55,
     this.scrollStep = 600,

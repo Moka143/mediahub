@@ -408,9 +408,9 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
                     constraints: const BoxConstraints(maxWidth: 1080),
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(
-                        AppSpacing.screenPadding,
+                        AppSpacing.detailPadding,
                         AppSpacing.xl,
-                        AppSpacing.screenPadding,
+                        AppSpacing.detailPadding,
                         0,
                       ),
                       child: InfoSection(
@@ -433,7 +433,7 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
             if (movie.cast.isNotEmpty)
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.only(top: AppSpacing.xl),
+                  padding: const EdgeInsets.only(top: AppSpacing.md),
                   child: FoldableSection(
                     title: 'Cast',
                     count:
@@ -450,15 +450,15 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
                   ? const SliverToBoxAdapter(child: SizedBox.shrink())
                   : SliverToBoxAdapter(
                       child: Padding(
-                        padding: const EdgeInsets.only(top: AppSpacing.xxl),
+                        padding: const EdgeInsets.only(top: AppSpacing.lg),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             const Padding(
                               padding: EdgeInsets.fromLTRB(
-                                AppSpacing.screenPadding,
+                                AppSpacing.detailPadding,
                                 0,
-                                AppSpacing.screenPadding,
+                                AppSpacing.detailPadding,
                                 AppSpacing.md,
                               ),
                               child: SerifTitle(
@@ -468,13 +468,13 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
                               ),
                             ),
                             HoverScrollRow(
-                              height: 232,
+                              height: 196,
                               itemCount: movies.length,
                               itemBuilder: (context, index) {
                                 final similar = movies[index];
                                 return MediaPosterCard(
                                   title: similar.title,
-                                  width: 140,
+                                  width: 124,
                                   posterAsync: AsyncValue.data(
                                     similar.posterUrl,
                                   ),
@@ -502,7 +502,7 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
               orElse: () => const SliverToBoxAdapter(child: SizedBox.shrink()),
             ),
 
-            const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.huge)),
+            const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.xl)),
           ],
         ),
         // Floating back button — overlaid in the top-left.

@@ -425,81 +425,49 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
             // Cinematic backdrop hero — left full-bleed.
             _buildSliverAppBar(show, isFavorite, seasons),
 
-            // Everything below the hero, compact.
+            // Storyline.
             //
-            // This page used to be four full-width sections stacked
-            // vertically — trailers, cast, storyline, quick facts — each
-            // permanently expanded, so reading a synopsis meant scrolling
-            // past a gallery of clips. The hero already answers "what is
-            // this and do I want it"; the rest is reference, and reference
-            // should be reachable without being in the way.
-            SliverToBoxAdapter(
-              child: Align(
-                alignment: Alignment.topLeft,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 1080),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.screenPadding,
-                      AppSpacing.xl,
-                      AppSpacing.screenPadding,
-                      0,
-                    ),
-                    child: LayoutBuilder(
-                      builder: (context, c) {
-                        final twoCol = c.maxWidth >= 800;
-                        // Null, not an empty section: a heading over nothing
-                        // is worse than no heading.
-                        final storyline =
-                            show.overview != null && show.overview!.isNotEmpty
-                            ? InfoSection(
-                                title: 'Storyline',
-                                child: Text(
-                                  show.overview!,
-                                  style: const TextStyle(
-                                    color: AppColors.fg1,
-                                    fontSize: 14,
-                                    height: 1.6,
-                                  ),
-                                ),
-                              )
-                            : null;
-                        final facts = InfoSection(
-                          title: 'Quick facts',
-                          child: QuickFactsGrid(show: show),
-                        );
-                        if (twoCol && storyline != null) {
-                          return Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(flex: 5, child: storyline),
-                              const SizedBox(width: AppSpacing.xl),
-                              Expanded(flex: 4, child: facts),
-                            ],
-                          );
-                        }
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            if (storyline != null) ...[
-                              storyline,
-                              const SizedBox(height: AppSpacing.xl),
-                            ],
-                            facts,
-                          ],
-                        );
-                      },
+            // What used to sit here alongside it was a bordered "Quick facts"
+            // table: first aired, status, seasons, episodes, genres, rating.
+            // Six of those eight rows restated a pill in the hero a few
+            // hundred pixels above — the same facts, in a heavier treatment,
+            // costing ~380px and most of the page's scroll. The two it did not
+            // duplicate were the episode runtime, now a pill like the rest,
+            // and "last aired", which the next-episode chip already covers.
+            if (show.overview != null && show.overview!.isNotEmpty)
+              SliverToBoxAdapter(
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 1080),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.detailPadding,
+                        AppSpacing.xl,
+                        AppSpacing.detailPadding,
+                        0,
+                      ),
+                      child: InfoSection(
+                        title: 'Storyline',
+                        child: Text(
+                          show.overview!,
+                          style: const TextStyle(
+                            color: AppColors.fg1,
+                            fontSize: 14,
+                            height: 1.6,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
 
             // Cast — folded away by default.
             if (show.cast.isNotEmpty)
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.only(top: AppSpacing.xl),
+                  padding: const EdgeInsets.only(top: AppSpacing.md),
                   child: FoldableSection(
                     title: 'Cast',
                     count:
@@ -514,7 +482,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
             _similarSliver(show),
 
             // Bottom padding
-            const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.huge)),
+            const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.xl)),
           ],
         ),
         _buildFloatingHeaderControls(show, isFavorite),
@@ -541,9 +509,9 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
                   children: [
                     const Padding(
                       padding: EdgeInsets.fromLTRB(
-                        AppSpacing.screenPadding,
+                        AppSpacing.detailPadding,
                         0,
-                        AppSpacing.screenPadding,
+                        AppSpacing.detailPadding,
                         AppSpacing.md,
                       ),
                       child: SerifTitle(
@@ -553,13 +521,13 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
                       ),
                     ),
                     HoverScrollRow(
-                      height: 232,
+                      height: 196,
                       itemCount: shows.length,
                       itemBuilder: (context, index) {
                         final other = shows[index];
                         return MediaPosterCard(
                           title: other.name,
-                          width: 140,
+                          width: 124,
                           posterAsync: AsyncValue.data(other.posterUrl),
                           titleStyle: CardTitleStyle.overlay,
                           overlayYear: other.year,
@@ -614,6 +582,11 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
             MediaHubMetaPill(
               label:
                   '${show.numberOfSeasons} ${show.numberOfSeasons == 1 ? "SEASON" : "SEASONS"}',
+              color: AppColors.fg1,
+            ),
+          if (show.episodeRunTime != null && show.episodeRunTime!.isNotEmpty)
+            MediaHubMetaPill(
+              label: '~${show.episodeRunTime!.first} MIN',
               color: AppColors.fg1,
             ),
           if (show.numberOfEpisodes != null)

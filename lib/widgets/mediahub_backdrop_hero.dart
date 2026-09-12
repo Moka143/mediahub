@@ -31,7 +31,7 @@ class MediaHubBackdropHero extends StatelessWidget {
     required this.description,
     required this.primaryAction,
     this.posterPlaceholderIcon = Icons.movie_outlined,
-    this.height = 480,
+    this.height,
   });
 
   final String title;
@@ -54,12 +54,35 @@ class MediaHubBackdropHero extends StatelessWidget {
   final String? description;
   final Widget primaryAction;
   final IconData posterPlaceholderIcon;
-  final double height;
+
+  /// Explicit hero height. Null means fit the window — see [resolveHeight].
+  final double? height;
+
+  /// How tall the hero should be for a given viewport.
+  ///
+  /// A fixed 480 took 77% of a 625pt window, which is why the page under it
+  /// always scrolled. Tying it to the viewport keeps the hero cinematic on a
+  /// large display and stops it crowding out everything else on a laptop.
+  ///
+  /// The floor is set by the poster: below ~360 the artwork and the title
+  /// block start colliding, and a hero that cannot show its own poster is not
+  /// worth keeping.
+  static double resolveHeight(double viewportHeight) =>
+      (viewportHeight * 0.52).clamp(360.0, 480.0);
+
+  /// Poster height for a given hero height, leaving room for the floating
+  /// controls above and the hero's own bottom inset.
+  static double resolvePosterHeight(double heroHeight) =>
+      (heroHeight - 180).clamp(200.0, 300.0);
 
   @override
   Widget build(BuildContext context) {
+    final heroHeight =
+        height ?? resolveHeight(MediaQuery.sizeOf(context).height);
+    final posterHeight = resolvePosterHeight(heroHeight);
+
     return SizedBox(
-      height: height,
+      height: heroHeight,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -145,16 +168,17 @@ class MediaHubBackdropHero extends StatelessWidget {
                     borderRadius: BorderRadius.circular(AppRadius.md),
                     child: Image.network(
                       posterUrl!,
-                      width: 200,
-                      height: 300,
+                      width: posterHeight * 2 / 3,
+                      height: posterHeight,
                       fit: BoxFit.cover,
-                      loadingBuilder: (_, child, progress) =>
-                          progress == null ? child : _posterFallback(),
+                      loadingBuilder: (_, child, progress) => progress == null
+                          ? child
+                          : _posterFallback(posterHeight),
                       errorBuilder: (_, e, _) {
                         AppLog.e(
                           '[Hero] poster load failed for "$title": $posterUrl ($e)',
                         );
-                        return _posterFallback();
+                        return _posterFallback(posterHeight);
                       },
                     ),
                   )
@@ -164,7 +188,7 @@ class MediaHubBackdropHero extends StatelessWidget {
                       AppLog.d(
                         '[Hero] no poster URL for "$title" (TMDB had no poster_path)',
                       );
-                      return _posterFallback();
+                      return _posterFallback(posterHeight);
                     },
                   ),
                 ],
@@ -259,10 +283,10 @@ class MediaHubBackdropHero extends StatelessWidget {
     );
   }
 
-  Widget _posterFallback() {
+  Widget _posterFallback(double posterHeight) {
     return Container(
-      width: 200,
-      height: 300,
+      width: posterHeight * 2 / 3,
+      height: posterHeight,
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
