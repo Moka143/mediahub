@@ -108,7 +108,7 @@ mixin PlayerStreamingHealth<T extends ConsumerStatefulWidget>
     _healthMonitor?.dispose();
     _healthMonitor = PlaybackHealthMonitor(
       player: ref.read(playerProvider),
-      qbt: ref.read(qbApiServiceProvider),
+      qbt: ref.read(torrentEngineProvider),
       torrentHash: hash,
       fileIndex: streamingFileIndex,
       usingProxy: streamingProxyUrl != null,

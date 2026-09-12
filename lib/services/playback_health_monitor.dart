@@ -7,7 +7,7 @@ import '../models/torrent_file.dart';
 import '../utils/poll_loop.dart';
 import 'app_logger.dart';
 import 'local_streaming_server.dart';
-import 'qbittorrent_api_service.dart';
+import 'torrent_engine.dart';
 
 /// One downloaded region of the streaming file, as a fraction of the whole.
 ///
@@ -77,7 +77,7 @@ enum BufferAction {
 class PlaybackHealthMonitor {
   PlaybackHealthMonitor({
     required Player player,
-    required QBittorrentApiService qbt,
+    required TorrentEngine qbt,
     required this.torrentHash,
     required this.fileIndex,
     required this.usingProxy,
@@ -90,7 +90,7 @@ class PlaybackHealthMonitor {
        _qbt = qbt;
 
   final Player _player;
-  final QBittorrentApiService _qbt;
+  final TorrentEngine _qbt;
 
   final String torrentHash;
   final int? fileIndex;

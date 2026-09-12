@@ -145,7 +145,7 @@ Future<bool> isFileCompleteOnDisk(WidgetRef ref, LocalMediaFile file) async {
   }
 
   try {
-    final files = await ref.read(qbApiServiceProvider).getTorrentFiles(hash);
+    final files = await ref.read(torrentEngineProvider).getTorrentFiles(hash);
     final target = name.toLowerCase();
     for (final f in files) {
       final entry = basenameOf(f.name).toLowerCase();

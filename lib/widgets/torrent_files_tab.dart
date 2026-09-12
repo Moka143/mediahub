@@ -78,7 +78,7 @@ class _TorrentFilesTabState extends ConsumerState<TorrentFilesTab> {
   }
 
   Future<void> _setBatchPriority(FilePriority priority) async {
-    final apiService = ref.read(qbApiServiceProvider);
+    final apiService = ref.read(torrentEngineProvider);
     await apiService.setFilePriority(
       widget.torrentHash,
       _selectedFiles.toList(),
@@ -92,7 +92,7 @@ class _TorrentFilesTabState extends ConsumerState<TorrentFilesTab> {
     List<TorrentFile> files,
     FilePriority priority,
   ) async {
-    final apiService = ref.read(qbApiServiceProvider);
+    final apiService = ref.read(torrentEngineProvider);
     await apiService.setFilePriority(
       widget.torrentHash,
       files.map((f) => f.index).toList(),
@@ -485,7 +485,7 @@ class _FileListItem extends ConsumerWidget {
       color: kMediaHubPopupColor,
       shape: kMediaHubPopupShape,
       onSelected: (newPriority) async {
-        final apiService = ref.read(qbApiServiceProvider);
+        final apiService = ref.read(torrentEngineProvider);
         await apiService.setFilePriority(torrentHash, [
           file.index,
         ], newPriority.value);

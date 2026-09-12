@@ -250,7 +250,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
         await _startStreamingSession(stream, episode, show);
       } else {
         // Regular download
-        final apiService = ref.read(connection_provider.qbApiServiceProvider);
+        final apiService = ref.read(connection_provider.torrentEngineProvider);
 
         final success = await apiService.addTorrent(
           magnetLink: stream.magnetUri,
@@ -335,7 +335,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
   Future<void> _selectFileFromSeasonPack(TorrentioStream stream) async {
     if (stream.fileIdx == null) return;
 
-    final apiService = ref.read(connection_provider.qbApiServiceProvider);
+    final apiService = ref.read(connection_provider.torrentEngineProvider);
 
     // Wait for metadata to be available
     await Future.delayed(const Duration(seconds: 3));

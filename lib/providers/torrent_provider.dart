@@ -11,6 +11,7 @@ import '../models/torrent_file.dart';
 import '../models/tracker.dart';
 import '../services/app_logger.dart';
 import '../services/qbittorrent_api_service.dart';
+import '../services/torrent_engine.dart';
 import '../utils/constants.dart';
 import '../utils/debouncer.dart';
 import '../utils/poll_loop.dart';
@@ -194,7 +195,7 @@ class TorrentListNotifier extends Notifier<TorrentListState> {
   Future<void> refresh({bool fullUpdate = false}) async {
     if (state.isLoading) return;
 
-    final apiService = ref.read(qbApiServiceProvider);
+    final apiService = ref.read(torrentEngineProvider);
     final previousTorrents = state.torrents;
 
     try {
@@ -289,7 +290,7 @@ class TorrentListNotifier extends Notifier<TorrentListState> {
   void _reconcileCompletedTorrents(
     List<Torrent> previous,
     List<Torrent> current,
-    QBittorrentApiService apiService,
+    TorrentEngine apiService,
   ) {
     final previousByHash = {
       for (final torrent in previous) torrent.hash: torrent,
@@ -358,10 +359,10 @@ class TorrentListNotifier extends Notifier<TorrentListState> {
   /// returned, so callers can't forget the follow-up refresh.
   Future<TorrentActionResult> _run(
     String action,
-    Future<bool> Function(QBittorrentApiService api) call, {
+    Future<bool> Function(TorrentEngine api) call, {
     Future<void> Function()? onSuccess,
   }) async {
-    final apiService = ref.read(qbApiServiceProvider);
+    final apiService = ref.read(torrentEngineProvider);
     try {
       final ok = await call(apiService);
       if (!ok) {
@@ -642,7 +643,7 @@ final torrentFilesProvider = FutureProvider.family<List<TorrentFile>, String>((
   ref,
   hash,
 ) async {
-  final apiService = ref.watch(qbApiServiceProvider);
+  final apiService = ref.watch(torrentEngineProvider);
   final connectionState = ref.watch(connectionProvider);
 
   if (!connectionState.isConnected) return [];
@@ -655,7 +656,7 @@ final torrentPeersProvider = FutureProvider.family<List<Peer>, String>((
   ref,
   hash,
 ) async {
-  final apiService = ref.watch(qbApiServiceProvider);
+  final apiService = ref.watch(torrentEngineProvider);
   final connectionState = ref.watch(connectionProvider);
 
   if (!connectionState.isConnected) return [];
@@ -668,7 +669,7 @@ final torrentTrackersProvider = FutureProvider.family<List<Tracker>, String>((
   ref,
   hash,
 ) async {
-  final apiService = ref.watch(qbApiServiceProvider);
+  final apiService = ref.watch(torrentEngineProvider);
   final connectionState = ref.watch(connectionProvider);
 
   if (!connectionState.isConnected) return [];
@@ -678,7 +679,7 @@ final torrentTrackersProvider = FutureProvider.family<List<Tracker>, String>((
 
 /// Provider for global transfer info
 final transferInfoProvider = FutureProvider<Map<String, dynamic>?>((ref) async {
-  final apiService = ref.watch(qbApiServiceProvider);
+  final apiService = ref.watch(torrentEngineProvider);
   final connectionState = ref.watch(connectionProvider);
 
   if (!connectionState.isConnected) return null;

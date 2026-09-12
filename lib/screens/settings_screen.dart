@@ -169,7 +169,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     final connectionState = ref.read(connectionProvider);
     if (!connectionState.isConnected) return;
 
-    final apiService = ref.read(qbApiServiceProvider);
+    final apiService = ref.read(torrentEngineProvider);
     final success = await apiService.setDownloadLimit(limitBytes);
     if (!success && mounted) {
       AppSnackBar.showError(
@@ -185,7 +185,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     final connectionState = ref.read(connectionProvider);
     if (!connectionState.isConnected) return;
 
-    final apiService = ref.read(qbApiServiceProvider);
+    final apiService = ref.read(torrentEngineProvider);
     final success = await apiService.setUploadLimit(limitBytes);
     if (!success && mounted) {
       AppSnackBar.showError(

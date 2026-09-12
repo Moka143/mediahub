@@ -12,6 +12,7 @@ import '../models/tracker.dart';
 import '../utils/constants.dart';
 import '../utils/platform_utils.dart';
 import 'app_logger.dart';
+import 'torrent_engine.dart';
 
 /// Exception for qBittorrent API errors
 class QBittorrentApiException implements Exception {
@@ -25,8 +26,13 @@ class QBittorrentApiException implements Exception {
       'QBittorrentApiException: $message (status: $statusCode)';
 }
 
-/// Service for interacting with qBittorrent Web API v2
-class QBittorrentApiService {
+/// Service for interacting with qBittorrent Web API v2.
+///
+/// The reference [TorrentEngine]: it answers every optional member, so no
+/// capability is declared away. It does *not* answer [streamUrl] — qBittorrent
+/// is a downloader, and serving its partially-written files is
+/// `LocalStreamingServer`'s job.
+class QBittorrentApiService extends TorrentEngine {
   late Dio _dio;
   final String _host;
   final int _port;
@@ -132,19 +138,22 @@ class QBittorrentApiService {
   }
 
   // No updateSettings: a settings change disposes this service and builds a
-  // new one through `qbApiServiceProvider`, which is also what kept
+  // new one through `torrentEngineProvider`, which is also what kept
   // `_pieceSizeCache`, `_piecePrioSupported` and `_syncRid` from going stale
   // against a different host.
 
   /// Check if authenticated
+  @override
   bool get isAuthenticated => _isAuthenticated;
 
   /// Get API base URL
+  @override
   String get baseUrl => 'http://$_host:$_port';
 
   // ==================== Auth ====================
 
   /// Login to qBittorrent
+  @override
   Future<bool> login() async {
     try {
       // First, try to access the API without authentication
@@ -218,6 +227,7 @@ class QBittorrentApiService {
   }
 
   /// Logout from qBittorrent
+  @override
   Future<void> logout() async {
     try {
       await _dio.post('/api/v2/auth/logout');
@@ -240,6 +250,7 @@ class QBittorrentApiService {
   // ==================== App ====================
 
   /// Get qBittorrent version
+  @override
   Future<String?> getVersion() async {
     if (!await _ensureAuthenticated()) return null;
 
@@ -253,6 +264,7 @@ class QBittorrentApiService {
   }
 
   /// Get Web API version
+  @override
   Future<String?> getApiVersion() async {
     if (!await _ensureAuthenticated()) return null;
 
@@ -266,6 +278,7 @@ class QBittorrentApiService {
   }
 
   /// Get application preferences
+  @override
   Future<Map<String, dynamic>?> getPreferences() async {
     if (!await _ensureAuthenticated()) return null;
 
@@ -279,6 +292,7 @@ class QBittorrentApiService {
   }
 
   /// Set application preferences
+  @override
   Future<bool> setPreferences(Map<String, dynamic> prefs) async {
     if (!await _ensureAuthenticated()) return false;
 
@@ -299,6 +313,7 @@ class QBittorrentApiService {
   // ==================== Torrents ====================
 
   /// Get all torrents
+  @override
   Future<List<Torrent>> getTorrents({
     String? filter,
     String? category,
@@ -340,6 +355,7 @@ class QBittorrentApiService {
   }
 
   /// Get torrent properties
+  @override
   Future<Map<String, dynamic>?> getTorrentProperties(String hash) async {
     if (!await _ensureAuthenticated()) return null;
 
@@ -357,6 +373,7 @@ class QBittorrentApiService {
 
   /// Piece size is not on `/torrents/info` — only on `/torrents/properties`.
   /// Cached because it never changes for a given hash.
+  @override
   Future<int> getPieceSize(String hash) async {
     final cached = _pieceSizeCache[hash];
     if (cached != null && cached > 0) return cached;
@@ -372,6 +389,7 @@ class QBittorrentApiService {
   }
 
   /// Get torrent files
+  @override
   Future<List<TorrentFile>> getTorrentFiles(String hash) async {
     if (!await _ensureAuthenticated()) return [];
 
@@ -397,6 +415,7 @@ class QBittorrentApiService {
   }
 
   /// Get torrent trackers
+  @override
   Future<List<Tracker>> getTorrentTrackers(String hash) async {
     if (!await _ensureAuthenticated()) return [];
 
@@ -419,6 +438,7 @@ class QBittorrentApiService {
   }
 
   /// Get torrent peers
+  @override
   Future<List<Peer>> getTorrentPeers(String hash) async {
     if (!await _ensureAuthenticated()) return [];
 
@@ -442,6 +462,7 @@ class QBittorrentApiService {
   }
 
   /// Add torrent from magnet link or URL
+  @override
   Future<bool> addTorrent({
     String? magnetLink,
     File? torrentFile,
@@ -511,6 +532,7 @@ class QBittorrentApiService {
   }
 
   /// Pause (stop) torrents
+  @override
   Future<bool> pauseTorrents(List<String> hashes) async {
     if (!await _ensureAuthenticated()) return false;
 
@@ -539,6 +561,7 @@ class QBittorrentApiService {
   }
 
   /// Resume (start) torrents
+  @override
   Future<bool> resumeTorrents(List<String> hashes) async {
     if (!await _ensureAuthenticated()) return false;
 
@@ -567,6 +590,7 @@ class QBittorrentApiService {
   }
 
   /// Delete torrents
+  @override
   Future<bool> deleteTorrents(
     List<String> hashes, {
     bool deleteFiles = false,
@@ -596,6 +620,7 @@ class QBittorrentApiService {
   }
 
   /// Recheck torrents
+  @override
   Future<bool> recheckTorrents(List<String> hashes) async {
     if (!await _ensureAuthenticated()) return false;
 
@@ -613,6 +638,7 @@ class QBittorrentApiService {
   }
 
   /// Reannounce torrents to trackers
+  @override
   Future<bool> reannounceTorrents(List<String> hashes) async {
     if (!await _ensureAuthenticated()) return false;
 
@@ -630,6 +656,7 @@ class QBittorrentApiService {
   }
 
   /// Set torrent priority
+  @override
   Future<bool> setTorrentPriority(List<String> hashes, String priority) async {
     if (!await _ensureAuthenticated()) return false;
 
@@ -665,6 +692,7 @@ class QBittorrentApiService {
   }
 
   /// Set file priority
+  @override
   Future<bool> setFilePriority(
     String hash,
     List<int> fileIds,
@@ -692,6 +720,7 @@ class QBittorrentApiService {
   // ==================== Transfer ====================
 
   /// Get transfer info (global stats)
+  @override
   Future<Map<String, dynamic>?> getTransferInfo() async {
     if (!await _ensureAuthenticated()) return null;
 
@@ -705,6 +734,7 @@ class QBittorrentApiService {
   }
 
   /// Set global download speed limit
+  @override
   Future<bool> setDownloadLimit(int limit) async {
     if (!await _ensureAuthenticated()) return false;
 
@@ -722,6 +752,7 @@ class QBittorrentApiService {
   }
 
   /// Set global upload speed limit
+  @override
   Future<bool> setUploadLimit(int limit) async {
     if (!await _ensureAuthenticated()) return false;
 
@@ -741,6 +772,7 @@ class QBittorrentApiService {
   // ==================== Sync ====================
 
   /// Get main data using sync endpoint (efficient polling)
+  @override
   Future<Map<String, dynamic>?> getMainData({bool fullUpdate = false}) async {
     if (!await _ensureAuthenticated()) return null;
 
@@ -780,6 +812,7 @@ class QBittorrentApiService {
   /// an empty body but doesn't actually flip the flag, or returns a non-200
   /// depending on version). Match `setFilePriority` / `addTorrent` /
   /// `toggleFirstLastPiecePrio` and submit as form data.
+  @override
   Future<bool> toggleSequentialDownload(String hash) async {
     if (!await _ensureAuthenticated()) return false;
 
@@ -798,6 +831,7 @@ class QBittorrentApiService {
 
   /// Toggle first/last piece priority for a torrent. See
   /// [toggleSequentialDownload] for why `hashes` is form-encoded.
+  @override
   Future<bool> toggleFirstLastPiecePrio(String hash) async {
     if (!await _ensureAuthenticated()) return false;
 
@@ -821,6 +855,7 @@ class QBittorrentApiService {
   /// file instead of wherever a previous session left it — without that,
   /// season-pack streaming fills random pieces and the player waits until
   /// ~99%.
+  @override
   Future<bool> ensureInOrderDownload(
     String hash, {
     bool resetPicker = false,
@@ -866,6 +901,7 @@ class QBittorrentApiService {
 
   /// Raise (or lower) piece priorities. Used to pull the start of the
   /// selected file first so mpv can open before the rest of the torrent.
+  @override
   Future<bool> setPiecePriority(
     String hash,
     List<int> pieceIds,
@@ -899,6 +935,7 @@ class QBittorrentApiService {
   }
 
   /// Get piece states for a torrent (0=not downloaded, 1=downloading, 2=downloaded)
+  @override
   Future<List<int>?> getPieceStates(String hash) async {
     if (!await _ensureAuthenticated()) return null;
 
@@ -919,6 +956,7 @@ class QBittorrentApiService {
   }
 
   /// Check connection to qBittorrent
+  @override
   Future<bool> testConnection() async {
     try {
       final response = await _dio.get('/api/v2/app/version');
@@ -929,6 +967,7 @@ class QBittorrentApiService {
   }
 
   /// Dispose resources
+  @override
   void dispose() {
     _dio.close();
   }

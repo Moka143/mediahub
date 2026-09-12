@@ -16,14 +16,14 @@ import '../utils/platform_utils.dart';
 import '../utils/poll_loop.dart';
 import 'app_logger.dart';
 import 'local_streaming_server.dart';
-import 'qbittorrent_api_service.dart';
+import 'torrent_engine.dart';
 
 // Re-exported so callers keep importing the session types from the
 // service that produces them, rather than tracking a second path.
 export '../models/streaming_session.dart';
 
 class StreamingService {
-  final QBittorrentApiService _qbtService;
+  final TorrentEngine _qbtService;
 
   final Map<String, StreamingSession> _sessions = {};
   final Map<String, PollLoop> _monitoringLoops = {};

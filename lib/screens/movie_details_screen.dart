@@ -158,7 +158,7 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
         await _startStreamingSession(stream, movie);
       } else {
         // Regular download
-        final apiService = ref.read(connection_provider.qbApiServiceProvider);
+        final apiService = ref.read(connection_provider.torrentEngineProvider);
         final success = await apiService.addTorrent(
           magnetLink: stream.magnetUri,
           sequentialDownload: false,

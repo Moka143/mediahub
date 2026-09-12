@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/app_logger.dart';
 import '../services/qbittorrent_api_service.dart';
 import '../services/qbittorrent_process_service.dart';
+import '../services/torrent_engine.dart';
 import '../utils/poll_loop.dart';
 import 'settings_provider.dart';
 
@@ -59,8 +60,13 @@ final qbProcessServiceProvider = Provider<QBittorrentProcessService>((ref) {
   );
 });
 
-/// Provider for qBittorrent API service
-final qbApiServiceProvider = Provider<QBittorrentApiService>((ref) {
+/// The torrent backend the whole app talks to.
+///
+/// Typed as [TorrentEngine], not as the concrete service: this is the single
+/// place the backend is chosen, so swapping it is a change here and nowhere
+/// else. Rebuilt whenever settings change, which is why neither the engine nor
+/// the process service has setters.
+final torrentEngineProvider = Provider<TorrentEngine>((ref) {
   final settings = ref.watch(settingsProvider);
 
   final service = QBittorrentApiService(
@@ -102,7 +108,7 @@ class ConnectionNotifier extends Notifier<ConnectionState> {
 
   QBittorrentProcessService get _processService =>
       ref.read(qbProcessServiceProvider);
-  QBittorrentApiService get _apiService => ref.read(qbApiServiceProvider);
+  TorrentEngine get _apiService => ref.read(torrentEngineProvider);
   bool get _autoStart => ref.read(settingsProvider).autoStartQBittorrent;
 
   /// Initialize connection
