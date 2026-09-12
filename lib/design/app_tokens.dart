@@ -18,6 +18,14 @@ abstract final class AppSpacing {
   /// Screen-level padding (horizontal margins for screen content).
   static const double screenPadding = 20.0;
 
+  /// Left edge of everything on a details page.
+  ///
+  /// The hero insets its poster and title by [huge]; the sections under it
+  /// used [screenPadding], so "OVERVIEW" started 28px further left than the
+  /// poster above it and the page had two left edges. One constant now, used
+  /// by both.
+  static const double detailPadding = huge;
+
   /// Section spacing (between major UI sections).
   static const double sectionSpacing = 32.0;
 

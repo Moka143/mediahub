@@ -226,4 +226,52 @@ void main() {
       );
     });
   });
+
+  group('chooseStreamSource', () {
+    // The decision the whole engine swap turns on. Three ways to reach the
+    // bytes, and the wrong one is not an error — it is a player that spins
+    // forever or a video full of garbage.
+    test('a finished file is opened from disk, engine URL or not', () {
+      // Checked before the engine is asked, deliberately: handing mpv a
+      // multi-gigabyte HTTP body makes it try, and fail, to build a demuxer
+      // file cache. That was the "download finished but it still didn't
+      // play" case, and it applies to any HTTP source.
+      expect(
+        StreamingService.chooseStreamSource(
+          fileComplete: true,
+          engineUrl: 'http://127.0.0.1:3030/torrents/abc/stream/0',
+        ),
+        StreamSource.disk,
+      );
+      expect(
+        StreamingService.chooseStreamSource(
+          fileComplete: true,
+          engineUrl: null,
+        ),
+        StreamSource.disk,
+      );
+    });
+
+    test('an engine that serves its own files needs no proxy', () {
+      expect(
+        StreamingService.chooseStreamSource(
+          fileComplete: false,
+          engineUrl: 'http://127.0.0.1:3030/torrents/abc/stream/0',
+        ),
+        StreamSource.engine,
+      );
+    });
+
+    test('a downloader backend still gets the proxy', () {
+      // qBittorrent pre-allocates and its gaps read back as zeros, which the
+      // demuxer decodes as corrupt video. Something has to stand in front.
+      expect(
+        StreamingService.chooseStreamSource(
+          fileComplete: false,
+          engineUrl: null,
+        ),
+        StreamSource.proxy,
+      );
+    });
+  });
 }

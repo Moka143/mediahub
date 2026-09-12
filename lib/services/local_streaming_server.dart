@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import 'app_logger.dart';
-import 'qbittorrent_api_service.dart';
+import 'torrent_engine.dart';
 
 /// Outcome of parsing a `Range:` request header against a known file size.
 ///
@@ -96,7 +96,7 @@ class ByteRange {
 ///
 /// This is the same pattern peerflix / WebTorrent / Stremio use.
 class LocalStreamingServer {
-  final QBittorrentApiService _qbt;
+  final TorrentEngine _qbt;
   final String filePath;
   final String torrentHash;
   final int fileIndex;
@@ -193,7 +193,7 @@ class LocalStreamingServer {
   bool _stopped = false;
 
   LocalStreamingServer({
-    required QBittorrentApiService qbt,
+    required TorrentEngine qbt,
     required this.filePath,
     required this.torrentHash,
     required this.fileIndex,

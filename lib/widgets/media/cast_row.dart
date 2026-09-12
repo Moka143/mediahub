@@ -14,10 +14,19 @@ import '../editorial/serif_title.dart';
 /// headshot + name + character. Limits to [maxItems] so the row
 /// doesn't stretch to 100+ entries from `aggregate_credits`.
 class CastRow extends StatelessWidget {
-  const CastRow({super.key, required this.cast, this.maxItems = 12});
+  const CastRow({
+    super.key,
+    required this.cast,
+    this.maxItems = 12,
+    this.showHeader = true,
+  });
 
   final List<CastMember> cast;
   final int maxItems;
+
+  /// False when a [FoldableSection] already renders the title and count, so
+  /// the row does not repeat them inside the fold.
+  final bool showHeader;
 
   @override
   Widget build(BuildContext context) {
@@ -30,34 +39,35 @@ class CastRow extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.screenPadding,
-            0,
-            AppSpacing.screenPadding,
-            AppSpacing.md,
+        if (showHeader)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.screenPadding,
+              0,
+              AppSpacing.screenPadding,
+              AppSpacing.md,
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                const SerifTitle('Cast', size: 22, height: 1.0),
+                const SizedBox(width: 12),
+                MonoLabel(
+                  '${cast.length > maxItems ? '$maxItems+' : '${cast.length}'} '
+                  'CREDITS',
+                  color: AppColors.fg3,
+                ),
+              ],
+            ),
           ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              const SerifTitle('Cast', size: 22, height: 1.0),
-              const SizedBox(width: 12),
-              MonoLabel(
-                '${cast.length > maxItems ? '$maxItems+' : '${cast.length}'} '
-                'CREDITS',
-                color: AppColors.fg3,
-              ),
-            ],
-          ),
-        ),
         SizedBox(
           height: 180,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             physics: const ClampingScrollPhysics(),
             padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.screenPadding,
+              horizontal: AppSpacing.detailPadding,
             ),
             itemCount: items.length,
             separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.md),

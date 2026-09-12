@@ -126,7 +126,8 @@ void main() {
       expect(
         scan.offenders,
         isEmpty,
-        reason: 'credential found in plaintext in: '
+        reason:
+            'credential found in plaintext in: '
             '${scan.offenders.join(", ")}',
       );
       // Only meaningful where the backing store is a file in this directory.
@@ -138,10 +139,18 @@ void main() {
   group('SecretStore migration on the real backend', () {
     // Safe to wipe: these are the namespaced copies, not the real install's.
     Future<void> clear() async {
+      await backend.delete(SecretStore.bundleKey);
+      // The per-secret entries an older build wrote, in case a previous run
+      // of this suite left any behind.
       for (final secret in Secret.values) {
         await backend.delete(secret.key);
       }
     }
+
+    /// What is actually in the platform store, decoded from the one entry
+    /// every secret now shares.
+    Future<Map<Secret, String>?> stored() async =>
+        SecretStore.decodeBundle(await backend.read(SecretStore.bundleKey));
 
     setUp(clear);
     tearDownAll(clear);
@@ -172,12 +181,11 @@ void main() {
 
       // Straight from the backend, not the store's cache: this is the
       // assertion the Keychain defect would have failed.
-      expect(
-        await backend.read(Secret.qbittorrentPassword.key),
-        'qbt-password',
-      );
-      expect(await backend.read(Secret.tmdbReadToken.key), 'read-token');
-      expect(await backend.read(Secret.tmdbAccessToken.key), 'oauth-token');
+      expect(await stored(), {
+        Secret.qbittorrentPassword: 'qbt-password',
+        Secret.tmdbReadToken: 'read-token',
+        Secret.tmdbAccessToken: 'oauth-token',
+      });
     });
 
     testWidgets('scrubs the plaintext only once the write has landed', (
@@ -189,9 +197,10 @@ void main() {
       // Assert the pairing, not just the scrub. Checking only that the
       // plaintext is gone would pass just as happily in the case this whole
       // file exists to rule out: prefs emptied, nothing stored anywhere.
+      final landed = await stored();
       for (final secret in Secret.values) {
         expect(
-          await backend.read(secret.key),
+          landed?[secret],
           isNotNull,
           reason:
               '${secret.key} was dropped from prefs below without ever '
@@ -228,10 +237,10 @@ void main() {
       final store = await SecretStore.open(prefs, backend: backend);
 
       expect(await store.write(Secret.tmdbReadToken, 'rotated'), isTrue);
-      expect(await backend.read(Secret.tmdbReadToken.key), 'rotated');
+      expect((await stored())?[Secret.tmdbReadToken], 'rotated');
 
       expect(await store.write(Secret.tmdbReadToken, null), isTrue);
-      expect(await backend.read(Secret.tmdbReadToken.key), isNull);
+      expect((await stored())?[Secret.tmdbReadToken], isNull);
     });
   });
 }

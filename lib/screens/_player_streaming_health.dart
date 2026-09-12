@@ -38,7 +38,9 @@ mixin PlayerStreamingHealth<T extends ConsumerStatefulWidget>
   /// Index of the playing file within that torrent.
   int? get streamingFileIndex;
 
-  /// The loopback proxy URL mpv is reading through, when there is one.
+  /// The HTTP URL mpv is reading through, when there is one — the loopback
+  /// proxy for a downloader backend, the engine's own stream endpoint for one
+  /// that serves its files. Null when playing a finished file off disk.
   String? get streamingProxyUrl;
 
   // ── Owned state ────────────────────────────────────────────────────────
@@ -105,13 +107,19 @@ mixin PlayerStreamingHealth<T extends ConsumerStatefulWidget>
       return;
     }
 
+    final engine = ref.read(torrentEngineProvider);
+
     _healthMonitor?.dispose();
     _healthMonitor = PlaybackHealthMonitor(
       player: ref.read(playerProvider),
-      qbt: ref.read(qbApiServiceProvider),
+      qbt: engine,
       torrentHash: hash,
       fileIndex: streamingFileIndex,
       usingProxy: streamingProxyUrl != null,
+      // An engine that serves the stream itself needs none of the monitor's
+      // interventions — only its reporting. See the field's own doc.
+      engineHandlesBackpressure:
+          engine.streamUrl(hash, streamingFileIndex ?? 0) != null,
       isActive: () => mounted,
       onDownloadedRatio: (ratio) {
         if (!mounted) return;

@@ -77,13 +77,21 @@ class NextEpisodeChip extends StatelessWidget {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
-    // 1. Upcoming next episode
+    // 1. Upcoming next episode.
+    //
+    // Guarded on the date actually being in the future. TMDB's
+    // `next_episode_to_air` goes stale — it keeps naming an episode after it
+    // has aired, and the app caches show details on top of that — so an
+    // unguarded branch rendered "airs Jul 8" in September, in the future
+    // tense, months after the fact. A past date falls through to the
+    // recently-aired branch below, which describes it correctly.
     final next = s.nextEpisode;
     if (next != null) {
       final airDate = _parse(next.airDate);
       if (airDate != null) {
         final airDay = DateTime(airDate.year, airDate.month, airDate.day);
         final delta = airDay.difference(today).inDays;
+        if (delta < 0) return _resolveAired(s, today);
         String when;
         if (delta == 0) {
           when = 'airs today';
@@ -103,6 +111,13 @@ class NextEpisodeChip extends StatelessWidget {
       }
     }
 
+    return _resolveAired(s, today);
+  }
+
+  /// The already-aired half: a recent last episode, or a returning series
+  /// with nothing announced. Split out so the upcoming branch can hand over
+  /// to it when TMDB's "next" episode turns out to be in the past.
+  _NextChipSpec? _resolveAired(Show s, DateTime today) {
     // 2. Recently aired last episode (within last 14 days)
     final last = s.lastEpisode;
     if (last != null) {

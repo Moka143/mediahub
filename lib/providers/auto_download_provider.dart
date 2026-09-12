@@ -25,7 +25,7 @@ const _autoDownloadStateKey = 'auto_download_state';
 final autoDownloadServiceProvider = Provider<AutoDownloadService>((ref) {
   final tmdbService = ref.watch(tmdbApiServiceProvider);
   final eztvService = ref.watch(eztvApiServiceProvider);
-  final qbtService = ref.watch(qbApiServiceProvider);
+  final qbtService = ref.watch(torrentEngineProvider);
   final torrentioService = ref.watch(torrentioApiServiceProvider);
 
   return AutoDownloadService(

@@ -345,6 +345,8 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
         children: [
           buildPosterImage(theme: theme, posterAsync: widget.posterAsync),
           _bottomGradient(),
+          if (widget.overlayYear != null || widget.overlayRating != null)
+            _topGradient(),
 
           // Year (top-left mono).
           if (widget.overlayYear != null)
@@ -355,13 +357,20 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
                 widget.overlayYear!,
                 style:
                     AppType.mono(
+                      // Full white, not 85%: against the scrim the text is
+                      // already soft enough, and the alpha was costing
+                      // contrast exactly where it was scarcest.
                       size: 10,
-                      color: Colors.white.withValues(alpha: 0.85),
+                      color: Colors.white,
                       letterSpacing: 0.12,
-                      weight: FontWeight.w500,
+                      weight: FontWeight.w600,
                     ).copyWith(
                       shadows: const [
-                        Shadow(color: Color(0x99000000), blurRadius: 6),
+                        // A tight shadow for the edge of a light poster the
+                        // scrim does not fully cover, plus a wider soft one
+                        // for overall separation.
+                        Shadow(color: Color(0xCC000000), blurRadius: 3),
+                        Shadow(color: Color(0x99000000), blurRadius: 8),
                       ],
                     ),
               ),
@@ -446,6 +455,35 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
   }
 
   // ── Shared sub-pieces ────────────────────────────────────────────
+
+  /// Scrim behind the year and rating, mirroring [_bottomGradient].
+  ///
+  /// The year is small white mono text and used to rely on a drop shadow
+  /// alone, which disappears against a bright poster — a daylight sky or a
+  /// sunlit jungle left it barely readable. A shadow adds contrast only where
+  /// the background is already dark, so it cannot fix light art; a scrim can.
+  ///
+  /// Shallower and lighter than the bottom one, which has a two-line serif
+  /// title to carry. This only has to lift two corner labels off the image.
+  Widget _topGradient() {
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.black.withValues(alpha: 0.55),
+                Colors.transparent,
+              ],
+              stops: const [0.0, 0.28],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _bottomGradient() {
     return Positioned.fill(

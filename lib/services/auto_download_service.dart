@@ -7,8 +7,8 @@ import '../utils/formatters.dart';
 import '../utils/media_quality.dart';
 import 'app_logger.dart';
 import 'eztv_api_service.dart';
-import 'qbittorrent_api_service.dart';
 import 'tmdb_api_service.dart';
+import 'torrent_engine.dart';
 import 'torrentio_api_service.dart';
 
 /// Represents the status of an episode for auto-download tracking
@@ -140,13 +140,13 @@ class NextEpisodeResult {
 class AutoDownloadService {
   final TmdbApiService _tmdbService;
   final EztvApiService _eztvService;
-  final QBittorrentApiService _qbtService;
+  final TorrentEngine _qbtService;
   final TorrentioApiService _torrentioService;
 
   AutoDownloadService({
     required TmdbApiService tmdbService,
     required EztvApiService eztvService,
-    required QBittorrentApiService qbtService,
+    required TorrentEngine qbtService,
     required TorrentioApiService torrentioService,
   }) : _tmdbService = tmdbService,
        _eztvService = eztvService,

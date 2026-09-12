@@ -187,7 +187,7 @@ void main() {
             (ref) => Stream<List<LocalMediaFile>>.value(const []),
           ),
           torrentListProvider.overrideWith(torrents),
-          if (qb != null) qbApiServiceProvider.overrideWithValue(qb),
+          if (qb != null) torrentEngineProvider.overrideWithValue(qb),
           if (watchProgress != null)
             watchProgressProvider.overrideWith(watchProgress),
         ],

@@ -9,7 +9,7 @@ import 'connection_provider.dart';
 
 /// Provider for the streaming service
 final streamingServiceProvider = Provider<StreamingService>((ref) {
-  final qbtService = ref.watch(qbApiServiceProvider);
+  final qbtService = ref.watch(torrentEngineProvider);
   final service = StreamingService(qbtService);
 
   ref.onDispose(() {

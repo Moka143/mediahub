@@ -5,10 +5,27 @@ class AppConstants {
   // App Info
   static const String appName = 'MediaHub';
 
-  /// Shown in Settings → About. Keep in sync with `version:` in pubspec.yaml —
+  /// Shown in Settings → About. Must match `version:` in pubspec.yaml —
   /// reading the real one needs `package_info_plus`, which is not worth a
   /// dependency for a single string.
-  static const String appVersion = '0.4.1';
+  ///
+  /// It drifted to 0.4.1 while pubspec said 0.5.0, so About reported a
+  /// version that had not shipped for two releases. `app_version_test.dart`
+  /// now fails the build when the two disagree, which is the only thing that
+  /// keeps a hand-copied constant honest.
+  static const String appVersion = '0.6.0';
+
+  // Built-in engine (rqbit) defaults.
+  //
+  // Loopback only, and not configurable to anything else: rqbit's HTTP API is
+  // unauthenticated, so binding it anywhere reachable would hand torrent
+  // control — including save paths — to the local network.
+  static const String rqbitHost = '127.0.0.1';
+
+  /// Port the bundled engine listens on. High and unregistered to stay out of
+  /// the way of anything the user already runs; overridable in Settings for
+  /// the case where it still clashes.
+  static const int defaultRqbitPort = 3030;
 
   // qBittorrent API defaults
   static const String defaultHost = 'localhost';
@@ -133,6 +150,30 @@ class TorrentState {
   static bool hasError(String state) {
     return [error, missingFiles].contains(state);
   }
+}
+
+/// Which torrent backend the app drives.
+enum TorrentEngineKind {
+  /// rqbit, bundled with the app and run headless on loopback. No window, no
+  /// tray icon, no notifications, no setup — and it serves files over HTTP
+  /// while they download, so nothing has to front the partial file.
+  builtin('Built-in engine'),
+
+  /// A qBittorrent the user installs and owns. Kept because it is the only
+  /// way to drive an instance on another machine, and because an existing
+  /// library should not have to move.
+  qbittorrent('qBittorrent');
+
+  final String label;
+  const TorrentEngineKind(this.label);
+
+  /// The engine's name as it reads mid-sentence — "Make sure X is running".
+  /// [label] is a heading; this is prose, and the two want different casing
+  /// and a different article.
+  String get sentenceName => switch (this) {
+    TorrentEngineKind.builtin => 'the built-in engine',
+    TorrentEngineKind.qbittorrent => 'qBittorrent',
+  };
 }
 
 /// Filter options for torrent list

@@ -23,10 +23,12 @@ import '../services/library_actions.dart';
 import '../utils/feedback_utils.dart';
 import '../widgets/common/floating_header_action.dart';
 import '../widgets/common/loading_state.dart';
+import '../widgets/details/detail_shell.dart';
 import '../widgets/details/show_detail_sections.dart';
+import '../widgets/editorial/serif_title.dart';
 import '../widgets/media/cast_row.dart';
+import '../widgets/media/media_poster_card.dart';
 import '../widgets/media/next_episode_chip.dart';
-import '../widgets/media/trailers_row.dart';
 import '../widgets/mediahub_backdrop_hero.dart';
 import '../widgets/mediahub_episodes_drawer.dart';
 import '../widgets/mediahub_torrent_drawer.dart';
@@ -211,7 +213,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
       if (!connectionState.isConnected) {
         AppSnackBar.showOn(
           messenger,
-          message: 'Not connected to qBittorrent',
+          message: 'Not connected to the torrent engine',
           kind: AppSnackBarKind.warning,
         );
         return;
@@ -250,7 +252,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
         await _startStreamingSession(stream, episode, show);
       } else {
         // Regular download
-        final apiService = ref.read(connection_provider.qbApiServiceProvider);
+        final apiService = ref.read(connection_provider.torrentEngineProvider);
 
         final success = await apiService.addTorrent(
           magnetLink: stream.magnetUri,
@@ -335,7 +337,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
   Future<void> _selectFileFromSeasonPack(TorrentioStream stream) async {
     if (stream.fileIdx == null) return;
 
-    final apiService = ref.read(connection_provider.qbApiServiceProvider);
+    final apiService = ref.read(connection_provider.torrentEngineProvider);
 
     // Wait for metadata to be available
     await Future.delayed(const Duration(seconds: 3));
@@ -416,29 +418,6 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
     AsyncValue<List<Season>> seasons,
     bool isFavorite,
   ) {
-    // Constrain main-page content to a comfortable reading width so
-    // text + cards don't sprawl the full viewport on wide windows.
-    Widget contentSliver(Widget child, {EdgeInsets? padding}) {
-      return SliverToBoxAdapter(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1080),
-            child: Padding(
-              padding:
-                  padding ??
-                  const EdgeInsets.fromLTRB(
-                    AppSpacing.screenPadding,
-                    AppSpacing.xl,
-                    AppSpacing.screenPadding,
-                    0,
-                  ),
-              child: child,
-            ),
-          ),
-        ),
-      );
-    }
-
     return Stack(
       children: [
         CustomScrollView(
@@ -446,112 +425,128 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
             // Cinematic backdrop hero — left full-bleed.
             _buildSliverAppBar(show, isFavorite, seasons),
 
-            // Next-episode card (renders only when nextEpisodeToAir set).
-            contentSliver(_buildShowInfo(show), padding: EdgeInsets.zero),
-
-            // Browse Episodes CTA — opens the right-side drawer.
-            contentSliver(
-              BrowseEpisodesCta(
-                show: show,
-                seasons: seasons,
-                loadingTorrents: _isLoadingTorrents,
-                onOpen: (seasonList) => _openEpisodesDrawer(show, seasonList),
-              ),
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.screenPadding,
-                AppSpacing.lg,
-                AppSpacing.screenPadding,
-                0,
-              ),
-            ),
-
-            // Trailers + Cast — full-bleed slivers (their internal headers
-            // handle the screen padding, the horizontal scrollers extend
-            // edge-to-edge).
-            if (show.videos.isNotEmpty)
+            // Storyline.
+            //
+            // What used to sit here alongside it was a bordered "Quick facts"
+            // table: first aired, status, seasons, episodes, genres, rating.
+            // Six of those eight rows restated a pill in the hero a few
+            // hundred pixels above — the same facts, in a heavier treatment,
+            // costing ~380px and most of the page's scroll. The two it did not
+            // duplicate were the episode runtime, now a pill like the rest,
+            // and "last aired", which the next-episode chip already covers.
+            if (show.overview != null && show.overview!.isNotEmpty)
               SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.only(top: AppSpacing.xxl),
-                  child: TrailersRow(videos: show.videos),
-                ),
-              ),
-            if (show.cast.isNotEmpty)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.only(top: AppSpacing.xxl),
-                  child: CastRow(cast: show.cast),
-                ),
-              ),
-
-            // Storyline + Quick facts in a two-column layout when wide,
-            // single-column when narrow.
-            SliverToBoxAdapter(
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 1080),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.screenPadding,
-                      AppSpacing.xl,
-                      AppSpacing.screenPadding,
-                      0,
-                    ),
-                    child: LayoutBuilder(
-                      builder: (context, c) {
-                        final twoCol = c.maxWidth >= 800;
-                        final storyline =
-                            show.overview != null && show.overview!.isNotEmpty
-                            ? InfoSection(
-                                title: 'Storyline',
-                                child: Text(
-                                  show.overview!,
-                                  style: const TextStyle(
-                                    color: AppColors.fg1,
-                                    fontSize: 14,
-                                    height: 1.6,
-                                  ),
-                                ),
-                              )
-                            : null;
-                        final facts = InfoSection(
-                          title: 'Quick facts',
-                          child: QuickFactsGrid(show: show),
-                        );
-                        if (twoCol) {
-                          return Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (storyline != null) ...[
-                                Expanded(flex: 5, child: storyline),
-                                const SizedBox(width: AppSpacing.xl),
-                              ],
-                              Expanded(flex: 4, child: facts),
-                            ],
-                          );
-                        }
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            if (storyline != null) ...[
-                              storyline,
-                              const SizedBox(height: AppSpacing.xl),
-                            ],
-                            facts,
-                          ],
-                        );
-                      },
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 1080),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.detailPadding,
+                        AppSpacing.xl,
+                        AppSpacing.detailPadding,
+                        0,
+                      ),
+                      child: InfoSection(
+                        title: 'Storyline',
+                        child: Text(
+                          show.overview!,
+                          style: const TextStyle(
+                            color: AppColors.fg1,
+                            fontSize: 14,
+                            height: 1.6,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
+
+            // Cast — folded away by default.
+            if (show.cast.isNotEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.md),
+                  child: FoldableSection(
+                    title: 'Cast',
+                    count:
+                        '${show.cast.length > 12 ? '12+' : show.cast.length} '
+                        'CREDITS',
+                    child: CastRow(cast: show.cast, showHeader: false),
+                  ),
+                ),
+              ),
+
+            // Suggestions — peripheral by design: dimmed until pointed at.
+            _similarSliver(show),
 
             // Bottom padding
-            const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.huge)),
+            const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.xl)),
           ],
         ),
         _buildFloatingHeaderControls(show, isFavorite),
       ],
+    );
+  }
+
+  /// Suggestions, at the bottom and deliberately quiet.
+  ///
+  /// A row of other shows is peripheral: the reader came here for *this* one.
+  /// It sits dimmed until the pointer arrives, then comes up to full strength
+  /// with scroll arrows — present when there is more in that direction, absent
+  /// when there is not.
+  Widget _similarSliver(Show show) {
+    final similar = ref.watch(similarShowsProvider(show.id));
+    return similar.maybeWhen(
+      data: (shows) => shows.isEmpty
+          ? const SliverToBoxAdapter(child: SizedBox.shrink())
+          : SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.only(top: AppSpacing.xxl),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        AppSpacing.detailPadding,
+                        0,
+                        AppSpacing.detailPadding,
+                        AppSpacing.md,
+                      ),
+                      child: SerifTitle(
+                        'More like this',
+                        size: 22,
+                        height: 1.0,
+                      ),
+                    ),
+                    HoverScrollRow(
+                      height: 196,
+                      itemCount: shows.length,
+                      itemBuilder: (context, index) {
+                        final other = shows[index];
+                        return MediaPosterCard(
+                          title: other.name,
+                          width: 124,
+                          posterAsync: AsyncValue.data(other.posterUrl),
+                          titleStyle: CardTitleStyle.overlay,
+                          overlayYear: other.year,
+                          overlayRating: other.voteAverage > 0
+                              ? '★ ${other.voteAverage.toStringAsFixed(1)}'
+                              : null,
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => ShowDetailsScreen(show: other),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+      orElse: () => const SliverToBoxAdapter(child: SizedBox.shrink()),
     );
   }
 
@@ -571,7 +566,11 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
         posterUrl: show.posterUrl,
         backdropUrl: show.backdropUrl,
         fallbackHue: (show.id * 37 % 360).toDouble(),
-        description: show.overview,
+        // The tagline, not the overview: the full synopsis is the Storyline
+        // section further down, and printing it in both places put the same
+        // text on the page twice.
+        description: show.tagline,
+        statusOverlay: NextEpisodeChip(show: show),
         posterPlaceholderIcon: Icons.live_tv_rounded,
         metaPills: [
           if (show.statusLabel != null)
@@ -585,9 +584,17 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
                   '${show.numberOfSeasons} ${show.numberOfSeasons == 1 ? "SEASON" : "SEASONS"}',
               color: AppColors.fg1,
             ),
+          if (show.episodeRunTime != null && show.episodeRunTime!.isNotEmpty)
+            MediaHubMetaPill(
+              label: '~${show.episodeRunTime!.first} MIN',
+              color: AppColors.fg1,
+            ),
           if (show.numberOfEpisodes != null)
             MediaHubMetaPill(
-              label: '${show.numberOfEpisodes} EP',
+              // Spelled out, to match "4 SEASONS" sitting right beside it.
+              label:
+                  '${show.numberOfEpisodes} '
+                  '${show.numberOfEpisodes == 1 ? "EPISODE" : "EPISODES"}',
               color: AppColors.fg1,
             ),
           if (show.voteAverage > 0)
@@ -602,20 +609,48 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
                     MediaHubMetaPill(label: g, color: AppColors.accentPrimary),
               ),
         ],
-        primaryAction: FilledButton.icon(
-          onPressed: seasons.hasValue && seasons.value!.isNotEmpty
-              ? () => _openEpisodesDrawer(show, seasons.value!)
-              : null,
-          icon: const Icon(Icons.play_arrow_rounded),
-          label: const Text('Browse episodes'),
-          style: FilledButton.styleFrom(
-            backgroundColor: Colors.white,
-            foregroundColor: Colors.black,
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.xl,
-              vertical: AppSpacing.md,
+        // The single way into the episode list.
+        //
+        // There used to be a second one: a full-width card below the hero,
+        // with the same label, the same action, and a subtitle repeating the
+        // season and episode counts that are already meta pills a few pixels
+        // above it. Two controls for one action is a question the reader has
+        // to answer ("do these differ?") before they can act.
+        //
+        // The card's one unique signal was the Torrentio cache probe, which
+        // is why the button spins rather than simply being dropped.
+        primaryAction: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            FilledButton.icon(
+              onPressed: seasons.hasValue && seasons.value!.isNotEmpty
+                  ? () => _openEpisodesDrawer(show, seasons.value!)
+                  : null,
+              icon: _isLoadingTorrents
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.black54,
+                      ),
+                    )
+                  : const Icon(Icons.play_arrow_rounded),
+              label: const Text('Browse episodes'),
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.xl,
+                  vertical: AppSpacing.md,
+                ),
+              ),
             ),
-          ),
+            if (bestTrailer(show.videos) != null) ...[
+              const SizedBox(width: AppSpacing.sm),
+              TrailerButton(videos: show.videos),
+            ],
+          ],
         ),
       ),
     );
@@ -694,25 +729,6 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildShowInfo(Show show) {
-    // NextEpisodeChip handles its own visibility: returns SizedBox.shrink
-    // when the show has no scheduled / recently-aired episode. The chip
-    // also covers the "recently aired" case which the old primitive
-    // upcoming-only card missed.
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.screenPadding,
-        AppSpacing.lg,
-        AppSpacing.screenPadding,
-        AppSpacing.sm,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [NextEpisodeChip(show: show)],
-      ),
     );
   }
 }

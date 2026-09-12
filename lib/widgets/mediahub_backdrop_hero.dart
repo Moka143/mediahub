@@ -24,30 +24,65 @@ class MediaHubBackdropHero extends StatelessWidget {
     required this.title,
     required this.year,
     required this.metaPills,
+    this.statusOverlay,
     required this.posterUrl,
     required this.backdropUrl,
     required this.fallbackHue,
     required this.description,
     required this.primaryAction,
     this.posterPlaceholderIcon = Icons.movie_outlined,
-    this.height = 480,
+    this.height,
   });
 
   final String title;
   final String? year;
   final List<MediaHubMetaPill> metaPills;
+
+  /// Small status marker pinned to the hero's top-left — the next-episode
+  /// chip, today.
+  ///
+  /// It lived in its own full-width band between the hero and Trailers, which
+  /// put a single narrow chip alone in ~100px of empty page. Worse, that band
+  /// shrink-wrapped under a `Center`, so the chip drifted to the middle of the
+  /// window while every other block stayed on the left margin — it read as a
+  /// stray toast rather than as part of the layout. Over the backdrop it is
+  /// next to the thing it describes, and costs no vertical space at all.
+  final Widget? statusOverlay;
   final String? posterUrl;
   final String? backdropUrl;
   final double fallbackHue;
   final String? description;
   final Widget primaryAction;
   final IconData posterPlaceholderIcon;
-  final double height;
+
+  /// Explicit hero height. Null means fit the window — see [resolveHeight].
+  final double? height;
+
+  /// How tall the hero should be for a given viewport.
+  ///
+  /// A fixed 480 took 77% of a 625pt window, which is why the page under it
+  /// always scrolled. Tying it to the viewport keeps the hero cinematic on a
+  /// large display and stops it crowding out everything else on a laptop.
+  ///
+  /// The floor is set by the poster: below ~360 the artwork and the title
+  /// block start colliding, and a hero that cannot show its own poster is not
+  /// worth keeping.
+  static double resolveHeight(double viewportHeight) =>
+      (viewportHeight * 0.52).clamp(360.0, 480.0);
+
+  /// Poster height for a given hero height, leaving room for the floating
+  /// controls above and the hero's own bottom inset.
+  static double resolvePosterHeight(double heroHeight) =>
+      (heroHeight - 180).clamp(200.0, 300.0);
 
   @override
   Widget build(BuildContext context) {
+    final heroHeight =
+        height ?? resolveHeight(MediaQuery.sizeOf(context).height);
+    final posterHeight = resolvePosterHeight(heroHeight);
+
     return SizedBox(
-      height: height,
+      height: heroHeight,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -110,6 +145,15 @@ class MediaHubBackdropHero extends StatelessWidget {
             ),
           ),
 
+          // Status overlay — top-left, clear of the floating back button
+          // and of the poster below it.
+          if (statusOverlay != null)
+            Positioned(
+              left: AppSpacing.huge,
+              top: AppSpacing.huge + 44,
+              child: statusOverlay!,
+            ),
+
           // Hero block — poster + title + meta + CTA
           Positioned(
             left: AppSpacing.huge,
@@ -124,16 +168,17 @@ class MediaHubBackdropHero extends StatelessWidget {
                     borderRadius: BorderRadius.circular(AppRadius.md),
                     child: Image.network(
                       posterUrl!,
-                      width: 200,
-                      height: 300,
+                      width: posterHeight * 2 / 3,
+                      height: posterHeight,
                       fit: BoxFit.cover,
-                      loadingBuilder: (_, child, progress) =>
-                          progress == null ? child : _posterFallback(),
+                      loadingBuilder: (_, child, progress) => progress == null
+                          ? child
+                          : _posterFallback(posterHeight),
                       errorBuilder: (_, e, _) {
                         AppLog.e(
                           '[Hero] poster load failed for "$title": $posterUrl ($e)',
                         );
-                        return _posterFallback();
+                        return _posterFallback(posterHeight);
                       },
                     ),
                   )
@@ -143,7 +188,7 @@ class MediaHubBackdropHero extends StatelessWidget {
                       AppLog.d(
                         '[Hero] no poster URL for "$title" (TMDB had no poster_path)',
                       );
-                      return _posterFallback();
+                      return _posterFallback(posterHeight);
                     },
                   ),
                 ],
@@ -155,10 +200,27 @@ class MediaHubBackdropHero extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // The year leads the metadata row rather than sitting
+                      // under the title.
+                      //
+                      // It used to be a small mono label below an 84pt serif
+                      // title set at 0.92 line height — so a descender (the
+                      // italic J of "Jumanji") dropped straight into it, and
+                      // at that size next to that title it read as an
+                      // artefact rather than as a fact. It is the same class
+                      // of metadata as the runtime and the rating, so it
+                      // belongs in the same row, at the same size, with the
+                      // same contrast.
                       Wrap(
                         spacing: AppSpacing.sm,
                         runSpacing: AppSpacing.sm,
                         children: [
+                          if (year != null && year!.isNotEmpty)
+                            EditorialBadge(
+                              year!,
+                              prominent: true,
+                              tone: AppColors.fg1,
+                            ),
                           for (final p in metaPills)
                             EditorialBadge(
                               p.label,
@@ -177,14 +239,6 @@ class MediaHubBackdropHero extends StatelessWidget {
                         color: AppColors.fg,
                         maxLines: 2,
                       ),
-                      if (year != null) ...[
-                        const SizedBox(height: AppSpacing.sm),
-                        MonoLabel(
-                          year!,
-                          color: AppColors.fg2,
-                          letterSpacing: 0.08,
-                        ),
-                      ],
                       if (description != null && description!.isNotEmpty) ...[
                         const SizedBox(height: AppSpacing.md),
                         ConstrainedBox(
@@ -229,10 +283,10 @@ class MediaHubBackdropHero extends StatelessWidget {
     );
   }
 
-  Widget _posterFallback() {
+  Widget _posterFallback(double posterHeight) {
     return Container(
-      width: 200,
-      height: 300,
+      width: posterHeight * 2 / 3,
+      height: posterHeight,
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [

@@ -5,6 +5,8 @@ import '../design/app_theme.dart';
 import '../design/app_tokens.dart';
 import '../design/app_typography.dart';
 import '../providers/connection_provider.dart';
+import '../providers/settings_provider.dart';
+import '../utils/constants.dart';
 
 /// Widget to display connection status to qBittorrent
 class ConnectionStatusWidget extends ConsumerWidget {
@@ -135,6 +137,51 @@ class ConnectionBanner extends ConsumerStatefulWidget {
 
   @override
   ConsumerState<ConnectionBanner> createState() => _ConnectionBannerState();
+
+  /// Troubleshooting for the engine actually in use.
+  ///
+  /// The built-in engine has no Web UI to enable, no credentials to check and
+  /// no host to get wrong — it is a bundled binary on loopback. Telling such
+  /// a user to check qBittorrent's settings sends them looking for a program
+  /// they never installed.
+  @visibleForTesting
+  static List<String> troubleshootingTips(
+    String errorMessage,
+    TorrentEngineKind engine,
+  ) {
+    final lower = errorMessage.toLowerCase();
+    final builtin = engine == TorrentEngineKind.builtin;
+    final name = engine.sentenceName;
+    final tips = <String>[];
+
+    if (lower.contains('connection refused') || lower.contains('no route')) {
+      if (builtin) {
+        tips.add('The engine did not start — check the app log');
+        tips.add('Another program may be using the engine port');
+        tips.add('Try a different engine port in Settings');
+      } else {
+        tips.add('Make sure $name is running');
+        tips.add('Check if the Web UI is enabled in $name settings');
+        tips.add('Verify the host and port are correct');
+      }
+    } else if (lower.contains('401') || lower.contains('unauthorized')) {
+      tips.add('Verify your username and password');
+      tips.add('Check if authentication is required in $name');
+    } else if (lower.contains('timeout')) {
+      tips.add('Check if $name is responding');
+      if (!builtin) tips.add('Try increasing the connection timeout');
+      tips.add('Check your network connection');
+    } else if (lower.contains('certificate') || lower.contains('ssl')) {
+      tips.add('Try disabling HTTPS if not required');
+      tips.add('Check if the SSL certificate is valid');
+    } else {
+      tips.add('Verify $name is running and accessible');
+      tips.add('Check your network connection');
+      tips.add('Review the connection settings');
+    }
+
+    return tips;
+  }
 }
 
 class _ConnectionBannerState extends ConsumerState<ConnectionBanner> {
@@ -150,6 +197,8 @@ class _ConnectionBannerState extends ConsumerState<ConnectionBanner> {
       return const SizedBox.shrink();
     }
 
+    final engine = ref.watch(settingsProvider).engineKind;
+
     Color backgroundColor;
     Color textColor;
     String message;
@@ -159,18 +208,18 @@ class _ConnectionBannerState extends ConsumerState<ConnectionBanner> {
     if (connectionState.isConnecting) {
       backgroundColor = appColors.warningBackground;
       textColor = appColors.warning;
-      message = 'Connecting to qBittorrent...';
+      message = 'Connecting to ${engine.sentenceName}...';
       icon = Icons.cloud_sync_rounded;
     } else if (connectionState.hasError) {
       backgroundColor = appColors.errorStateBackground;
       textColor = appColors.errorState;
       message = 'Connection failed';
-      hintMessage = _getErrorHint(connectionState.errorMessage);
+      hintMessage = _getErrorHint(connectionState.errorMessage, engine);
       icon = Icons.error_outline_rounded;
     } else {
       backgroundColor = appColors.pausedBackground;
       textColor = appColors.paused;
-      message = 'Not connected to qBittorrent';
+      message = 'Not connected to ${engine.sentenceName}';
       hintMessage = 'Configure connection settings to get started';
       icon = Icons.cloud_off_rounded;
     }
@@ -355,8 +404,9 @@ class _ConnectionBannerState extends ConsumerState<ConnectionBanner> {
                               ),
                             ),
                             const SizedBox(height: AppSpacing.xs),
-                            ..._getTroubleshootingTips(
+                            ...ConnectionBanner.troubleshootingTips(
                               connectionState.errorMessage!,
+                              engine,
                             ).map(
                               (tip) => Padding(
                                 padding: const EdgeInsets.only(bottom: 4),
@@ -396,11 +446,11 @@ class _ConnectionBannerState extends ConsumerState<ConnectionBanner> {
     );
   }
 
-  String _getErrorHint(String? errorMessage) {
+  String _getErrorHint(String? errorMessage, TorrentEngineKind engine) {
     if (errorMessage == null) return 'Check your connection settings';
     final lower = errorMessage.toLowerCase();
     if (lower.contains('connection refused') || lower.contains('no route')) {
-      return 'qBittorrent may not be running';
+      return '${engine.sentenceName} may not be running';
     }
     if (lower.contains('401') || lower.contains('unauthorized')) {
       return 'Check your username and password';
@@ -412,32 +462,5 @@ class _ConnectionBannerState extends ConsumerState<ConnectionBanner> {
       return 'SSL/Certificate issue detected';
     }
     return 'Tap for troubleshooting tips';
-  }
-
-  List<String> _getTroubleshootingTips(String errorMessage) {
-    final lower = errorMessage.toLowerCase();
-    final tips = <String>[];
-
-    if (lower.contains('connection refused') || lower.contains('no route')) {
-      tips.add('Make sure qBittorrent is running');
-      tips.add('Check if the Web UI is enabled in qBittorrent settings');
-      tips.add('Verify the host and port are correct');
-    } else if (lower.contains('401') || lower.contains('unauthorized')) {
-      tips.add('Verify your username and password');
-      tips.add('Check if authentication is required in qBittorrent');
-    } else if (lower.contains('timeout')) {
-      tips.add('Check if qBittorrent is responding');
-      tips.add('Try increasing the connection timeout');
-      tips.add('Check your network connection');
-    } else if (lower.contains('certificate') || lower.contains('ssl')) {
-      tips.add('Try disabling HTTPS if not required');
-      tips.add('Check if the SSL certificate is valid');
-    } else {
-      tips.add('Verify qBittorrent is running and accessible');
-      tips.add('Check your network connection');
-      tips.add('Review the connection settings');
-    }
-
-    return tips;
   }
 }

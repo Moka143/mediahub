@@ -188,7 +188,10 @@ void main() {
       final store = await SecretStore.open(prefs, backend: backend);
 
       expect(store.read(Secret.qbittorrentPassword), 'hunter2');
-      expect(backend.values[Secret.qbittorrentPassword.key], 'hunter2');
+      expect(
+        SecretStore.decodeBundle(backend.values[SecretStore.bundleKey]),
+        containsPair(Secret.qbittorrentPassword, 'hunter2'),
+      );
       expect(prefs.getString(SecretStore.legacyAccessTokenKey), isNull);
       expect(settingsBlob(prefs).containsKey('password'), isFalse);
     });
@@ -249,18 +252,30 @@ void main() {
       expect(settingsBlob(prefs).containsKey('tmdb_api_key'), isFalse);
     });
 
-    test('one failing secret does not block the others', () async {
-      // Only the read token fails here; the OAuth token must still move, and
-      // only the read token's plaintext stays behind.
+    test('a refused bundle write keeps every plaintext copy', () async {
+      // This used to assert the opposite — that one failing secret did not
+      // block the others — and that was true while each secret had its own
+      // backend entry. They now share one, so a refusal is all-or-nothing.
+      //
+      // That is the deliberate cost of one Keychain prompt instead of three,
+      // and it is affordable because the protection that matters is
+      // unchanged: nothing is scrubbed until it has been read back, so a
+      // refusal leaves every plaintext copy in place for the next launch to
+      // retry. The real failure this guards against — errSecMissingEntitlement
+      // — failed every write anyway, never just one.
       final prefs = await prefsWith(legacyStore());
       final store = await SecretStore.open(
         prefs,
-        backend: _SelectiveFailBackend(Secret.tmdbReadToken.key),
+        backend: _SelectiveFailBackend(SecretStore.bundleKey),
       );
 
-      expect(prefs.getString(SecretStore.legacyAccessTokenKey), isNull);
-      expect(settingsBlob(prefs).containsKey('password'), isFalse);
+      expect(
+        prefs.getString(SecretStore.legacyAccessTokenKey),
+        'eyJhbGciOiJIUzI1NiJ9.oauth',
+      );
+      expect(settingsBlob(prefs)['password'], 'hunter2');
       expect(settingsBlob(prefs)['tmdb_api_key'], 'eyJhbGciOiJIUzI1NiJ9.read');
+      // Still usable this session, which is the point of the cache.
       expect(store.read(Secret.tmdbAccessToken), isNotNull);
     });
 
@@ -277,6 +292,110 @@ void main() {
     });
   });
 
+  group('one entry for every secret', () {
+    // The reason this exists: macOS prompts for Keychain access per *item*,
+    // so three items meant three dialogs at every launch and the user had to
+    // answer each one.
+    Map<String, String> perSecretEntries() => {
+      Secret.qbittorrentPassword.key: 'hunter2',
+      Secret.tmdbReadToken.key: 'read-token',
+      Secret.tmdbAccessToken.key: 'oauth-token',
+    };
+
+    test('an older layout is collapsed into a single entry', () async {
+      final prefs = await prefsWith({});
+      final backend = InMemorySecretBackend(perSecretEntries());
+
+      final store = await SecretStore.open(prefs, backend: backend);
+
+      expect(store.read(Secret.qbittorrentPassword), 'hunter2');
+      expect(store.read(Secret.tmdbReadToken), 'read-token');
+      expect(store.read(Secret.tmdbAccessToken), 'oauth-token');
+      expect(backend.values.keys, [SecretStore.bundleKey]);
+    });
+
+    test('a later launch reads exactly one entry', () async {
+      // One entry read is one prompt. This is the whole point.
+      final prefs = await prefsWith({});
+      final backend = _CountingBackend(perSecretEntries());
+      await SecretStore.open(prefs, backend: backend);
+
+      backend.reads.clear();
+      final second = await SecretStore.open(prefs, backend: backend);
+
+      expect(backend.reads.keys, [SecretStore.bundleKey]);
+      expect(second.read(Secret.tmdbAccessToken), 'oauth-token');
+    });
+
+    test('old entries survive a bundle that will not read back', () async {
+      // Same rule as the prefs migration: nothing is removed until it is
+      // confirmed stored. Failing costs an extra prompt, not a login.
+      final prefs = await prefsWith({});
+      final backend = _DiscardsBundleWrites(perSecretEntries());
+
+      final store = await SecretStore.open(prefs, backend: backend);
+
+      // Usable this session...
+      expect(store.read(Secret.tmdbAccessToken), 'oauth-token');
+      // ...and every old entry still there for the next launch to retry.
+      for (final secret in Secret.values) {
+        expect(
+          await backend.read(secret.key),
+          isNotNull,
+          reason: '${secret.key} was removed before the bundle was verified',
+        );
+      }
+    });
+
+    test(
+      'a corrupt bundle falls back instead of signing the user out',
+      () async {
+        // Treating an unreadable bundle as "no secrets" would silently discard
+        // credentials that are still sitting right there.
+        final prefs = await prefsWith({});
+        final backend = InMemorySecretBackend({
+          SecretStore.bundleKey: 'not json at all',
+          ...perSecretEntries(),
+        });
+
+        final store = await SecretStore.open(prefs, backend: backend);
+
+        expect(store.read(Secret.tmdbReadToken), 'read-token');
+        expect(backend.values.keys, [SecretStore.bundleKey]);
+      },
+    );
+
+    test('clearing the last secret removes the entry entirely', () async {
+      // Rather than leaving an empty `{}` behind, so a reinstall starts clean.
+      final prefs = await prefsWith({});
+      final backend = InMemorySecretBackend();
+      final store = await SecretStore.open(prefs, backend: backend);
+
+      await store.write(Secret.tmdbReadToken, 'v');
+      expect(backend.values.containsKey(SecretStore.bundleKey), isTrue);
+
+      await store.write(Secret.tmdbReadToken, null);
+      expect(backend.values, isEmpty);
+    });
+
+    test('one secret changing does not disturb the others', () async {
+      final prefs = await prefsWith({});
+      final backend = InMemorySecretBackend(perSecretEntries());
+      final store = await SecretStore.open(prefs, backend: backend);
+
+      await store.write(Secret.tmdbReadToken, 'rotated');
+
+      final stored = SecretStore.decodeBundle(
+        backend.values[SecretStore.bundleKey],
+      );
+      expect(stored, {
+        Secret.qbittorrentPassword: 'hunter2',
+        Secret.tmdbReadToken: 'rotated',
+        Secret.tmdbAccessToken: 'oauth-token',
+      });
+    });
+  });
+
   group('read and write', () {
     test('a written secret is readable immediately and persists', () async {
       final prefs = await prefsWith({});
@@ -286,8 +405,8 @@ void main() {
       await store.write(Secret.qbittorrentPassword, 's3cret');
       expect(store.read(Secret.qbittorrentPassword), 's3cret');
       expect(
-        backend.values,
-        containsPair(Secret.qbittorrentPassword.key, 's3cret'),
+        SecretStore.decodeBundle(backend.values[SecretStore.bundleKey]),
+        containsPair(Secret.qbittorrentPassword, 's3cret'),
       );
 
       final reopened = await SecretStore.open(prefs, backend: backend);
@@ -424,4 +543,48 @@ class _ReadFailsBackend implements SecretBackend {
 
   @override
   Future<void> delete(String key) async {}
+}
+
+/// Holds real entries but silently drops writes to the bundle — the shape of
+/// a backend that accepts a write and stores nothing, which is exactly the
+/// failure that once scrubbed both TMDB tokens.
+class _DiscardsBundleWrites implements SecretBackend {
+  _DiscardsBundleWrites([Map<String, String>? seed]) : _values = {...?seed};
+
+  final Map<String, String> _values;
+
+  @override
+  Future<String?> read(String key) async => _values[key];
+
+  @override
+  Future<void> write(String key, String value) async {
+    if (key == SecretStore.bundleKey) return;
+    _values[key] = value;
+  }
+
+  @override
+  Future<void> delete(String key) async => _values.remove(key);
+}
+
+/// Counts reads per key, so a test can assert how many backend entries a
+/// launch touches — which on macOS is how many Keychain prompts the user sees.
+class _CountingBackend implements SecretBackend {
+  _CountingBackend([Map<String, String>? seed]) : _values = {...?seed};
+
+  final Map<String, String> _values;
+  final Map<String, int> reads = {};
+
+  @override
+  Future<String?> read(String key) async {
+    reads[key] = (reads[key] ?? 0) + 1;
+    return _values[key];
+  }
+
+  @override
+  Future<void> write(String key, String value) async => _values[key] = value;
+
+  @override
+  Future<void> delete(String key) async => _values.remove(key);
+
+  Map<String, String> get values => Map.of(_values);
 }

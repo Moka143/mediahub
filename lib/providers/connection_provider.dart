@@ -6,6 +6,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/app_logger.dart';
 import '../services/qbittorrent_api_service.dart';
 import '../services/qbittorrent_process_service.dart';
+import '../services/rqbit_engine.dart';
+import '../services/rqbit_process_service.dart';
+import '../services/torrent_engine.dart';
+import '../services/torrent_engine_process.dart';
+import '../utils/constants.dart';
 import '../utils/poll_loop.dart';
 import 'settings_provider.dart';
 
@@ -45,31 +50,61 @@ class ConnectionState {
   bool get hasError => status == ConnectionStatus.error;
 }
 
-/// Provider for qBittorrent process service
-final qbProcessServiceProvider = Provider<QBittorrentProcessService>((ref) {
+/// The engine process, chosen by the same setting as [torrentEngineProvider].
+///
+/// The two must agree: an engine pointed at a port nothing is listening on
+/// reconnects forever, and a process started for a backend nobody is talking
+/// to is a stray daemon. Both read `settings.engineKind`, and both are rebuilt
+/// together when it changes.
+final engineProcessProvider = Provider<TorrentEngineProcess>((ref) {
   final settings = ref.watch(settingsProvider);
 
-  return QBittorrentProcessService(
-    qbittorrentPath: settings.qbittorrentPath,
-    port: settings.port,
-    host: settings.host,
-    // The service already writes tagged lines to AppLog; this callback only
-    // feeds the in-app connection log, so it must not log again.
-    onLog: (_) {},
-  );
+  // The service already writes tagged lines to AppLog; the callback only feeds
+  // the in-app connection log, so it must not log again.
+  final service = switch (settings.engineKind) {
+    TorrentEngineKind.builtin => RqbitProcessService(
+      configuredPath: settings.rqbitPath,
+      port: settings.rqbitPort,
+      downloadPath: settings.defaultSavePath,
+      downloadLimitBytes: settings.downloadSpeedLimit,
+      uploadLimitBytes: settings.uploadSpeedLimit,
+      onLog: (_) {},
+    ),
+    TorrentEngineKind.qbittorrent => QBittorrentProcessService(
+      qbittorrentPath: settings.qbittorrentPath,
+      port: settings.port,
+      host: settings.host,
+      onLog: (_) {},
+    ),
+  };
+
+  ref.onDispose(service.dispose);
+  return service;
 });
 
-/// Provider for qBittorrent API service
-final qbApiServiceProvider = Provider<QBittorrentApiService>((ref) {
+/// The torrent backend the whole app talks to.
+///
+/// Typed as [TorrentEngine], not as the concrete service: this is the single
+/// place the backend is chosen, so swapping it is a change here and nowhere
+/// else. Rebuilt whenever settings change, which is why neither the engine nor
+/// the process service has setters.
+final torrentEngineProvider = Provider<TorrentEngine>((ref) {
   final settings = ref.watch(settingsProvider);
 
-  final service = QBittorrentApiService(
-    host: settings.host,
-    port: settings.port,
-    username: settings.username,
-    password: settings.password,
-    onLog: (_) {},
-  );
+  final service = switch (settings.engineKind) {
+    TorrentEngineKind.builtin => RqbitEngine(
+      port: settings.rqbitPort,
+      defaultSavePath: settings.defaultSavePath,
+      onLog: (_) {},
+    ),
+    TorrentEngineKind.qbittorrent => QBittorrentApiService(
+      host: settings.host,
+      port: settings.port,
+      username: settings.username,
+      password: settings.password,
+      onLog: (_) {},
+    ),
+  };
 
   ref.onDispose(() => service.dispose());
 
@@ -100,9 +135,8 @@ class ConnectionNotifier extends Notifier<ConnectionState> {
     return const ConnectionState();
   }
 
-  QBittorrentProcessService get _processService =>
-      ref.read(qbProcessServiceProvider);
-  QBittorrentApiService get _apiService => ref.read(qbApiServiceProvider);
+  TorrentEngineProcess get _processService => ref.read(engineProcessProvider);
+  TorrentEngine get _apiService => ref.read(torrentEngineProvider);
   bool get _autoStart => ref.read(settingsProvider).autoStartQBittorrent;
 
   /// Initialize connection
@@ -131,7 +165,7 @@ class ConnectionNotifier extends Notifier<ConnectionState> {
         if (!started) {
           state = state.copyWith(
             status: ConnectionStatus.error,
-            errorMessage: 'Failed to start qBittorrent',
+            errorMessage: 'Failed to start the torrent engine',
           );
           return false;
         }

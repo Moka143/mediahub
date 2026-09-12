@@ -7,6 +7,11 @@ class Show {
   final int id;
   final String name;
   final String? overview;
+
+  /// TMDB's one-line hook. Shown in the hero in place of the overview, which
+  /// belongs in the Storyline section — printing the same synopsis twice on
+  /// one page is what this replaced.
+  final String? tagline;
   final String? posterPath;
   final String? backdropPath;
   final double voteAverage;
@@ -50,6 +55,7 @@ class Show {
     required this.id,
     required this.name,
     this.overview,
+    this.tagline,
     this.posterPath,
     this.backdropPath,
     this.voteAverage = 0.0,
@@ -118,6 +124,7 @@ class Show {
       id: showId,
       name: json['name'] as String? ?? json['original_name'] as String? ?? '',
       overview: json['overview'] as String?,
+      tagline: json['tagline'] as String?,
       posterPath: json['poster_path'] as String?,
       backdropPath: json['backdrop_path'] as String?,
       voteAverage: (json['vote_average'] as num?)?.toDouble() ?? 0.0,
@@ -152,6 +159,7 @@ class Show {
       'id': id,
       'name': name,
       'overview': overview,
+      'tagline': tagline,
       'poster_path': posterPath,
       'backdrop_path': backdropPath,
       'vote_average': voteAverage,

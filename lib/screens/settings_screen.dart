@@ -31,6 +31,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   late TextEditingController _usernameController;
   late TextEditingController _passwordController;
   late TextEditingController _qbPathController;
+  late TextEditingController _rqbitPortController;
   late TextEditingController _downloadLimitController;
   late TextEditingController _uploadLimitController;
   late TextEditingController _tmdbKeyController;
@@ -54,6 +55,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     _usernameController = TextEditingController(text: settings.username);
     _passwordController = TextEditingController(text: settings.password);
     _qbPathController = TextEditingController(text: settings.qbittorrentPath);
+    _rqbitPortController = TextEditingController(
+      text: settings.rqbitPort.toString(),
+    );
     _downloadLimitController = TextEditingController(
       text: settings.downloadSpeedLimit > 0
           ? (settings.downloadSpeedLimit ~/ 1024).toString()
@@ -75,6 +79,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     _usernameController.dispose();
     _passwordController.dispose();
     _qbPathController.dispose();
+    _rqbitPortController.dispose();
     _downloadLimitController.dispose();
     _uploadLimitController.dispose();
     _tmdbKeyController.dispose();
@@ -129,6 +134,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                   usernameController: _usernameController,
                   passwordController: _passwordController,
                   qbPathController: _qbPathController,
+                  rqbitPortController: _rqbitPortController,
                   tmdbKeyController: _tmdbKeyController,
                   showPassword: _showPassword,
                   showTmdbKey: _showTmdbKey,
@@ -169,7 +175,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     final connectionState = ref.read(connectionProvider);
     if (!connectionState.isConnected) return;
 
-    final apiService = ref.read(qbApiServiceProvider);
+    final apiService = ref.read(torrentEngineProvider);
+
+    // An engine that takes rate limits as launch flags cannot apply one now.
+    // The value is already saved; showing the generic failure below would
+    // claim the setting did not stick, and saying nothing would claim it took
+    // effect. Neither is true.
+    if (!apiService.capabilities.liveSpeedLimits) {
+      if (mounted) {
+        AppSnackBar.showInfo(
+          context,
+          message:
+              'Saved. The built-in engine applies speed limits when it '
+              'next starts.',
+        );
+      }
+      return;
+    }
+
     final success = await apiService.setDownloadLimit(limitBytes);
     if (!success && mounted) {
       AppSnackBar.showError(
@@ -185,7 +208,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     final connectionState = ref.read(connectionProvider);
     if (!connectionState.isConnected) return;
 
-    final apiService = ref.read(qbApiServiceProvider);
+    final apiService = ref.read(torrentEngineProvider);
+
+    // An engine that takes rate limits as launch flags cannot apply one now.
+    // The value is already saved; showing the generic failure below would
+    // claim the setting did not stick, and saying nothing would claim it took
+    // effect. Neither is true.
+    if (!apiService.capabilities.liveSpeedLimits) {
+      if (mounted) {
+        AppSnackBar.showInfo(
+          context,
+          message:
+              'Saved. The built-in engine applies speed limits when it '
+              'next starts.',
+        );
+      }
+      return;
+    }
+
     final success = await apiService.setUploadLimit(limitBytes);
     if (!success && mounted) {
       AppSnackBar.showError(
@@ -218,6 +258,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       _usernameController.text = settings.username;
       _passwordController.text = settings.password;
       _qbPathController.text = settings.qbittorrentPath;
+      _rqbitPortController.text = settings.rqbitPort.toString();
       _tmdbKeyController.text = settings.tmdbApiKey;
       _downloadLimitController.text = '';
       _uploadLimitController.text = '';

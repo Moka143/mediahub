@@ -10,6 +10,7 @@ import '../providers/connection_provider.dart' as connection_provider;
 import '../providers/favorites_provider.dart';
 import '../providers/local_media_provider.dart';
 import '../providers/navigation_provider.dart';
+import '../providers/settings_provider.dart';
 import '../providers/streaming_provider.dart';
 import '../providers/tmdb_account_provider.dart';
 import '../providers/torrent_provider.dart';
@@ -17,6 +18,7 @@ import '../providers/watch_progress_provider.dart';
 import '../providers/watchlist_provider.dart';
 import '../services/library_actions.dart';
 import '../services/streaming_service.dart';
+import '../utils/constants.dart';
 import '../utils/feedback_utils.dart';
 import '../widgets/add_torrent_dialog.dart';
 import '../widgets/common/mediahub_sidebar.dart';
@@ -71,6 +73,8 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
     // pushed up.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
+      _showEngineMigrationNoticeOnce();
+      if (!mounted) return;
       // Unconditional and first: recovers watched marks stranded in the
       // legacy manual-watched store. Must run before the TMDB reconcile so
       // the recovered marks are part of the local set that gets pushed up,
@@ -86,6 +90,34 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
         unawaited(reconcileWatchedWithTmdb(ref));
       }
     });
+  }
+
+  /// Tell the user, once, that their install moved to the built-in engine.
+  ///
+  /// Without this the migration is silent, and the first thing it shows is an
+  /// empty Transfers list — because torrents still running in their
+  /// qBittorrent belong to a backend the app is no longer talking to. An
+  /// empty list reads as data loss. The action goes straight to Settings,
+  /// where switching back is one tap and their host, port and credentials are
+  /// all still there.
+  void _showEngineMigrationNoticeOnce() {
+    final settings = ref.read(settingsProvider);
+    if (settings.engineMigrationNoticeSeen) return;
+    if (settings.engineKind != TorrentEngineKind.builtin) return;
+
+    AppSnackBar.showInfo(
+      context,
+      message:
+          'MediaHub now runs its own torrent engine — no qBittorrent needed. '
+          'Your qBittorrent settings are saved if you want to switch back.',
+      actionLabel: 'Settings',
+      onAction: () => Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const SettingsScreen())),
+    );
+    unawaited(
+      ref.read(settingsProvider.notifier).markEngineMigrationNoticeSeen(),
+    );
   }
 
   @override
@@ -149,6 +181,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
                   setState(() => _sidebarCollapsed = !_sidebarCollapsed),
               onAddTorrent: () =>
                   _handleAddTorrentAction(context, connectionState),
+              engineName: ref.watch(settingsProvider).engineKind.label,
               brandSubtitle: connectionState.isConnected
                   ? 'CONNECTED'
                   : 'OFFLINE',
@@ -296,7 +329,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
       if (context.mounted) {
         AppSnackBar.showWarning(
           context,
-          message: 'Connect to qBittorrent to add torrents',
+          message: 'Connect to the torrent engine to add torrents',
         );
         Navigator.of(
           context,
