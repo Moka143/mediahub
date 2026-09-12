@@ -201,10 +201,15 @@ class TorrentListNotifier extends Notifier<TorrentListState> {
     try {
       state = state.copyWith(isLoading: true, error: null);
 
-      // Use sync endpoint for efficient delta updates
-      final mainData = await apiService.getMainData(
-        fullUpdate: fullUpdate || _isFirstFetch,
-      );
+      // Use sync endpoint for efficient delta updates, where there is one.
+      // An engine without it (the built-in one has no sync/maindata
+      // equivalent) takes the full-fetch branch below, which is why this asks
+      // rather than inferring it from a null answer.
+      final mainData = apiService.capabilities.deltaSync
+          ? await apiService.getMainData(
+              fullUpdate: fullUpdate || _isFirstFetch,
+            )
+          : null;
 
       if (mainData != null) {
         _isFirstFetch = false;

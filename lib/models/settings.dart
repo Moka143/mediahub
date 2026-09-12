@@ -3,6 +3,22 @@ import '../utils/platform_utils.dart';
 
 /// Application settings model
 class AppSettings {
+  // Engine selection
+  //
+  // Defaults to qBittorrent, not the built-in engine: an existing install has
+  // a configured qBittorrent and a library in it, and a silent switch would
+  // look like every torrent disappearing. New installs are steered to the
+  // built-in engine by onboarding instead.
+  final TorrentEngineKind engineKind;
+
+  /// Port the bundled engine listens on. Only relevant to
+  /// [TorrentEngineKind.builtin]; [port] stays qBittorrent's.
+  final int rqbitPort;
+
+  /// Override for the engine binary. Empty means "find it" — bundled copy
+  /// first, then `PATH`.
+  final String rqbitPath;
+
   // Connection settings
   final String host;
   final int port;
@@ -35,6 +51,9 @@ class AppSettings {
   final String tmdbApiKey;
 
   AppSettings({
+    this.engineKind = TorrentEngineKind.qbittorrent,
+    this.rqbitPort = AppConstants.defaultRqbitPort,
+    this.rqbitPath = '',
     this.host = AppConstants.defaultHost,
     this.port = AppConstants.defaultPort,
     this.username = AppConstants.defaultUsername,
@@ -77,6 +96,13 @@ class AppSettings {
     // Note: legacy `max_connections` and `theme_mode` keys are silently
     // dropped — neither was wired to UI. MediaHub is dark-only.
     return AppSettings(
+      engineKind: _enumAt(
+        TorrentEngineKind.values,
+        json['engine_kind'],
+        TorrentEngineKind.qbittorrent,
+      ),
+      rqbitPort: json['rqbit_port'] as int? ?? AppConstants.defaultRqbitPort,
+      rqbitPath: json['rqbit_path'] as String? ?? '',
       host: json['host'] as String? ?? AppConstants.defaultHost,
       port: json['port'] as int? ?? AppConstants.defaultPort,
       username: json['username'] as String? ?? AppConstants.defaultUsername,
@@ -116,6 +142,9 @@ class AppSettings {
   /// them back.
   Map<String, dynamic> toJson() {
     return {
+      'engine_kind': engineKind.index,
+      'rqbit_port': rqbitPort,
+      'rqbit_path': rqbitPath,
       'host': host,
       'port': port,
       'username': username,
@@ -137,6 +166,9 @@ class AppSettings {
   }
 
   AppSettings copyWith({
+    TorrentEngineKind? engineKind,
+    int? rqbitPort,
+    String? rqbitPath,
     String? host,
     int? port,
     String? username,
@@ -158,6 +190,9 @@ class AppSettings {
     String? tmdbApiKey,
   }) {
     return AppSettings(
+      engineKind: engineKind ?? this.engineKind,
+      rqbitPort: rqbitPort ?? this.rqbitPort,
+      rqbitPath: rqbitPath ?? this.rqbitPath,
       host: host ?? this.host,
       port: port ?? this.port,
       username: username ?? this.username,
@@ -189,6 +224,9 @@ class AppSettings {
       identical(this, other) ||
       other is AppSettings &&
           runtimeType == other.runtimeType &&
+          engineKind == other.engineKind &&
+          rqbitPort == other.rqbitPort &&
+          rqbitPath == other.rqbitPath &&
           host == other.host &&
           port == other.port &&
           username == other.username &&
@@ -211,6 +249,9 @@ class AppSettings {
 
   @override
   int get hashCode => Object.hashAll([
+    engineKind,
+    rqbitPort,
+    rqbitPath,
     host,
     port,
     username,

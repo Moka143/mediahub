@@ -7,9 +7,16 @@ import '../utils/constants.dart';
 import '../utils/platform_utils.dart';
 import '../utils/poll_loop.dart';
 import 'app_logger.dart';
+import 'torrent_engine_process.dart';
 
-/// Service for managing the qBittorrent process lifecycle
-class QBittorrentProcessService {
+/// Service for managing the qBittorrent process lifecycle.
+///
+/// Note what it launches on each platform, because it is the thing the
+/// built-in engine exists to avoid: on Windows this is `qbittorrent.exe`, the
+/// *desktop* application — window, tray icon and its own notifications. On
+/// macOS `open -gj` hides it at launch, but it is still the GUI app. Only
+/// Linux gets a genuinely headless binary (`qbittorrent-nox`).
+class QBittorrentProcessService implements TorrentEngineProcess {
   Process? _process;
   late final PollLoop _healthCheck = PollLoop(
     name: 'qb-process-health',
@@ -47,12 +54,14 @@ class QBittorrentProcessService {
   /// would answer "not running" forever — which had the health check trying
   /// to spawn a local qBittorrent every 5 s against a perfectly healthy
   /// remote one.
+  @override
   bool get managesLocalProcess => PlatformUtils.isLocalHost(_host);
 
   // No setters: a settings change rebuilds this service through
   // `qbProcessServiceProvider`.
 
   /// Check if qBittorrent is currently running (by checking if port is in use)
+  @override
   Future<bool> isRunning() async {
     return PlatformUtils.isPortInUse(_port, host: _host);
   }
@@ -98,6 +107,7 @@ class QBittorrentProcessService {
   }
 
   /// Start qBittorrent process
+  @override
   Future<bool> start() async {
     if (_isStarting) {
       _log('Already starting qBittorrent...');
@@ -255,6 +265,7 @@ class QBittorrentProcessService {
   }
 
   /// Stop qBittorrent process
+  @override
   Future<void> stop() async {
     _healthCheck.stop();
 
@@ -268,6 +279,7 @@ class QBittorrentProcessService {
   }
 
   /// Dispose of resources
+  @override
   void dispose() {
     _healthCheck.dispose();
     // Note: We don't kill the process on dispose as qBittorrent should keep running

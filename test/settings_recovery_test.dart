@@ -57,4 +57,46 @@ void main() {
       }
     });
   });
+
+  group('engine selection', () {
+    test('an install with no engine_kind key stays on qBittorrent', () {
+      // The upgrade path that matters: an existing user has a configured
+      // qBittorrent with a library in it. Switching them to the built-in
+      // engine on update would look like every torrent disappearing.
+      final settings = AppSettings.fromJson({'host': 'localhost'});
+      expect(settings.engineKind, TorrentEngineKind.qbittorrent);
+    });
+
+    test('the chosen engine survives a save/load round trip', () {
+      final saved = AppSettings(
+        engineKind: TorrentEngineKind.builtin,
+        rqbitPort: 4040,
+        rqbitPath: '/opt/rqbit',
+      );
+      final loaded = AppSettings.fromJson(saved.toJson());
+      expect(loaded.engineKind, TorrentEngineKind.builtin);
+      expect(loaded.rqbitPort, 4040);
+      expect(loaded.rqbitPath, '/opt/rqbit');
+      expect(loaded, equals(saved));
+    });
+
+    test('a corrupt engine_kind falls back rather than throwing', () {
+      expect(
+        AppSettings.fromJson({'engine_kind': 42}).engineKind,
+        TorrentEngineKind.qbittorrent,
+      );
+      expect(
+        AppSettings.fromJson({'engine_kind': 'builtin'}).engineKind,
+        TorrentEngineKind.qbittorrent,
+      );
+    });
+
+    test('the engine port defaults without clobbering the qBittorrent one', () {
+      // Two separate ports on purpose: switching engines must not require
+      // re-entering the other one's connection details.
+      final settings = AppSettings.fromJson({'port': 8080});
+      expect(settings.port, 8080);
+      expect(settings.rqbitPort, AppConstants.defaultRqbitPort);
+    });
+  });
 }

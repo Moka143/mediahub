@@ -10,6 +10,18 @@ class AppConstants {
   /// dependency for a single string.
   static const String appVersion = '0.4.1';
 
+  // Built-in engine (rqbit) defaults.
+  //
+  // Loopback only, and not configurable to anything else: rqbit's HTTP API is
+  // unauthenticated, so binding it anywhere reachable would hand torrent
+  // control — including save paths — to the local network.
+  static const String rqbitHost = '127.0.0.1';
+
+  /// Port the bundled engine listens on. High and unregistered to stay out of
+  /// the way of anything the user already runs; overridable in Settings for
+  /// the case where it still clashes.
+  static const int defaultRqbitPort = 3030;
+
   // qBittorrent API defaults
   static const String defaultHost = 'localhost';
   static const int defaultPort = 8080;
@@ -133,6 +145,22 @@ class TorrentState {
   static bool hasError(String state) {
     return [error, missingFiles].contains(state);
   }
+}
+
+/// Which torrent backend the app drives.
+enum TorrentEngineKind {
+  /// rqbit, bundled with the app and run headless on loopback. No window, no
+  /// tray icon, no notifications, no setup — and it serves files over HTTP
+  /// while they download, so nothing has to front the partial file.
+  builtin('Built-in engine'),
+
+  /// A qBittorrent the user installs and owns. Kept because it is the only
+  /// way to drive an instance on another machine, and because an existing
+  /// library should not have to move.
+  qbittorrent('qBittorrent');
+
+  final String label;
+  const TorrentEngineKind(this.label);
 }
 
 /// Filter options for torrent list
