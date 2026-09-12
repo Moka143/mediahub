@@ -5,6 +5,7 @@ import '../design/app_colors.dart';
 import '../design/app_theme.dart';
 import '../design/app_tokens.dart';
 import '../models/torrent.dart';
+import '../providers/connection_provider.dart';
 import '../providers/torrent_provider.dart';
 import '../utils/feedback_utils.dart';
 import '../utils/formatters.dart';
@@ -60,56 +61,17 @@ class TorrentDetailsScreen extends ConsumerWidget {
         // Header card with main info
         _TorrentHeaderCard(torrent: torrent, compact: embedded),
 
-        // Tabs
+        // Tabs.
+        //
+        // Built from a list rather than written out, because which tabs exist
+        // depends on the engine: a tab whose backend cannot answer would show
+        // a permanently empty table, which reads as a bug rather than as
+        // "this engine does not report that".
         Expanded(
-          child: DefaultTabController(
-            length: 4,
-            child: Column(
-              children: [
-                TabBar(
-                  tabs: [
-                    Tab(
-                      text: 'Files',
-                      icon: Icon(
-                        Icons.folder_outlined,
-                        size: embedded ? 18 : null,
-                      ),
-                    ),
-                    Tab(
-                      text: 'Peers',
-                      icon: Icon(
-                        Icons.people_outline,
-                        size: embedded ? 18 : null,
-                      ),
-                    ),
-                    Tab(
-                      text: 'Trackers',
-                      icon: Icon(
-                        Icons.dns_outlined,
-                        size: embedded ? 18 : null,
-                      ),
-                    ),
-                    Tab(
-                      text: 'Info',
-                      icon: Icon(
-                        Icons.info_outline,
-                        size: embedded ? 18 : null,
-                      ),
-                    ),
-                  ],
-                ),
-                Expanded(
-                  child: TabBarView(
-                    children: [
-                      TorrentFilesTab(torrentHash: torrentHash),
-                      TorrentPeersTab(torrentHash: torrentHash),
-                      TorrentTrackersTab(torrentHash: torrentHash),
-                      TorrentInfoTab(torrent: torrent),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+          child: _DetailTabs(
+            torrentHash: torrentHash,
+            torrent: torrent,
+            embedded: embedded,
           ),
         ),
 
@@ -543,7 +505,12 @@ class _StatItem extends StatelessWidget {
   }
 }
 
-class _TorrentActionBar extends StatelessWidget {
+/// Pause / resume / recheck / reannounce / delete.
+///
+/// Recheck and reannounce are hidden for an engine that does not offer them
+/// ([EngineCapabilities.maintenanceActions]) rather than left to fail — a
+/// button whose only outcome is an error message is worse than no button.
+class _TorrentActionBar extends ConsumerWidget {
   final Torrent torrent;
   final VoidCallback onPause;
   final VoidCallback onResume;
@@ -563,8 +530,12 @@ class _TorrentActionBar extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final appColors = context.appColors;
+    final maintenance = ref
+        .watch(torrentEngineProvider)
+        .capabilities
+        .maintenanceActions;
 
     final actions = Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -585,18 +556,20 @@ class _TorrentActionBar extends StatelessWidget {
             color: appColors.queued,
             compact: compact,
           ),
-        _ActionButton(
-          icon: Icons.refresh,
-          label: 'Recheck',
-          onPressed: onRecheck,
-          compact: compact,
-        ),
-        _ActionButton(
-          icon: Icons.campaign_outlined,
-          label: 'Reannounce',
-          onPressed: onReannounce,
-          compact: compact,
-        ),
+        if (maintenance) ...[
+          _ActionButton(
+            icon: Icons.refresh,
+            label: 'Recheck',
+            onPressed: onRecheck,
+            compact: compact,
+          ),
+          _ActionButton(
+            icon: Icons.campaign_outlined,
+            label: 'Reannounce',
+            onPressed: onReannounce,
+            compact: compact,
+          ),
+        ],
         _ActionButton(
           icon: Icons.delete_outline,
           label: 'Delete',
@@ -657,6 +630,73 @@ class _ActionButton extends StatelessWidget {
           Text(
             label,
             style: TextStyle(fontSize: compact ? 10 : 12, color: color),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The detail tabs available for the engine currently in use.
+///
+/// qBittorrent answers all four. An engine without a tracker table
+/// ([EngineCapabilities.trackers]) drops that tab entirely rather than
+/// rendering an empty one — and with it goes the polling behind it.
+class _DetailTabs extends ConsumerWidget {
+  const _DetailTabs({
+    required this.torrentHash,
+    required this.torrent,
+    required this.embedded,
+  });
+
+  final String torrentHash;
+  final Torrent torrent;
+  final bool embedded;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final capabilities = ref.watch(torrentEngineProvider).capabilities;
+
+    final tabs = <({String label, IconData icon, Widget view})>[
+      (
+        label: 'Files',
+        icon: Icons.folder_outlined,
+        view: TorrentFilesTab(torrentHash: torrentHash),
+      ),
+      if (capabilities.peers)
+        (
+          label: 'Peers',
+          icon: Icons.people_outline,
+          view: TorrentPeersTab(torrentHash: torrentHash),
+        ),
+      if (capabilities.trackers)
+        (
+          label: 'Trackers',
+          icon: Icons.dns_outlined,
+          view: TorrentTrackersTab(torrentHash: torrentHash),
+        ),
+      (
+        label: 'Info',
+        icon: Icons.info_outline,
+        view: TorrentInfoTab(torrent: torrent),
+      ),
+    ];
+
+    return DefaultTabController(
+      length: tabs.length,
+      child: Column(
+        children: [
+          TabBar(
+            tabs: [
+              for (final tab in tabs)
+                Tab(
+                  text: tab.label,
+                  icon: Icon(tab.icon, size: embedded ? 18 : null),
+                ),
+            ],
+          ),
+          Expanded(
+            child: TabBarView(children: [for (final tab in tabs) tab.view]),
           ),
         ],
       ),

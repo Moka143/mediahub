@@ -211,7 +211,7 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
       if (!connectionState.isConnected) {
         AppSnackBar.showOn(
           messenger,
-          message: 'Not connected to qBittorrent',
+          message: 'Not connected to the torrent engine',
           kind: AppSnackBarKind.warning,
         );
         return;

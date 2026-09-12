@@ -296,7 +296,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
       if (context.mounted) {
         AppSnackBar.showWarning(
           context,
-          message: 'Connect to qBittorrent to add torrents',
+          message: 'Connect to the torrent engine to add torrents',
         );
         Navigator.of(
           context,

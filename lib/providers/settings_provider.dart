@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -109,8 +111,25 @@ class SettingsNotifier extends Notifier<AppSettings> {
         AppLog.e('[Settings] Error loading settings: $e');
       }
     }
-    return AppSettings();
+    return freshInstallDefaults();
   }
+
+  /// Defaults for an install with nothing saved yet.
+  ///
+  /// The one place the built-in engine is chosen for the user. `AppSettings`
+  /// itself defaults to qBittorrent deliberately — an *existing* install has
+  /// one configured with a library in it, and switching them on update would
+  /// look like every torrent disappearing. Someone with no saved settings has
+  /// no such library, and steering them to qBittorrent would mean asking them
+  /// to install a second program, enable its Web UI and invent a password
+  /// before they can watch anything.
+  ///
+  /// Note this is also the branch a *corrupt* settings blob takes. That is
+  /// the right outcome: the credentials are unreadable either way, and the
+  /// engine that needs none of them is the one that still works.
+  @visibleForTesting
+  static AppSettings freshInstallDefaults() =>
+      AppSettings(engineKind: TorrentEngineKind.builtin);
 
   /// Save current settings to SharedPreferences
   Future<void> _saveSettings() async {
@@ -119,6 +138,26 @@ class SettingsNotifier extends Notifier<AppSettings> {
   }
 
   /// Update host
+  /// Switch the torrent backend.
+  ///
+  /// Both `torrentEngineProvider` and `engineProcessProvider` watch settings,
+  /// so this rebuilds the engine and its process together — they must never
+  /// disagree about which backend is live.
+  Future<void> setEngineKind(TorrentEngineKind kind) async {
+    state = state.copyWith(engineKind: kind);
+    await _saveSettings();
+  }
+
+  Future<void> setRqbitPort(int port) async {
+    state = state.copyWith(rqbitPort: port);
+    await _saveSettings();
+  }
+
+  Future<void> setRqbitPath(String path) async {
+    state = state.copyWith(rqbitPath: path);
+    await _saveSettings();
+  }
+
   Future<void> setHost(String host) async {
     state = state.copyWith(host: host);
     await _saveSettings();

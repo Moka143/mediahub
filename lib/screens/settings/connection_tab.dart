@@ -7,6 +7,7 @@ import '../../design/app_theme.dart';
 import '../../design/app_tokens.dart';
 import '../../providers/connection_provider.dart';
 import '../../providers/settings_provider.dart';
+import '../../utils/constants.dart';
 import '../../utils/feedback_utils.dart';
 import '../../widgets/common/section_header.dart';
 import '../../widgets/tmdb_account_section.dart';
@@ -20,6 +21,7 @@ class SettingsConnectionTab extends ConsumerWidget {
     required this.usernameController,
     required this.passwordController,
     required this.qbPathController,
+    required this.rqbitPortController,
     required this.tmdbKeyController,
     required this.showPassword,
     required this.showTmdbKey,
@@ -32,6 +34,7 @@ class SettingsConnectionTab extends ConsumerWidget {
   final TextEditingController usernameController;
   final TextEditingController passwordController;
   final TextEditingController qbPathController;
+  final TextEditingController rqbitPortController;
   final TextEditingController tmdbKeyController;
   final bool showPassword;
   final bool showTmdbKey;
@@ -106,7 +109,12 @@ class SettingsConnectionTab extends ConsumerWidget {
                       ),
                       Text(
                         connectionState.isConnected
-                            ? 'qBittorrent ${connectionState.qbVersion ?? ''}'
+                            ? switch (settings.engineKind) {
+                                TorrentEngineKind.builtin =>
+                                  'Built-in engine on port ${settings.rqbitPort}',
+                                TorrentEngineKind.qbittorrent =>
+                                  'qBittorrent ${connectionState.qbVersion ?? ''}',
+                              }
                             : connectionState.errorMessage ??
                                   'Configure connection below',
                         style: theme.textTheme.bodySmall?.copyWith(
@@ -149,173 +157,252 @@ class SettingsConnectionTab extends ConsumerWidget {
 
         const SizedBox(height: AppSpacing.sectionSpacing),
 
-        // Server Settings
+        // Engine
         const SettingsSectionHeader(
-          title: 'Server Settings',
-          icon: Icons.dns_rounded,
+          title: 'Torrent Engine',
+          icon: Icons.bolt_rounded,
         ),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.cardPadding),
             child: Column(
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      flex: 3,
-                      child: TextField(
-                        controller: hostController,
-                        decoration: InputDecoration(
-                          labelText: 'Host',
-                          hintText: 'localhost',
-                          prefixIcon: Icon(
-                            Icons.dns_rounded,
-                            color: appColors.mutedText,
-                          ),
-                          helperText: 'IP address or hostname',
-                        ),
-                        onChanged: (value) {
-                          ref.read(settingsProvider.notifier).setHost(value);
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.md),
-                    Expanded(
-                      flex: 1,
-                      child: TextField(
-                        controller: portController,
-                        decoration: InputDecoration(
-                          labelText: 'Port',
-                          hintText: '8080',
-                          prefixIcon: Icon(
-                            Icons.tag_rounded,
-                            color: appColors.mutedText,
-                          ),
-                        ),
-                        keyboardType: TextInputType.number,
-                        onChanged: (value) {
-                          final port = int.tryParse(value);
-                          if (port != null) {
-                            ref.read(settingsProvider.notifier).setPort(port);
-                          }
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.md),
-                TextField(
-                  controller: usernameController,
-                  decoration: InputDecoration(
-                    labelText: 'Username',
-                    prefixIcon: Icon(
-                      Icons.person_rounded,
-                      color: appColors.mutedText,
-                    ),
-                  ),
+                RadioGroup<TorrentEngineKind>(
+                  groupValue: settings.engineKind,
                   onChanged: (value) {
-                    ref.read(settingsProvider.notifier).setUsername(value);
+                    if (value == null) return;
+                    ref.read(settingsProvider.notifier).setEngineKind(value);
                   },
+                  child: Column(
+                    children: [
+                      for (final kind in TorrentEngineKind.values)
+                        RadioListTile<TorrentEngineKind>(
+                          contentPadding: EdgeInsets.zero,
+                          value: kind,
+                          title: Text(kind.label),
+                          subtitle: Text(
+                            switch (kind) {
+                              TorrentEngineKind.builtin =>
+                                'Runs inside MediaHub. No window, no tray '
+                                    'icon, no notifications, nothing to '
+                                    'install.',
+                              TorrentEngineKind.qbittorrent =>
+                                'Use a qBittorrent you installed — including '
+                                    'one on another machine.',
+                            },
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: appColors.mutedText,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: AppSpacing.md),
-                TextField(
-                  controller: passwordController,
-                  decoration: InputDecoration(
-                    labelText: 'Password',
-                    prefixIcon: Icon(
-                      Icons.lock_rounded,
-                      color: appColors.mutedText,
-                    ),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        showPassword
-                            ? Icons.visibility_off_rounded
-                            : Icons.visibility_rounded,
+                if (settings.engineKind == TorrentEngineKind.builtin) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  TextField(
+                    controller: rqbitPortController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: 'Engine port',
+                      hintText: '${AppConstants.defaultRqbitPort}',
+                      prefixIcon: Icon(
+                        Icons.lan_rounded,
                         color: appColors.mutedText,
                       ),
-                      onPressed: () => onTogglePassword(),
-                      tooltip: showPassword ? 'Hide password' : 'Show password',
+                      helperText:
+                          'Loopback only. Change it if something else already '
+                          'uses this port.',
                     ),
+                    onChanged: (value) {
+                      final port = int.tryParse(value);
+                      if (port == null || port <= 0 || port > 65535) return;
+                      ref.read(settingsProvider.notifier).setRqbitPort(port);
+                    },
                   ),
-                  obscureText: !showPassword,
-                  onChanged: (value) {
-                    ref.read(settingsProvider.notifier).setPassword(value);
-                  },
-                ),
+                ],
               ],
             ),
           ),
         ),
 
-        const SizedBox(height: AppSpacing.sectionSpacing),
+        // Everything below is qBittorrent's own configuration — a host to
+        // reach, credentials to present, an executable to launch. The
+        // built-in engine has none of those: it listens on loopback with no
+        // auth and ships with the app.
+        if (settings.engineKind == TorrentEngineKind.qbittorrent) ...[
+          const SizedBox(height: AppSpacing.sectionSpacing),
 
-        // qBittorrent Path
-        const SettingsSectionHeader(
-          title: 'qBittorrent Application',
-          icon: Icons.settings_applications_rounded,
-        ),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.cardPadding),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: qbPathController,
-                        decoration: InputDecoration(
-                          labelText: 'qBittorrent Path',
-                          hintText: '/Applications/qBittorrent.app/...',
-                          prefixIcon: Icon(
-                            Icons.terminal_rounded,
-                            color: appColors.mutedText,
+          // Server Settings
+          const SettingsSectionHeader(
+            title: 'Server Settings',
+            icon: Icons.dns_rounded,
+          ),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.cardPadding),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: TextField(
+                          controller: hostController,
+                          decoration: InputDecoration(
+                            labelText: 'Host',
+                            hintText: 'localhost',
+                            prefixIcon: Icon(
+                              Icons.dns_rounded,
+                              color: appColors.mutedText,
+                            ),
+                            helperText: 'IP address or hostname',
                           ),
-                          helperText: 'Path to qBittorrent executable',
+                          onChanged: (value) {
+                            ref.read(settingsProvider.notifier).setHost(value);
+                          },
                         ),
-                        onChanged: (value) {
-                          ref
-                              .read(settingsProvider.notifier)
-                              .setQBittorrentPath(value);
-                        },
+                      ),
+                      const SizedBox(width: AppSpacing.md),
+                      Expanded(
+                        flex: 1,
+                        child: TextField(
+                          controller: portController,
+                          decoration: InputDecoration(
+                            labelText: 'Port',
+                            hintText: '8080',
+                            prefixIcon: Icon(
+                              Icons.tag_rounded,
+                              color: appColors.mutedText,
+                            ),
+                          ),
+                          keyboardType: TextInputType.number,
+                          onChanged: (value) {
+                            final port = int.tryParse(value);
+                            if (port != null) {
+                              ref.read(settingsProvider.notifier).setPort(port);
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  TextField(
+                    controller: usernameController,
+                    decoration: InputDecoration(
+                      labelText: 'Username',
+                      prefixIcon: Icon(
+                        Icons.person_rounded,
+                        color: appColors.mutedText,
                       ),
                     ),
-                    const SizedBox(width: AppSpacing.sm),
-                    FilledButton.tonalIcon(
-                      icon: const Icon(Icons.folder_open_rounded),
-                      label: const Text('Browse'),
-                      onPressed: () async {
-                        final result = await FilePicker.platform.pickFiles();
-                        if (result != null && result.files.isNotEmpty) {
-                          final path = result.files.first.path;
-                          if (path != null) {
-                            qbPathController.text = path;
-                            await ref
-                                .read(settingsProvider.notifier)
-                                .setQBittorrentPath(path);
-                          }
-                        }
-                      },
+                    onChanged: (value) {
+                      ref.read(settingsProvider.notifier).setUsername(value);
+                    },
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  TextField(
+                    controller: passwordController,
+                    decoration: InputDecoration(
+                      labelText: 'Password',
+                      prefixIcon: Icon(
+                        Icons.lock_rounded,
+                        color: appColors.mutedText,
+                      ),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          showPassword
+                              ? Icons.visibility_off_rounded
+                              : Icons.visibility_rounded,
+                          color: appColors.mutedText,
+                        ),
+                        onPressed: () => onTogglePassword(),
+                        tooltip: showPassword
+                            ? 'Hide password'
+                            : 'Show password',
+                      ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.md),
-                SettingsSwitchTile(
-                  icon: Icons.play_circle_outline_rounded,
-                  title: 'Auto-start qBittorrent',
-                  subtitle:
-                      'Automatically start qBittorrent when the app launches',
-                  value: settings.autoStartQBittorrent,
-                  onChanged: (value) {
-                    ref
-                        .read(settingsProvider.notifier)
-                        .setAutoStartQBittorrent(value);
-                  },
-                ),
-              ],
+                    obscureText: !showPassword,
+                    onChanged: (value) {
+                      ref.read(settingsProvider.notifier).setPassword(value);
+                    },
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
+
+          const SizedBox(height: AppSpacing.sectionSpacing),
+
+          // qBittorrent Path
+          const SettingsSectionHeader(
+            title: 'qBittorrent Application',
+            icon: Icons.settings_applications_rounded,
+          ),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.cardPadding),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: qbPathController,
+                          decoration: InputDecoration(
+                            labelText: 'qBittorrent Path',
+                            hintText: '/Applications/qBittorrent.app/...',
+                            prefixIcon: Icon(
+                              Icons.terminal_rounded,
+                              color: appColors.mutedText,
+                            ),
+                            helperText: 'Path to qBittorrent executable',
+                          ),
+                          onChanged: (value) {
+                            ref
+                                .read(settingsProvider.notifier)
+                                .setQBittorrentPath(value);
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      FilledButton.tonalIcon(
+                        icon: const Icon(Icons.folder_open_rounded),
+                        label: const Text('Browse'),
+                        onPressed: () async {
+                          final result = await FilePicker.platform.pickFiles();
+                          if (result != null && result.files.isNotEmpty) {
+                            final path = result.files.first.path;
+                            if (path != null) {
+                              qbPathController.text = path;
+                              await ref
+                                  .read(settingsProvider.notifier)
+                                  .setQBittorrentPath(path);
+                            }
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  SettingsSwitchTile(
+                    icon: Icons.play_circle_outline_rounded,
+                    title: 'Auto-start qBittorrent',
+                    subtitle:
+                        'Automatically start qBittorrent when the app launches',
+                    value: settings.autoStartQBittorrent,
+                    onChanged: (value) {
+                      ref
+                          .read(settingsProvider.notifier)
+                          .setAutoStartQBittorrent(value);
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
 
         const SizedBox(height: AppSpacing.sectionSpacing),
 

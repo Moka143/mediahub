@@ -161,6 +161,14 @@ enum TorrentEngineKind {
 
   final String label;
   const TorrentEngineKind(this.label);
+
+  /// The engine's name as it reads mid-sentence — "Make sure X is running".
+  /// [label] is a heading; this is prose, and the two want different casing
+  /// and a different article.
+  String get sentenceName => switch (this) {
+    TorrentEngineKind.builtin => 'the built-in engine',
+    TorrentEngineKind.qbittorrent => 'qBittorrent',
+  };
 }
 
 /// Filter options for torrent list

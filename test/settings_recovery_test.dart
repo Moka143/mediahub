@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mediahub/models/settings.dart';
+import 'package:mediahub/providers/settings_provider.dart';
 import 'package:mediahub/utils/constants.dart';
 import 'package:mediahub/utils/platform_utils.dart';
 
@@ -97,6 +98,29 @@ void main() {
       final settings = AppSettings.fromJson({'port': 8080});
       expect(settings.port, 8080);
       expect(settings.rqbitPort, AppConstants.defaultRqbitPort);
+    });
+  });
+
+  group('fresh install defaults', () {
+    test('a brand-new install gets the built-in engine', () {
+      // Nothing saved means no existing qBittorrent and no library in it.
+      // Steering such a user to qBittorrent would mean installing a second
+      // program, enabling its Web UI and inventing a password before they
+      // can watch anything.
+      expect(
+        SettingsNotifier.freshInstallDefaults().engineKind,
+        TorrentEngineKind.builtin,
+      );
+    });
+
+    test('the model itself still defaults to qBittorrent', () {
+      // The asymmetry is the upgrade guard: `AppSettings.fromJson` on an
+      // existing blob with no engine_kind key must not switch anyone.
+      expect(AppSettings().engineKind, TorrentEngineKind.qbittorrent);
+      expect(
+        AppSettings.fromJson(const {'host': 'localhost'}).engineKind,
+        TorrentEngineKind.qbittorrent,
+      );
     });
   });
 }

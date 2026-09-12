@@ -125,7 +125,7 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
       if (!connectionState.isConnected) {
         AppSnackBar.showOn(
           messenger,
-          message: 'Not connected to qBittorrent',
+          message: 'Not connected to the torrent engine',
           kind: AppSnackBarKind.warning,
         );
         return;
