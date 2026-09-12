@@ -122,6 +122,14 @@ Future<int> _run(List<String> args) async {
     }
   }
 
+  if (Platform.isMacOS) {
+    if (!await _codesign(out.path)) return 1;
+    // Adding a file under Contents/MacOS invalidates the bundle's seal, so
+    // the app itself has to be signed again afterwards.
+    final bundle = _enclosingAppBundle(out.path);
+    if (bundle != null && !await _codesign(bundle, deep: true)) return 1;
+  }
+
   stdout.writeln('fetch_engine: placed ${out.path} (${asset.name} $_version)');
   return 0;
 }
@@ -206,4 +214,48 @@ Future<bool> _download(String url, File dest) async {
   } finally {
     client.close();
   }
+}
+
+/// The `.app` the given path sits inside, or null if it is not in one.
+String? _enclosingAppBundle(String path) {
+  for (var dir = p.dirname(path); dir.length > 1; dir = p.dirname(dir)) {
+    if (dir.endsWith('.app')) return dir;
+  }
+  return null;
+}
+
+/// Ad-hoc sign the sidecar.
+///
+/// Not optional on macOS, and the failure is confusing without it: the binary
+/// sits inside `Contents/MacOS/`, so it is a nested executable of the app
+/// bundle, and Xcode refuses to sign a bundle containing an unsigned one. The
+/// next `flutter build macos` then dies with a bare
+/// "Command CodeSign failed with a nonzero exit code" that says nothing about
+/// this file.
+///
+/// Signing the sidecar alone is not sufficient: dropping any file into
+/// `Contents/MacOS` invalidates the bundle's seal, so `codesign --verify`
+/// then reports "a sealed resource is missing or invalid" and Gatekeeper
+/// rejects the app on another machine. The enclosing `.app` is therefore
+/// re-signed afterwards.
+///
+/// Ad-hoc (`-s -`) matches what Flutter's own macOS release build does for a
+/// project with no signing identity. A build meant for distribution must
+/// re-sign with the app's Developer ID and the hardened runtime instead, and
+/// inside-out rather than with `--deep`, which Apple deprecates for anything
+/// being notarized.
+Future<bool> _codesign(String path, {bool deep = false}) async {
+  final result = await Process.run('codesign', [
+    '--force',
+    if (deep) '--deep',
+    '--sign',
+    '-',
+    '--timestamp=none',
+    path,
+  ]);
+  if (result.exitCode != 0) {
+    stderr.writeln('fetch_engine: codesign failed: ${result.stderr}');
+    return false;
+  }
+  return true;
 }

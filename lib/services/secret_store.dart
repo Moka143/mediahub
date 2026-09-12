@@ -240,7 +240,11 @@ class SecretStore {
       return;
     }
 
-    for (final secret in Secret.values) {
+    // Only the entries we actually read. Deleting one that was never there
+    // is not free: the classic Keychain answers errSecMissingEntitlement for
+    // a missing item, which would log an alarming line about a credential
+    // that never existed.
+    for (final secret in _cache.keys) {
       try {
         await _backend.delete(secret.key);
       } catch (e) {
