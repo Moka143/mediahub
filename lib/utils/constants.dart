@@ -5,10 +5,15 @@ class AppConstants {
   // App Info
   static const String appName = 'MediaHub';
 
-  /// Shown in Settings → About. Keep in sync with `version:` in pubspec.yaml —
+  /// Shown in Settings → About. Must match `version:` in pubspec.yaml —
   /// reading the real one needs `package_info_plus`, which is not worth a
   /// dependency for a single string.
-  static const String appVersion = '0.4.1';
+  ///
+  /// It drifted to 0.4.1 while pubspec said 0.5.0, so About reported a
+  /// version that had not shipped for two releases. `app_version_test.dart`
+  /// now fails the build when the two disagree, which is the only thing that
+  /// keeps a hand-copied constant honest.
+  static const String appVersion = '0.6.0';
 
   // Built-in engine (rqbit) defaults.
   //
