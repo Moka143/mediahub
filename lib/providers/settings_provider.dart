@@ -106,12 +106,52 @@ class SettingsNotifier extends Notifier<AppSettings> {
     if (jsonString != null) {
       try {
         final json = jsonDecode(jsonString) as Map<String, dynamic>;
-        return AppSettings.fromJson(json);
+        return migrateEngine(AppSettings.fromJson(json), json);
       } catch (e) {
         AppLog.e('[Settings] Error loading settings: $e');
       }
     }
     return freshInstallDefaults();
+  }
+
+  /// Move an install that predates the engine setting onto the built-in
+  /// engine, once.
+  ///
+  /// The absence of `engine_kind` in the stored blob is what identifies such
+  /// an install: it was saved by a build where qBittorrent was the only
+  /// option, so the user never chose it — they simply had no alternative.
+  /// Anyone who has since made a choice has the key, and is left alone. That
+  /// makes the migration self-limiting without a separate "have we migrated"
+  /// flag to keep honest.
+  ///
+  /// Nothing is thrown away. The host, port, credentials and executable path
+  /// all survive untouched, so switching back in Settings restores exactly
+  /// the previous setup — which matters, because torrents already running in
+  /// their qBittorrent will not appear in the Transfers list until they do.
+  /// [AppSettings.engineMigrationNoticeSeen] is cleared so the app says so
+  /// once, rather than letting an empty list speak for itself.
+  @visibleForTesting
+  static AppSettings migrateEngine(
+    AppSettings loaded,
+    Map<String, dynamic> raw,
+  ) {
+    if (raw.containsKey('engine_kind')) return loaded;
+
+    AppLog.i(
+      '[Settings] Pre-engine install — moving to the built-in engine. '
+      'qBittorrent settings kept.',
+    );
+    return loaded.copyWith(
+      engineKind: TorrentEngineKind.builtin,
+      engineMigrationNoticeSeen: false,
+    );
+  }
+
+  /// Record that the one-time engine-migration notice has been shown.
+  Future<void> markEngineMigrationNoticeSeen() async {
+    if (state.engineMigrationNoticeSeen) return;
+    state = state.copyWith(engineMigrationNoticeSeen: true);
+    await _saveSettings();
   }
 
   /// Defaults for an install with nothing saved yet.

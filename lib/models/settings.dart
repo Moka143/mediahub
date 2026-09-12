@@ -19,6 +19,14 @@ class AppSettings {
   /// first, then `PATH`.
   final String rqbitPath;
 
+  /// Whether the user has been told their install was moved to the built-in
+  /// engine.
+  ///
+  /// True for everyone except an install that the migration just moved, so
+  /// the notice fires exactly once and never for a fresh install — which has
+  /// nothing to be told about.
+  final bool engineMigrationNoticeSeen;
+
   // Connection settings
   final String host;
   final int port;
@@ -54,6 +62,7 @@ class AppSettings {
     this.engineKind = TorrentEngineKind.qbittorrent,
     this.rqbitPort = AppConstants.defaultRqbitPort,
     this.rqbitPath = '',
+    this.engineMigrationNoticeSeen = true,
     this.host = AppConstants.defaultHost,
     this.port = AppConstants.defaultPort,
     this.username = AppConstants.defaultUsername,
@@ -103,6 +112,8 @@ class AppSettings {
       ),
       rqbitPort: json['rqbit_port'] as int? ?? AppConstants.defaultRqbitPort,
       rqbitPath: json['rqbit_path'] as String? ?? '',
+      engineMigrationNoticeSeen:
+          json['engine_migration_notice_seen'] as bool? ?? true,
       host: json['host'] as String? ?? AppConstants.defaultHost,
       port: json['port'] as int? ?? AppConstants.defaultPort,
       username: json['username'] as String? ?? AppConstants.defaultUsername,
@@ -145,6 +156,7 @@ class AppSettings {
       'engine_kind': engineKind.index,
       'rqbit_port': rqbitPort,
       'rqbit_path': rqbitPath,
+      'engine_migration_notice_seen': engineMigrationNoticeSeen,
       'host': host,
       'port': port,
       'username': username,
@@ -169,6 +181,7 @@ class AppSettings {
     TorrentEngineKind? engineKind,
     int? rqbitPort,
     String? rqbitPath,
+    bool? engineMigrationNoticeSeen,
     String? host,
     int? port,
     String? username,
@@ -193,6 +206,8 @@ class AppSettings {
       engineKind: engineKind ?? this.engineKind,
       rqbitPort: rqbitPort ?? this.rqbitPort,
       rqbitPath: rqbitPath ?? this.rqbitPath,
+      engineMigrationNoticeSeen:
+          engineMigrationNoticeSeen ?? this.engineMigrationNoticeSeen,
       host: host ?? this.host,
       port: port ?? this.port,
       username: username ?? this.username,
@@ -227,6 +242,7 @@ class AppSettings {
           engineKind == other.engineKind &&
           rqbitPort == other.rqbitPort &&
           rqbitPath == other.rqbitPath &&
+          engineMigrationNoticeSeen == other.engineMigrationNoticeSeen &&
           host == other.host &&
           port == other.port &&
           username == other.username &&
@@ -252,6 +268,7 @@ class AppSettings {
     engineKind,
     rqbitPort,
     rqbitPath,
+    engineMigrationNoticeSeen,
     host,
     port,
     username,

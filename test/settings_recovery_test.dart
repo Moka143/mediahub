@@ -123,4 +123,83 @@ void main() {
       );
     });
   });
+
+  group('engine migration', () {
+    AppSettings migrate(Map<String, dynamic> raw) =>
+        SettingsNotifier.migrateEngine(AppSettings.fromJson(raw), raw);
+
+    test(
+      'an install that predates the setting moves to the built-in engine',
+      () {
+        // No `engine_kind` key means the blob was written by a build where
+        // qBittorrent was the only option — the user never chose it.
+        final s = migrate(const {'host': 'localhost', 'port': 8080});
+        expect(s.engineKind, TorrentEngineKind.builtin);
+      },
+    );
+
+    test('the migration keeps every qBittorrent setting', () {
+      // Switching back has to restore exactly the previous setup, because
+      // torrents already running there will not show up until they do.
+      final s = migrate(const {
+        'host': 'nas.local',
+        'port': 9091,
+        'username': 'me',
+        'qbittorrent_path': '/opt/qbittorrent',
+        'auto_start_qbittorrent': false,
+      });
+      expect(s.host, 'nas.local');
+      expect(s.port, 9091);
+      expect(s.username, 'me');
+      expect(s.qbittorrentPath, '/opt/qbittorrent');
+      expect(s.autoStartQBittorrent, isFalse);
+    });
+
+    test('it arms the one-time notice', () {
+      // Silence would show an empty Transfers list first, which reads as
+      // data loss rather than as a changed backend.
+      expect(migrate(const {'host': 'x'}).engineMigrationNoticeSeen, isFalse);
+    });
+
+    test('someone who chose qBittorrent is left alone', () {
+      final raw = {
+        'host': 'x',
+        'engine_kind': TorrentEngineKind.qbittorrent.index,
+      };
+      final s = migrate(raw);
+      expect(s.engineKind, TorrentEngineKind.qbittorrent);
+      expect(s.engineMigrationNoticeSeen, isTrue, reason: 'no notice for them');
+    });
+
+    test('it is self-limiting — a migrated install is not migrated again', () {
+      // The first save writes `engine_kind`, and its presence is the whole
+      // condition. No separate "have we migrated" flag to keep honest.
+      final once = migrate(const {'host': 'x'});
+      final saved = once.toJson();
+      expect(saved.containsKey('engine_kind'), isTrue);
+
+      final twice = SettingsNotifier.migrateEngine(
+        AppSettings.fromJson(saved),
+        saved,
+      );
+      expect(twice.engineKind, TorrentEngineKind.builtin);
+      expect(
+        twice.engineMigrationNoticeSeen,
+        isFalse,
+        reason: 'still unseen here because nothing marked it seen yet',
+      );
+
+      // And once the notice has been marked seen, it stays seen.
+      final acknowledged = once.copyWith(engineMigrationNoticeSeen: true);
+      final reloaded = AppSettings.fromJson(acknowledged.toJson());
+      expect(reloaded.engineMigrationNoticeSeen, isTrue);
+    });
+
+    test('a fresh install is never told about a migration', () {
+      expect(
+        SettingsNotifier.freshInstallDefaults().engineMigrationNoticeSeen,
+        isTrue,
+      );
+    });
+  });
 }

@@ -718,6 +718,27 @@ class RqbitEngine extends TorrentEngine {
   // Global
   // ---------------------------------------------------------------------
 
+  /// Re-key `GET /stats` to the names the status widgets read.
+  ///
+  /// Note the asymmetry in rqbit's own payload, which is easy to get wrong and
+  /// fails silently when you do: the *speeds* sit at the top level, but the
+  /// byte totals live one level down under `counters`. Reading
+  /// `fetched_bytes` from the root — as this did — yields a session that has
+  /// transferred nothing, forever, with no error anywhere.
+  static Map<String, dynamic> transferInfoFromStats(Map<String, dynamic> data) {
+    final counters = (data['counters'] as Map?)?.cast<String, dynamic>();
+    return {
+      'dl_info_speed': mibPerSecondToBytes(
+        (data['download_speed'] as Map?)?['mbps'] as num?,
+      ),
+      'up_info_speed': mibPerSecondToBytes(
+        (data['upload_speed'] as Map?)?['mbps'] as num?,
+      ),
+      'dl_info_data': (counters?['fetched_bytes'] as num?)?.toInt() ?? 0,
+      'up_info_data': (counters?['uploaded_bytes'] as num?)?.toInt() ?? 0,
+    };
+  }
+
   @override
   Future<Map<String, dynamic>?> getTransferInfo() async {
     try {
@@ -725,17 +746,7 @@ class RqbitEngine extends TorrentEngine {
       if (response.statusCode != 200) return null;
       final data = (response.data as Map?)?.cast<String, dynamic>();
       if (data == null) return null;
-      // Re-keyed to qBittorrent's names, which is what the status widgets read.
-      return {
-        'dl_info_speed': mibPerSecondToBytes(
-          (data['download_speed'] as Map?)?['mbps'] as num?,
-        ),
-        'up_info_speed': mibPerSecondToBytes(
-          (data['upload_speed'] as Map?)?['mbps'] as num?,
-        ),
-        'dl_info_data': (data['fetched_bytes'] as num?)?.toInt() ?? 0,
-        'up_info_data': (data['uploaded_bytes'] as num?)?.toInt() ?? 0,
-      };
+      return transferInfoFromStats(data);
     } catch (e) {
       _log('Get transfer info error: $e');
       return null;
