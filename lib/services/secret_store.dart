@@ -126,6 +126,47 @@ class SecretStore {
   final SecretBackend _backend;
   final Map<Secret, String> _cache;
 
+  /// The single backend entry every secret lives in.
+  ///
+  /// One entry rather than one per secret, because macOS prompts for Keychain
+  /// access **per item**: three items meant three "MediaHub wants to use your
+  /// confidential information" dialogs at every launch, and the user had to
+  /// answer each. One item is one prompt.
+  ///
+  /// (The other half of that annoyance is the code signature — "Always Allow"
+  /// binds to it, and an ad-hoc signature changes on every rebuild, so the
+  /// permission never sticks for a development build. That needs a stable
+  /// signing identity and is not fixable here.)
+  @visibleForTesting
+  static const bundleKey = 'mediahub_secrets';
+
+  /// Encode the cache as the bundle's stored form.
+  ///
+  /// Keyed by [Secret.key] — the same stable strings the per-secret entries
+  /// used — so a secret added later reads back as absent from an older
+  /// bundle rather than corrupting it.
+  static String encodeBundle(Map<Secret, String> secrets) => jsonEncode({
+    for (final entry in secrets.entries) entry.key.key: entry.value,
+  });
+
+  /// Decode a stored bundle. Returns null when it is not usable, which the
+  /// caller must treat as "fall back to the per-secret entries" rather than
+  /// as "there are no secrets" — the difference is whether the user has to
+  /// sign in again.
+  static Map<Secret, String>? decodeBundle(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final json = jsonDecode(raw) as Map<String, dynamic>;
+      return {
+        for (final secret in Secret.values)
+          if (json[secret.key] case final String v when v.isNotEmpty) secret: v,
+      };
+    } catch (e) {
+      AppLog.e('[SecretStore] secret bundle is unreadable ($e)');
+      return null;
+    }
+  }
+
   /// Load every secret, migrating any that are still sitting in prefs.
   ///
   /// Falls back to an in-memory store if the platform backend throws — a
@@ -137,10 +178,24 @@ class SecretStore {
     SecretBackend backend = const PlatformSecretBackend(),
   }) async {
     final cache = <Secret, String>{};
+    var fromPerSecretEntries = false;
     try {
-      for (final secret in Secret.values) {
-        final value = await backend.read(secret.key);
-        if (value != null && value.isNotEmpty) cache[secret] = value;
+      // One read, one Keychain prompt. This is the path every launch after
+      // the first takes.
+      final bundled = decodeBundle(await backend.read(bundleKey));
+      if (bundled != null) {
+        cache.addAll(bundled);
+      } else {
+        // No bundle yet, or an unreadable one: fall back to the layout older
+        // builds wrote, one entry per secret. Costs one more round of prompts
+        // on this launch only — [_consolidateSecrets] collapses it afterwards.
+        for (final secret in Secret.values) {
+          final value = await backend.read(secret.key);
+          if (value != null && value.isNotEmpty) {
+            cache[secret] = value;
+            fromPerSecretEntries = true;
+          }
+        }
       }
     } catch (e) {
       // Any failure disqualifies the whole backend: we cannot tell a missing
@@ -155,7 +210,48 @@ class SecretStore {
 
     final store = SecretStore._(backend, cache);
     await store._migrateFromPrefs(prefs);
+    if (fromPerSecretEntries) await store._consolidateSecrets();
     return store;
+  }
+
+  /// Collapse per-secret entries written by an older build into the bundle.
+  ///
+  /// The old entries are removed **only** once the bundle has been written
+  /// *and read back*, for the same reason [_migrateFromPrefs] verifies before
+  /// scrubbing: a backend that accepts a write and stores nothing would
+  /// otherwise take every credential with it. If anything here fails the old
+  /// entries stay exactly where they are and the next launch tries again —
+  /// the cost of failing is an extra prompt, not a lost login.
+  Future<void> _consolidateSecrets() async {
+    if (_cache.isEmpty) return;
+
+    final bundle = encodeBundle(_cache);
+    try {
+      await _backend.write(bundleKey, bundle);
+      if (await _backend.read(bundleKey) != bundle) {
+        AppLog.e(
+          '[SecretStore] bundle did not read back — leaving the per-secret '
+          'entries in place',
+        );
+        return;
+      }
+    } catch (e) {
+      AppLog.e('[SecretStore] could not write the secret bundle ($e)');
+      return;
+    }
+
+    for (final secret in Secret.values) {
+      try {
+        await _backend.delete(secret.key);
+      } catch (e) {
+        // A leftover entry is harmless: `open` prefers the bundle, so it is
+        // never read again. Worth a line, not worth failing over.
+        AppLog.w('[SecretStore] could not remove old ${secret.key} entry: $e');
+      }
+    }
+    AppLog.i(
+      '[SecretStore] consolidated ${_cache.length} secrets into one entry',
+    );
   }
 
   String? read(Secret secret) => _cache[secret];
@@ -168,13 +264,20 @@ class SecretStore {
   /// other copy of the value must check this. [_migrateFromPrefs] is exactly
   /// that caller.
   Future<bool> write(Secret secret, String? value) async {
+    if (value == null || value.isEmpty) {
+      _cache.remove(secret);
+    } else {
+      _cache[secret] = value;
+    }
+
     try {
-      if (value == null || value.isEmpty) {
-        _cache.remove(secret);
-        await _backend.delete(secret.key);
+      // Every secret shares one entry, so any change rewrites all of them.
+      // Clearing the last one removes the entry rather than leaving `{}`
+      // behind, so an uninstall-reinstall starts genuinely empty.
+      if (_cache.isEmpty) {
+        await _backend.delete(bundleKey);
       } else {
-        _cache[secret] = value;
-        await _backend.write(secret.key, value);
+        await _backend.write(bundleKey, encodeBundle(_cache));
       }
       return true;
     } catch (e) {
@@ -205,7 +308,9 @@ class SecretStore {
   /// confirm our own optimism.
   Future<bool> _readsBackAs(Secret secret, String value) async {
     try {
-      if (await _backend.read(secret.key) == value) return true;
+      if (decodeBundle(await _backend.read(bundleKey))?[secret] == value) {
+        return true;
+      }
       AppLog.e(
         '[SecretStore] ${secret.key} was written without error but did not '
         'read back — leaving the plaintext copy in place',
