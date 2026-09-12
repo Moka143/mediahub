@@ -449,22 +449,6 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
             // Next-episode card (renders only when nextEpisodeToAir set).
             contentSliver(_buildShowInfo(show), padding: EdgeInsets.zero),
 
-            // Browse Episodes CTA — opens the right-side drawer.
-            contentSliver(
-              BrowseEpisodesCta(
-                show: show,
-                seasons: seasons,
-                loadingTorrents: _isLoadingTorrents,
-                onOpen: (seasonList) => _openEpisodesDrawer(show, seasonList),
-              ),
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.screenPadding,
-                AppSpacing.lg,
-                AppSpacing.screenPadding,
-                0,
-              ),
-            ),
-
             // Trailers + Cast — full-bleed slivers (their internal headers
             // handle the screen padding, the horizontal scrollers extend
             // edge-to-edge).
@@ -602,11 +586,30 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
                     MediaHubMetaPill(label: g, color: AppColors.accentPrimary),
               ),
         ],
+        // The single way into the episode list.
+        //
+        // There used to be a second one: a full-width card below the hero,
+        // with the same label, the same action, and a subtitle repeating the
+        // season and episode counts that are already meta pills a few pixels
+        // above it. Two controls for one action is a question the reader has
+        // to answer ("do these differ?") before they can act.
+        //
+        // The card's one unique signal was the Torrentio cache probe, which
+        // is why the button spins rather than simply being dropped.
         primaryAction: FilledButton.icon(
           onPressed: seasons.hasValue && seasons.value!.isNotEmpty
               ? () => _openEpisodesDrawer(show, seasons.value!)
               : null,
-          icon: const Icon(Icons.play_arrow_rounded),
+          icon: _isLoadingTorrents
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.black54,
+                  ),
+                )
+              : const Icon(Icons.play_arrow_rounded),
           label: const Text('Browse episodes'),
           style: FilledButton.styleFrom(
             backgroundColor: Colors.white,

@@ -155,10 +155,27 @@ class MediaHubBackdropHero extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // The year leads the metadata row rather than sitting
+                      // under the title.
+                      //
+                      // It used to be a small mono label below an 84pt serif
+                      // title set at 0.92 line height — so a descender (the
+                      // italic J of "Jumanji") dropped straight into it, and
+                      // at that size next to that title it read as an
+                      // artefact rather than as a fact. It is the same class
+                      // of metadata as the runtime and the rating, so it
+                      // belongs in the same row, at the same size, with the
+                      // same contrast.
                       Wrap(
                         spacing: AppSpacing.sm,
                         runSpacing: AppSpacing.sm,
                         children: [
+                          if (year != null && year!.isNotEmpty)
+                            EditorialBadge(
+                              year!,
+                              prominent: true,
+                              tone: AppColors.fg1,
+                            ),
                           for (final p in metaPills)
                             EditorialBadge(
                               p.label,
@@ -177,14 +194,6 @@ class MediaHubBackdropHero extends StatelessWidget {
                         color: AppColors.fg,
                         maxLines: 2,
                       ),
-                      if (year != null) ...[
-                        const SizedBox(height: AppSpacing.sm),
-                        MonoLabel(
-                          year!,
-                          color: AppColors.fg2,
-                          letterSpacing: 0.08,
-                        ),
-                      ],
                       if (description != null && description!.isNotEmpty) ...[
                         const SizedBox(height: AppSpacing.md),
                         ConstrainedBox(

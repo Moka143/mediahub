@@ -49,7 +49,7 @@ class SidebarItem {
 ///   │  TMDB           OK      │
 ///   │  EZTV           OK      │
 ///   ├─────────────────────────┤
-///   │  ● QBITTORRENT · 4.6.5  │  status footer
+///   │  ● BUILT-IN ENGINE · CONNECTED  │  status footer
 ///   │  ↓ 47.6 MB/s            │
 ///   │  moka@dev  · 2.1TB free │
 ///   └─────────────────────────┘
@@ -63,6 +63,7 @@ class MediaHubSidebar extends StatefulWidget {
     required this.collapsed,
     required this.onToggleCollapse,
     this.brandSubtitle = 'CONNECTED',
+    this.engineName = 'ENGINE',
   });
 
   final List<SidebarItem> items;
@@ -72,6 +73,12 @@ class MediaHubSidebar extends StatefulWidget {
   final bool collapsed;
   final VoidCallback onToggleCollapse;
   final String brandSubtitle;
+
+  /// The backend named in the status footer. Passed in rather than hardcoded
+  /// because it is no longer always qBittorrent, and a footer that names the
+  /// wrong one is worse than a generic label — it sends the user looking for
+  /// a program that is not running.
+  final String engineName;
 
   @override
   State<MediaHubSidebar> createState() => _MediaHubSidebarState();
@@ -129,6 +136,7 @@ class _MediaHubSidebarState extends State<MediaHubSidebar> {
                   _Footer(
                     collapsed: widget.collapsed,
                     onAddTorrent: widget.onAddTorrent,
+                    engineName: widget.engineName,
                     connected: widget.brandSubtitle.toUpperCase().contains(
                       'CONNECT',
                     ),
@@ -417,11 +425,13 @@ class _Footer extends StatelessWidget {
   const _Footer({
     required this.collapsed,
     required this.onAddTorrent,
+    required this.engineName,
     required this.connected,
   });
 
   final bool collapsed;
   final VoidCallback onAddTorrent;
+  final String engineName;
   final bool connected;
 
   @override
@@ -466,9 +476,8 @@ class _Footer extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: MonoLabel(
-                    connected
-                        ? 'QBITTORRENT · CONNECTED'
-                        : 'QBITTORRENT · OFFLINE',
+                    '${engineName.toUpperCase()} · '
+                    '${connected ? 'CONNECTED' : 'OFFLINE'}',
                     color: AppColors.fg2,
                     letterSpacing: 0.08,
                     maxLines: 1,

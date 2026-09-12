@@ -181,6 +181,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
                   setState(() => _sidebarCollapsed = !_sidebarCollapsed),
               onAddTorrent: () =>
                   _handleAddTorrentAction(context, connectionState),
+              engineName: ref.watch(settingsProvider).engineKind.label,
               brandSubtitle: connectionState.isConnected
                   ? 'CONNECTED'
                   : 'OFFLINE',
