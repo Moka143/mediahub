@@ -20,9 +20,11 @@ import '../services/library_actions.dart';
 import '../utils/feedback_utils.dart';
 import '../widgets/common/floating_header_action.dart';
 import '../widgets/common/loading_state.dart';
+import '../widgets/details/detail_shell.dart';
+import '../widgets/details/show_detail_sections.dart';
+import '../widgets/editorial/serif_title.dart';
 import '../widgets/media/cast_row.dart';
 import '../widgets/media/media_poster_card.dart';
-import '../widgets/media/trailers_row.dart';
 import '../widgets/mediahub_backdrop_hero.dart';
 import '../widgets/mediahub_torrent_drawer.dart';
 import '_details_playback_controller.dart';
@@ -227,7 +229,6 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
   @override
   Widget build(BuildContext context) {
     final movieDetails = ref.watch(movieDetailsProvider(widget.movie.id));
-    final theme = Theme.of(context);
 
     // When opened from the browse spotlight, fire the torrent picker
     // automatically as soon as the full movie record (with imdbId) lands.
@@ -252,7 +253,7 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
               Icon(
                 Icons.error_outline,
                 size: 64,
-                color: theme.colorScheme.error,
+                color: Theme.of(context).colorScheme.error,
               ),
               SizedBox(height: AppSpacing.md),
               Text('Failed to load movie details'),
@@ -270,7 +271,6 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
   }
 
   Widget _buildContent(Movie movie) {
-    final theme = Theme.of(context);
     final similarMovies = ref.watch(similarMoviesProvider(movie.id));
     // Don't show as "in library" while actively streaming
     final localFile = _isStreaming
@@ -385,138 +385,124 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
                         ),
                       ),
                     ),
-                  ],
-                ),
-              ),
-            ),
-
-            // Movie info — content below the cinematic hero
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.all(AppSpacing.screenPadding),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // (Hero already provides Resume/Get primary actions.)
-                    SizedBox(height: AppSpacing.lg),
-
-                    // Overview
-                    if (movie.overview != null &&
-                        movie.overview!.isNotEmpty) ...[
-                      Text(
-                        'Overview',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      SizedBox(height: AppSpacing.sm),
-                      Text(
-                        movie.overview!,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                          height: 1.5,
-                        ),
-                      ),
-                      SizedBox(height: AppSpacing.xl),
+                    if (bestTrailer(movie.videos) != null) ...[
+                      const SizedBox(width: AppSpacing.sm),
+                      TrailerButton(videos: movie.videos),
                     ],
                   ],
                 ),
               ),
             ),
 
-            // Trailers + Cast — separate slivers so the horizontal scrollers
-            // can extend edge-to-edge instead of being inset by the
-            // screen-padding wrapper above.
-            if (movie.videos.isNotEmpty)
+            // Everything below the hero, compact.
+            //
+            // Overview, then cast behind a fold, then suggestions. The hero
+            // already answers "what is this and do I want it"; the rest is
+            // reference, and reference should be reachable without filling
+            // three screens of scroll on the way past it.
+            if (movie.overview != null && movie.overview!.isNotEmpty)
               SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
-                  child: TrailersRow(videos: movie.videos),
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 1080),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.screenPadding,
+                        AppSpacing.xl,
+                        AppSpacing.screenPadding,
+                        0,
+                      ),
+                      child: InfoSection(
+                        title: 'Overview',
+                        child: Text(
+                          movie.overview!,
+                          style: const TextStyle(
+                            color: AppColors.fg1,
+                            fontSize: 14,
+                            height: 1.6,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ),
+
+            // Cast — folded away by default.
             if (movie.cast.isNotEmpty)
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
-                  child: CastRow(cast: movie.cast),
+                  padding: const EdgeInsets.only(top: AppSpacing.xl),
+                  child: FoldableSection(
+                    title: 'Cast',
+                    count:
+                        '${movie.cast.length > 12 ? '12+' : movie.cast.length} '
+                        'CREDITS',
+                    child: CastRow(cast: movie.cast, showHeader: false),
+                  ),
                 ),
               ),
 
-            // Similar movies — back inside its own padded sliver.
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.symmetric(
-                  horizontal: AppSpacing.screenPadding,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // (Hero already provides Resume/Get primary actions.)
-                    similarMovies.when(
-                      data: (movies) => movies.isNotEmpty
-                          ? Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Similar Movies',
-                                  style: theme.textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.w600,
+            // Suggestions — peripheral by design: dimmed until pointed at.
+            similarMovies.maybeWhen(
+              data: (movies) => movies.isEmpty
+                  ? const SliverToBoxAdapter(child: SizedBox.shrink())
+                  : SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: AppSpacing.xxl),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Padding(
+                              padding: EdgeInsets.fromLTRB(
+                                AppSpacing.screenPadding,
+                                0,
+                                AppSpacing.screenPadding,
+                                AppSpacing.md,
+                              ),
+                              child: SerifTitle(
+                                'More like this',
+                                size: 22,
+                                height: 1.0,
+                              ),
+                            ),
+                            HoverScrollRow(
+                              height: 232,
+                              itemCount: movies.length,
+                              itemBuilder: (context, index) {
+                                final similar = movies[index];
+                                return MediaPosterCard(
+                                  title: similar.title,
+                                  width: 140,
+                                  posterAsync: AsyncValue.data(
+                                    similar.posterUrl,
                                   ),
-                                ),
-                                SizedBox(height: AppSpacing.md),
-                                SizedBox(
-                                  height: 210,
-                                  child: ListView.builder(
-                                    scrollDirection: Axis.horizontal,
-                                    itemCount: movies.length,
-                                    itemBuilder: (context, index) {
-                                      final similar = movies[index];
-                                      return Padding(
-                                        padding: EdgeInsets.only(
-                                          right: AppSpacing.md,
-                                        ),
-                                        child: MediaPosterCard(
-                                          title: similar.title,
-                                          width: 140,
-                                          posterAsync: AsyncValue.data(
-                                            similar.posterUrl,
-                                          ),
-                                          titleStyle: CardTitleStyle.overlay,
-                                          overlayYear: similar.year,
-                                          overlayRating: similar.voteAverage > 0
-                                              ? '★ ${similar.voteAverage.toStringAsFixed(1)}'
-                                              : null,
-                                          overlayRatingTone:
-                                              similar.voteAverage >= 8
-                                              ? AppColors.accent
-                                              : null,
-                                          onTap: () {
-                                            Navigator.of(context).push(
-                                              MaterialPageRoute(
-                                                builder: (context) =>
-                                                    MovieDetailsScreen(
-                                                      movie: similar,
-                                                    ),
-                                              ),
-                                            );
-                                          },
-                                        ),
-                                      );
-                                    },
+                                  titleStyle: CardTitleStyle.overlay,
+                                  overlayYear: similar.year,
+                                  overlayRating: similar.voteAverage > 0
+                                      ? '★ ${similar.voteAverage.toStringAsFixed(1)}'
+                                      : null,
+                                  overlayRatingTone: similar.voteAverage >= 8
+                                      ? AppColors.accent
+                                      : null,
+                                  onTap: () => Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          MovieDetailsScreen(movie: similar),
+                                    ),
                                   ),
-                                ),
-                              ],
-                            )
-                          : const SizedBox.shrink(),
-                      loading: () => const SizedBox.shrink(),
-                      error: (_, _) => const SizedBox.shrink(),
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
-
-                    SizedBox(height: AppSpacing.xl),
-                  ],
-                ),
-              ),
+              orElse: () => const SliverToBoxAdapter(child: SizedBox.shrink()),
             ),
+
+            const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.huge)),
           ],
         ),
         // Floating back button — overlaid in the top-left.

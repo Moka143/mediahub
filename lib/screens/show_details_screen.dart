@@ -23,10 +23,12 @@ import '../services/library_actions.dart';
 import '../utils/feedback_utils.dart';
 import '../widgets/common/floating_header_action.dart';
 import '../widgets/common/loading_state.dart';
+import '../widgets/details/detail_shell.dart';
 import '../widgets/details/show_detail_sections.dart';
+import '../widgets/editorial/serif_title.dart';
 import '../widgets/media/cast_row.dart';
+import '../widgets/media/media_poster_card.dart';
 import '../widgets/media/next_episode_chip.dart';
-import '../widgets/media/trailers_row.dart';
 import '../widgets/mediahub_backdrop_hero.dart';
 import '../widgets/mediahub_episodes_drawer.dart';
 import '../widgets/mediahub_torrent_drawer.dart';
@@ -423,33 +425,14 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
             // Cinematic backdrop hero — left full-bleed.
             _buildSliverAppBar(show, isFavorite, seasons),
 
-            // Trailers + Cast — full-bleed slivers (their internal headers
-            // handle the screen padding, the horizontal scrollers extend
-            // edge-to-edge).
-            if (show.videos.isNotEmpty)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.only(top: AppSpacing.xxl),
-                  child: TrailersRow(videos: show.videos),
-                ),
-              ),
-            if (show.cast.isNotEmpty)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.only(top: AppSpacing.xxl),
-                  child: CastRow(cast: show.cast),
-                ),
-              ),
-
-            // Storyline + Quick facts in a two-column layout when wide,
-            // single-column when narrow.
+            // Everything below the hero, compact.
             //
-            // Anchored left, not centred. Trailers and Cast above are
-            // full-bleed and start at the screen margin, so centring this
-            // block gave the page two different left edges — on a wide window
-            // the text began several hundred pixels in from everything above
-            // it. The width cap still keeps lines readable; it just grows to
-            // the right instead of away from both margins.
+            // This page used to be four full-width sections stacked
+            // vertically — trailers, cast, storyline, quick facts — each
+            // permanently expanded, so reading a synopsis meant scrolling
+            // past a gallery of clips. The hero already answers "what is
+            // this and do I want it"; the rest is reference, and reference
+            // should be reachable without being in the way.
             SliverToBoxAdapter(
               child: Align(
                 alignment: Alignment.topLeft,
@@ -465,6 +448,8 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
                     child: LayoutBuilder(
                       builder: (context, c) {
                         final twoCol = c.maxWidth >= 800;
+                        // Null, not an empty section: a heading over nothing
+                        // is worse than no heading.
                         final storyline =
                             show.overview != null && show.overview!.isNotEmpty
                             ? InfoSection(
@@ -483,14 +468,12 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
                           title: 'Quick facts',
                           child: QuickFactsGrid(show: show),
                         );
-                        if (twoCol) {
+                        if (twoCol && storyline != null) {
                           return Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              if (storyline != null) ...[
-                                Expanded(flex: 5, child: storyline),
-                                const SizedBox(width: AppSpacing.xl),
-                              ],
+                              Expanded(flex: 5, child: storyline),
+                              const SizedBox(width: AppSpacing.xl),
                               Expanded(flex: 4, child: facts),
                             ],
                           );
@@ -512,12 +495,90 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
               ),
             ),
 
+            // Cast — folded away by default.
+            if (show.cast.isNotEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.xl),
+                  child: FoldableSection(
+                    title: 'Cast',
+                    count:
+                        '${show.cast.length > 12 ? '12+' : show.cast.length} '
+                        'CREDITS',
+                    child: CastRow(cast: show.cast, showHeader: false),
+                  ),
+                ),
+              ),
+
+            // Suggestions — peripheral by design: dimmed until pointed at.
+            _similarSliver(show),
+
             // Bottom padding
             const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.huge)),
           ],
         ),
         _buildFloatingHeaderControls(show, isFavorite),
       ],
+    );
+  }
+
+  /// Suggestions, at the bottom and deliberately quiet.
+  ///
+  /// A row of other shows is peripheral: the reader came here for *this* one.
+  /// It sits dimmed until the pointer arrives, then comes up to full strength
+  /// with scroll arrows — present when there is more in that direction, absent
+  /// when there is not.
+  Widget _similarSliver(Show show) {
+    final similar = ref.watch(similarShowsProvider(show.id));
+    return similar.maybeWhen(
+      data: (shows) => shows.isEmpty
+          ? const SliverToBoxAdapter(child: SizedBox.shrink())
+          : SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.only(top: AppSpacing.xxl),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        AppSpacing.screenPadding,
+                        0,
+                        AppSpacing.screenPadding,
+                        AppSpacing.md,
+                      ),
+                      child: SerifTitle(
+                        'More like this',
+                        size: 22,
+                        height: 1.0,
+                      ),
+                    ),
+                    HoverScrollRow(
+                      height: 232,
+                      itemCount: shows.length,
+                      itemBuilder: (context, index) {
+                        final other = shows[index];
+                        return MediaPosterCard(
+                          title: other.name,
+                          width: 140,
+                          posterAsync: AsyncValue.data(other.posterUrl),
+                          titleStyle: CardTitleStyle.overlay,
+                          overlayYear: other.year,
+                          overlayRating: other.voteAverage > 0
+                              ? '★ ${other.voteAverage.toStringAsFixed(1)}'
+                              : null,
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => ShowDetailsScreen(show: other),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+      orElse: () => const SliverToBoxAdapter(child: SizedBox.shrink()),
     );
   }
 
@@ -585,29 +646,38 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
         //
         // The card's one unique signal was the Torrentio cache probe, which
         // is why the button spins rather than simply being dropped.
-        primaryAction: FilledButton.icon(
-          onPressed: seasons.hasValue && seasons.value!.isNotEmpty
-              ? () => _openEpisodesDrawer(show, seasons.value!)
-              : null,
-          icon: _isLoadingTorrents
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.black54,
-                  ),
-                )
-              : const Icon(Icons.play_arrow_rounded),
-          label: const Text('Browse episodes'),
-          style: FilledButton.styleFrom(
-            backgroundColor: Colors.white,
-            foregroundColor: Colors.black,
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.xl,
-              vertical: AppSpacing.md,
+        primaryAction: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            FilledButton.icon(
+              onPressed: seasons.hasValue && seasons.value!.isNotEmpty
+                  ? () => _openEpisodesDrawer(show, seasons.value!)
+                  : null,
+              icon: _isLoadingTorrents
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.black54,
+                      ),
+                    )
+                  : const Icon(Icons.play_arrow_rounded),
+              label: const Text('Browse episodes'),
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.xl,
+                  vertical: AppSpacing.md,
+                ),
+              ),
             ),
-          ),
+            if (bestTrailer(show.videos) != null) ...[
+              const SizedBox(width: AppSpacing.sm),
+              TrailerButton(videos: show.videos),
+            ],
+          ],
         ),
       ),
     );
