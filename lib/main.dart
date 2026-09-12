@@ -8,6 +8,7 @@ import 'package:screen_retriever/screen_retriever.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app.dart';
+import 'providers/connection_provider.dart';
 import 'providers/settings_provider.dart';
 import 'services/app_logger.dart';
 import 'services/prefs_recovery.dart';
@@ -82,7 +83,19 @@ Future<void> _bootstrap() async {
   final secretStore = await SecretStore.open(sharedPreferences);
   AppLog.i('[Startup] secret store ready');
 
-  final windowStateService = WindowStateService(sharedPreferences);
+  // Built here rather than by `runApp`'s ProviderScope, so the close handler
+  // below can reach the engine process. Nothing else needs it.
+  final container = ProviderContainer(
+    overrides: [
+      sharedPreferencesProvider.overrideWithValue(sharedPreferences),
+      secretStoreProvider.overrideWithValue(secretStore),
+    ],
+  );
+
+  final windowStateService = WindowStateService(
+    sharedPreferences,
+    onClosed: () => _shutDown(container),
+  );
 
   // Ask the OS what screens exist before trusting the saved position: a
   // window last closed on a monitor that has since been unplugged would
@@ -139,12 +152,34 @@ Future<void> _bootstrap() async {
 
   AppLog.i('[Startup] runApp()');
   runApp(
-    ProviderScope(
-      overrides: [
-        sharedPreferencesProvider.overrideWithValue(sharedPreferences),
-        secretStoreProvider.overrideWithValue(secretStore),
-      ],
-      child: const MediaHubApp(),
-    ),
+    UncontrolledProviderScope(container: container, child: const MediaHubApp()),
   );
+}
+
+/// Stop the engine we started, then let the window go.
+///
+/// Without this the sidecar outlived the app. It is headless by design, so
+/// nothing on screen said it was still there — it kept its port, kept
+/// seeding, and the next launch met a port that was already taken. On Windows
+/// it also made quitting look like it had hung: the window went but the
+/// process tree did not, so the app sat in Task Manager for as long as the
+/// child lived.
+///
+/// Only ever kills a process *we* started — see `RqbitProcessService.stop`.
+/// An engine the user runs themselves is not ours to close.
+///
+/// Timed out, because a teardown that hangs must not trap the user in an app
+/// they have already asked to close. Two seconds is far longer than a
+/// `kill` needs and far shorter than a person will wait.
+Future<void> _shutDown(ProviderContainer container) async {
+  try {
+    await container
+        .read(engineProcessProvider)
+        .stop()
+        .timeout(const Duration(seconds: 2));
+  } catch (e) {
+    AppLog.w('[Shutdown] engine did not stop cleanly: $e');
+  }
+  container.dispose();
+  await windowManager.destroy();
 }

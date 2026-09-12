@@ -23,7 +23,14 @@ import 'torrent_engine_process.dart';
 ///
 /// From the user's side there is no second program at all.
 class RqbitProcessService implements TorrentEngineProcess {
-  Process? _process;
+  /// The one sidecar this app has running, shared across instances.
+  ///
+  /// Static because the handle has to outlive the instance that opened it.
+  /// This service is rebuilt whenever settings change — a new download folder,
+  /// a new speed limit — and an instance-level handle would be dropped with
+  /// the old instance, leaving nothing able to stop the process it started.
+  /// There is only ever one sidecar, so one handle models it correctly.
+  static Process? _spawned;
   late final PollLoop _healthCheck = PollLoop(
     name: 'rqbit-process-health',
     onTick: _performHealthCheck,
@@ -186,14 +193,14 @@ class RqbitProcessService implements TorrentEngineProcess {
       );
 
       _log('Starting rqbit: $executable ${args.join(' ')}');
-      _process = await Process.start(
+      _spawned = await Process.start(
         executable,
         args,
         // Detached: no console window on Windows, and the sidecar is not tied
         // to this Dart isolate's stdio.
         mode: ProcessStartMode.detached,
       );
-      _log('rqbit started with PID: ${_process?.pid}');
+      _log('rqbit started with PID: ${_spawned?.pid}');
 
       final ready = await _waitForReady();
       if (ready) {
@@ -243,23 +250,30 @@ class RqbitProcessService implements TorrentEngineProcess {
     await start();
   }
 
+  /// Shut the sidecar down.
+  ///
+  /// Only ever kills a process *we* started: [_spawned] is null when the user
+  /// is pointed at an engine they run themselves, and taking that one down
+  /// would be well outside our remit.
   @override
   Future<void> stop() async {
     _healthCheck.stop();
-    if (_process != null) {
-      _log('Stopping rqbit...');
-      _process?.kill(ProcessSignal.sigterm);
-      _process = null;
+    final process = _spawned;
+    if (process != null) {
+      _log('Stopping rqbit (PID ${process.pid})...');
+      _spawned = null;
+      process.kill(ProcessSignal.sigterm);
     }
     onConnectionStatusChanged?.call(false);
   }
 
   /// Stops the health check but leaves the process running.
   ///
-  /// Same choice as the qBittorrent service, for a different reason: this
-  /// service is rebuilt on every settings change, and killing the engine each
-  /// time would interrupt whatever is streaming. The sidecar is shut down
-  /// with the app, not with the provider.
+  /// This service is rebuilt on every settings change, and killing the engine
+  /// each time would interrupt whatever is streaming. The sidecar is shut
+  /// down with the app — by `main`'s close handler calling [stop] — not with
+  /// the provider. That handler is the reason [_spawned] is static: by the
+  /// time it runs, the instance that started the process is long gone.
   @override
   void dispose() {
     _healthCheck.dispose();
