@@ -24,6 +24,7 @@ class MediaHubBackdropHero extends StatelessWidget {
     required this.title,
     required this.year,
     required this.metaPills,
+    this.statusOverlay,
     required this.posterUrl,
     required this.backdropUrl,
     required this.fallbackHue,
@@ -36,6 +37,17 @@ class MediaHubBackdropHero extends StatelessWidget {
   final String title;
   final String? year;
   final List<MediaHubMetaPill> metaPills;
+
+  /// Small status marker pinned to the hero's top-left — the next-episode
+  /// chip, today.
+  ///
+  /// It lived in its own full-width band between the hero and Trailers, which
+  /// put a single narrow chip alone in ~100px of empty page. Worse, that band
+  /// shrink-wrapped under a `Center`, so the chip drifted to the middle of the
+  /// window while every other block stayed on the left margin — it read as a
+  /// stray toast rather than as part of the layout. Over the backdrop it is
+  /// next to the thing it describes, and costs no vertical space at all.
+  final Widget? statusOverlay;
   final String? posterUrl;
   final String? backdropUrl;
   final double fallbackHue;
@@ -109,6 +121,15 @@ class MediaHubBackdropHero extends StatelessWidget {
               ),
             ),
           ),
+
+          // Status overlay — top-left, clear of the floating back button
+          // and of the poster below it.
+          if (statusOverlay != null)
+            Positioned(
+              left: AppSpacing.huge,
+              top: AppSpacing.huge + 44,
+              child: statusOverlay!,
+            ),
 
           // Hero block — poster + title + meta + CTA
           Positioned(

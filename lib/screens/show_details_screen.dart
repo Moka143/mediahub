@@ -416,38 +416,12 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
     AsyncValue<List<Season>> seasons,
     bool isFavorite,
   ) {
-    // Constrain main-page content to a comfortable reading width so
-    // text + cards don't sprawl the full viewport on wide windows.
-    Widget contentSliver(Widget child, {EdgeInsets? padding}) {
-      return SliverToBoxAdapter(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1080),
-            child: Padding(
-              padding:
-                  padding ??
-                  const EdgeInsets.fromLTRB(
-                    AppSpacing.screenPadding,
-                    AppSpacing.xl,
-                    AppSpacing.screenPadding,
-                    0,
-                  ),
-              child: child,
-            ),
-          ),
-        ),
-      );
-    }
-
     return Stack(
       children: [
         CustomScrollView(
           slivers: [
             // Cinematic backdrop hero — left full-bleed.
             _buildSliverAppBar(show, isFavorite, seasons),
-
-            // Next-episode card (renders only when nextEpisodeToAir set).
-            contentSliver(_buildShowInfo(show), padding: EdgeInsets.zero),
 
             // Trailers + Cast — full-bleed slivers (their internal headers
             // handle the screen padding, the horizontal scrollers extend
@@ -469,8 +443,16 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
 
             // Storyline + Quick facts in a two-column layout when wide,
             // single-column when narrow.
+            //
+            // Anchored left, not centred. Trailers and Cast above are
+            // full-bleed and start at the screen margin, so centring this
+            // block gave the page two different left edges — on a wide window
+            // the text began several hundred pixels in from everything above
+            // it. The width cap still keeps lines readable; it just grows to
+            // the right instead of away from both margins.
             SliverToBoxAdapter(
-              child: Center(
+              child: Align(
+                alignment: Alignment.topLeft,
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 1080),
                   child: Padding(
@@ -555,7 +537,11 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
         posterUrl: show.posterUrl,
         backdropUrl: show.backdropUrl,
         fallbackHue: (show.id * 37 % 360).toDouble(),
-        description: show.overview,
+        // The tagline, not the overview: the full synopsis is the Storyline
+        // section further down, and printing it in both places put the same
+        // text on the page twice.
+        description: show.tagline,
+        statusOverlay: NextEpisodeChip(show: show),
         posterPlaceholderIcon: Icons.live_tv_rounded,
         metaPills: [
           if (show.statusLabel != null)
@@ -571,7 +557,10 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
             ),
           if (show.numberOfEpisodes != null)
             MediaHubMetaPill(
-              label: '${show.numberOfEpisodes} EP',
+              // Spelled out, to match "4 SEASONS" sitting right beside it.
+              label:
+                  '${show.numberOfEpisodes} '
+                  '${show.numberOfEpisodes == 1 ? "EPISODE" : "EPISODES"}',
               color: AppColors.fg1,
             ),
           if (show.voteAverage > 0)
@@ -697,25 +686,6 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildShowInfo(Show show) {
-    // NextEpisodeChip handles its own visibility: returns SizedBox.shrink
-    // when the show has no scheduled / recently-aired episode. The chip
-    // also covers the "recently aired" case which the old primitive
-    // upcoming-only card missed.
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.screenPadding,
-        AppSpacing.lg,
-        AppSpacing.screenPadding,
-        AppSpacing.sm,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [NextEpisodeChip(show: show)],
-      ),
     );
   }
 }
