@@ -11,6 +11,7 @@ void main() {
       bool isPlaying = true,
       bool autoBufferPaused = false,
       bool usingProxy = false,
+      bool engineHandlesBackpressure = false,
       Duration sinceAdvance = const Duration(seconds: 20),
       Duration sinceRecovery = const Duration(seconds: 60),
     }) => PlaybackHealthMonitor.shouldRecoverFromStall(
@@ -18,6 +19,7 @@ void main() {
       isPlaying: isPlaying,
       autoBufferPaused: autoBufferPaused,
       usingProxy: usingProxy,
+      engineHandlesBackpressure: engineHandlesBackpressure,
       sinceAdvance: sinceAdvance,
       sinceRecovery: sinceRecovery,
     );
@@ -31,6 +33,13 @@ void main() {
       // pipeline mid-prime and the stall re-fires forever. The proxy makes
       // the original wedge impossible, so this path must stay off.
       expect(call(usingProxy: true), isFalse);
+    });
+
+    test('never recovers when the engine serves the stream', () {
+      // Same reasoning as proxy mode, one step further: mpv only ever
+      // receives bytes the engine hands it, so a frozen position is a cache
+      // pause and seeking into one breaks the decode pipeline mid-prime.
+      expect(call(engineHandlesBackpressure: true), isFalse);
     });
 
     test('waits for the first real frame before arming', () {

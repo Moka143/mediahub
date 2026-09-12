@@ -22,6 +22,23 @@ import 'torrent_engine.dart';
 // service that produces them, rather than tracking a second path.
 export '../models/streaming_session.dart';
 
+/// Where the player should read the video from.
+enum StreamSource {
+  /// Straight off disk. The file is finished, so there is nothing to wait for
+  /// — and handing mpv a multi-gigabyte HTTP body makes it try, and fail, to
+  /// build a demuxer file cache. That was the "download finished but it still
+  /// didn't play" case.
+  disk,
+
+  /// The engine's own HTTP endpoint. It serves the file while downloading,
+  /// honours Range, and blocks on missing pieces instead of answering zeros.
+  engine,
+
+  /// A local proxy in front of a partially-written file, for a backend that
+  /// only downloads. See [LocalStreamingServer].
+  proxy,
+}
+
 class StreamingService {
   final TorrentEngine _qbtService;
 
@@ -628,6 +645,20 @@ class StreamingService {
     await _handleBuffering(sessionId, torrent);
   }
 
+  /// Which of the three ways to reach the bytes applies right now.
+  ///
+  /// Pure and static because it is the decision this whole phase turns on,
+  /// and because the disk case is easy to lose: it is checked *before* the
+  /// engine is asked, since a finished file should not be served over HTTP by
+  /// anyone.
+  static StreamSource chooseStreamSource({
+    required bool fileComplete,
+    required String? engineUrl,
+  }) {
+    if (fileComplete) return StreamSource.disk;
+    return engineUrl != null ? StreamSource.engine : StreamSource.proxy;
+  }
+
   /// Stand up the local HTTP proxy and transition the session to `ready`.
   /// Shared by the fast-path (`_handleFileSelection`) and the regular
   /// buffer-threshold path (`_handleBuffering`).
@@ -649,29 +680,50 @@ class StreamingService {
     String? streamUrl;
     // A finished file should be opened from disk. Feeding mpv a 2 GB HTTP
     // body makes it try (and fail) to create a demuxer file cache — the
-    // "download finished but it still didn't play" case.
-    final fileComplete = session.bufferProgress >= 0.999;
-    if (!fileComplete) {
-      try {
-        final server = LocalStreamingServer(
-          qbt: _qbtService,
-          filePath: videoFile.path,
-          torrentHash: torrent.hash,
-          fileIndex: session.selectedFileIndex!,
-          logTag: 'main',
+    // "download finished but it still didn't play" case. True of any HTTP
+    // source, so it is checked before choosing between them.
+    final engineUrl = _qbtService.streamUrl(
+      torrent.hash,
+      session.selectedFileIndex!,
+    );
+
+    switch (chooseStreamSource(
+      fileComplete: session.bufferProgress >= 0.999,
+      engineUrl: engineUrl,
+    )) {
+      case StreamSource.disk:
+        AppLog.d(
+          '[StreamingService] File complete — '
+          'opening ${videoFile.path} directly',
         );
-        await server.start();
-        await _streamingServers[sessionId]?.stop();
-        _streamingServers[sessionId] = server;
-        streamUrl = server.url;
-        AppLog.d('[StreamingService] Local stream URL: $streamUrl');
-      } catch (e) {
-        AppLog.e('[StreamingService] Failed to start local proxy: $e');
-      }
-    } else {
-      AppLog.d(
-        '[StreamingService] File complete — opening ${videoFile.path} directly',
-      );
+
+      case StreamSource.engine:
+        // No proxy is created at all on this path. Drop any left over from a
+        // previous promotion of the same session.
+        await _streamingServers.remove(sessionId)?.stop();
+        streamUrl = engineUrl;
+        AppLog.d('[StreamingService] Engine stream URL: $streamUrl');
+
+      case StreamSource.proxy:
+        // The downloader path: qBittorrent pre-allocates the file and its
+        // gaps read back as zeros, so something has to serve only the bytes
+        // that are really there.
+        try {
+          final server = LocalStreamingServer(
+            qbt: _qbtService,
+            filePath: videoFile.path,
+            torrentHash: torrent.hash,
+            fileIndex: session.selectedFileIndex!,
+            logTag: 'main',
+          );
+          await server.start();
+          await _streamingServers[sessionId]?.stop();
+          _streamingServers[sessionId] = server;
+          streamUrl = server.url;
+          AppLog.d('[StreamingService] Local proxy URL: $streamUrl');
+        } catch (e) {
+          AppLog.e('[StreamingService] Failed to start local proxy: $e');
+        }
     }
 
     _updateSession(
@@ -832,11 +884,24 @@ class StreamingService {
 
   /// Sequential download + high priority on the selected file's leading
   /// pieces so mpv can open before the rest of the torrent arrives.
+  ///
+  /// Skipped entirely for an engine that orders pieces itself. Every call in
+  /// here would be a no-op round trip, and `ensureInOrderDownload` answering
+  /// true for such an engine would make the log claim a toggle that never
+  /// happened.
   Future<void> _prepareInOrderDownload({
     required Torrent torrent,
     required List<TorrentFile> files,
     required int targetFileIndex,
   }) async {
+    if (!_qbtService.capabilities.pieceLevelControl) {
+      AppLog.d(
+        '[StreamingService] Engine orders pieces itself — '
+        'skipping sequential + piece priming',
+      );
+      return;
+    }
+
     try {
       final seqOk = await _qbtService.ensureInOrderDownload(
         torrent.hash,

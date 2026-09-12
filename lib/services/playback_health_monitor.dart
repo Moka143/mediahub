@@ -81,6 +81,7 @@ class PlaybackHealthMonitor {
     required this.torrentHash,
     required this.fileIndex,
     required this.usingProxy,
+    required this.engineHandlesBackpressure,
     required this.isActive,
     required this.onDownloadedRatio,
     required this.onBufferedSpans,
@@ -99,6 +100,18 @@ class PlaybackHealthMonitor {
   /// straight off disk. Changes both the headroom units and whether stall
   /// recovery applies at all.
   final bool usingProxy;
+
+  /// True when the engine itself serves the stream — it blocks on missing
+  /// pieces and prioritises the read head, rather than leaving a
+  /// pre-allocated file whose gaps read back as zeros.
+  ///
+  /// That removes the reason for every intervention this class makes. There
+  /// is nothing to pause for (the response simply waits), nothing to recover
+  /// from (mpv never sees a zero), and nothing to re-prioritise (the engine
+  /// already fetches what is being read). What stays is the *reporting*: the
+  /// seek bar's buffered track and the seek-past-head overlay, which are
+  /// still the only honest account of what is on disk.
+  final bool engineHandlesBackpressure;
 
   /// Stands in for `State.mounted`. Checked before every callback and after
   /// every await.
@@ -263,10 +276,14 @@ class PlaybackHealthMonitor {
     required bool isPlaying,
     required bool autoBufferPaused,
     required bool usingProxy,
+    required bool engineHandlesBackpressure,
     required Duration sinceAdvance,
     required Duration sinceRecovery,
   }) {
-    if (usingProxy) return false;
+    // Same reasoning as the proxy case, one step further: mpv only ever
+    // receives bytes the engine hands it, so a frozen position is a cache
+    // pause, and seeking during one breaks the decode pipeline mid-prime.
+    if (usingProxy || engineHandlesBackpressure) return false;
     if (!hasStartedPlayback || !isPlaying || autoBufferPaused) return false;
     return sinceAdvance >= stallThreshold && sinceRecovery >= minRecoveryGap;
   }
@@ -578,6 +595,7 @@ class PlaybackHealthMonitor {
       isPlaying: isPlaying,
       autoBufferPaused: _autoBufferPaused,
       usingProxy: usingProxy,
+      engineHandlesBackpressure: engineHandlesBackpressure,
       sinceAdvance: now.difference(_lastPositionAdvanceAt),
       sinceRecovery: now.difference(_lastRecoveryAt),
     )) {
@@ -607,6 +625,17 @@ class PlaybackHealthMonitor {
           _seekPastHeadActive = false;
           onBufferingResolved();
         }
+        return;
+      }
+
+      if (engineHandlesBackpressure) {
+        // Report only. See [engineHandlesBackpressure] for why nothing here
+        // needs pausing, resuming or re-prioritising.
+        _updateSeekPastHeadIndicator(
+          position: position,
+          duration: duration,
+          fileProgress: fileProgress,
+        );
         return;
       }
 
@@ -806,7 +835,12 @@ class PlaybackHealthMonitor {
       unawaited(
         _fetchAroundSeekTarget(offset, disableSequential: pastFrontier),
       );
-      onBuffering('Fetching pieces around new position…', fileProgress);
+      onBuffering(
+        engineHandlesBackpressure
+            ? 'Buffering from new position…'
+            : 'Fetching pieces around new position…',
+        fileProgress,
+      );
     } else if (_seekPastHeadActive) {
       _seekPastHeadActive = false;
       _lastSeekPrefetchOffset = null;
@@ -834,6 +868,10 @@ class PlaybackHealthMonitor {
     int offset, {
     required bool disableSequential,
   }) async {
+    // An engine with no caller-driven piece control orders pieces around the
+    // read head itself; every call below would be a no-op round trip.
+    if (!_qbt.capabilities.pieceLevelControl) return;
+
     final previous = _lastSeekPrefetchOffset;
     if (previous != null &&
         (offset - previous).abs() < seekPrefetchResendBytes) {
