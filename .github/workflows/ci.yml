@@ -22,7 +22,7 @@ jobs:
           cache: true
       - run: flutter pub get
       - name: Format check
-        run: dart format --output=none --set-exit-if-changed lib test
+        run: dart format --output=none --set-exit-if-changed lib test tool
       # Fatal on warnings and infos. The lint set in analysis_options.yaml is
       # deliberately stricter than flutter_lints (async lifecycle rules in
       # particular), and it only holds the line if CI enforces it.

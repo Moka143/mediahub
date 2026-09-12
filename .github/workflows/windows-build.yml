@@ -59,6 +59,28 @@ jobs:
         # secret and re-add the --dart-define here.
         run: flutter build windows --release
 
+      - name: Fetch the bundled torrent engine
+        # Must run between the Flutter build and every packaging step below.
+        # All three channels — the portable zip, the MSIX and the Inno Setup
+        # installer — copy the whole Release directory, so dropping the engine
+        # in there once covers all of them and there is nothing per-channel to
+        # keep in sync.
+        #
+        # The engine is pinned by version and SHA-256 in the script; a
+        # mismatch fails the build rather than shipping an unverified binary.
+        run: dart run tool/fetch_engine.dart
+
+      - name: Verify the engine is in the bundle
+        shell: pwsh
+        # Cheap, but it is the check that catches the failure that matters:
+        # a packaging path that quietly ships without the engine looks fine
+        # until first launch on a machine with no qBittorrent, where the app
+        # has no backend at all.
+        run: |
+          $engine = "build\windows\x64\runner\Release\rqbit.exe"
+          if (-not (Test-Path $engine)) { throw "engine missing from bundle: $engine" }
+          Write-Host "engine present: $((Get-Item $engine).Length) bytes"
+
       - name: Package MSIX installer
         run: dart run msix:create --sign-msix false --install-certificate false
 

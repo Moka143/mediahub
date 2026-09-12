@@ -160,3 +160,84 @@ against a bug report rather than designed.
 rqbit removes the mismatch instead of managing it. The ~4,000-line reduction is the headline,
 but the real win is that a whole class of bug (sparse-file zero reads reaching the demuxer)
 stops being possible.
+
+---
+
+## Implementation log
+
+What actually shipped, and where it differed from the plan above.
+
+| Phase | Commit | Outcome |
+|---|---|---|
+| 0 — `TorrentEngine` interface | `864f7f4` | As planned. |
+| 1 — rqbit adapter + sidecar | `188c4ce` | As planned, behind `settings.engineKind`. |
+| 2 — engine stream endpoint | `dff4628` | **Partial** — see below. |
+| 3 — UI follows the engine | `1310ed0` | Broader than planned. |
+| 4 — bundling + CI | this commit | Fetched at build time, not vendored. |
+
+### Corrections to the plan
+
+**The ~4,000-line reduction did not land, and cannot while qBittorrent is
+supported.** Phase 2 was written as "delete `local_streaming_server.dart`
+(1,007 L) and its tests (690), gut `playback_health_monitor.dart`". But
+regression #5 of this same document says to keep the qBittorrent adapter
+permanently, for remote instances and existing libraries — and the proxy *is*
+the qBittorrent streaming path. So that code is now bypassed rather than
+removed: `TorrentEngine.streamUrl` returns null for a downloader backend and
+the proxy still runs, while rqbit skips it entirely. The saving is real for
+anyone on the built-in engine and zero in lines of code. Dropping qBittorrent
+is a separate decision with its own cost.
+
+`SecretKey.qbPassword` stays for the same reason.
+
+**Onboarding had no qBittorrent step to remove.** It has only ever asked for a
+TMDB token; qBittorrent's host, port and credentials always lived in Settings.
+The README described a flow that did not exist. What Phase 3 added instead was
+a fresh-install default: an install with nothing saved gets the built-in
+engine, while `AppSettings` itself still defaults to qBittorrent so an
+existing install is never switched underneath its library.
+
+**Speed limits are worse than "process-level".** They are launch flags, so
+changing one needs an engine restart — which would interrupt playback. The
+setting is saved and applied when the engine next starts, and the UI now says
+so rather than showing the old "Failed to apply — check your connection",
+which was wrong in both directions.
+
+**Binary sizes.** Estimated ~15 MB; actual is 12.7 MB on Windows, 36.4 MB for
+the macOS universal binary, ~26–29 MB on Linux. Still well under a bundled
+qBittorrent with Qt.
+
+**Licence confirmed.** rqbit is Apache-2.0 (`LICENSE`, "Copyright 2021 Igor
+Katson"), so there is no source-offer obligation — unlike bundling GPLv3
+qBittorrent would have carried.
+
+### Two bugs the mapping work surfaced
+
+Both were wrong in ways that produce bad video rather than an error, which is
+why they are called out here and covered by tests.
+
+* **Piece size by division.** rqbit reports the piece *count*, not the length.
+  With total = `s*(p-1) + r`, `ceil(total / p)` only returns `s` when
+  `s - r < p`; a torrent whose last piece holds one byte divides to ~400 KB
+  below the real size and every piece-to-offset conversion lands in the wrong
+  piece. Now inverted: piece lengths are powers of two, so candidates are
+  tested and only the one reproducing the piece count is accepted.
+
+* **Output folder flattening.** rqbit treats an explicit `output_folder` as
+  literal, with no per-torrent subfolder. Passing the session default on every
+  add would have put every torrent in one directory and let two season packs
+  overwrite each other's files.
+
+### Still outstanding
+
+* **Not verified against a running engine.** Everything is covered by unit
+  tests against rqbit's documented API shapes, read from its source, but no
+  end-to-end run has happened. The CI job checks the binary reaches the
+  bundle; it does not start it and add a torrent.
+* **macOS packaging.** There is no macOS CI workflow, so `flutter build macos`
+  + `dart run tool/fetch_engine.dart` is a local step. A notarized build needs
+  the sidecar signed with the app's identity and the hardened runtime, which
+  is not set up here.
+* **Engine restart on a settings change.** Changing the download folder or a
+  speed limit rebuilds `RqbitProcessService` but does not restart the running
+  sidecar, so the old arguments stay live until the app restarts.
