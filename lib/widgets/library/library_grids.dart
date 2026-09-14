@@ -9,6 +9,12 @@ import '../../utils/feedback_utils.dart';
 import '../../utils/media_names.dart';
 import '../media/media.dart';
 
+/// Widest a poster tile may get before the grid adds another column.
+///
+/// Shared by both grids here, and the input to the measured aspect ratio —
+/// the two must agree or the measurement describes a different card.
+const double _tileWidth = 180.0;
+
 class ContinueWatchingStrip extends ConsumerWidget {
   final List<WatchProgress> items;
   final void Function(WatchProgress) onTap;
@@ -108,14 +114,21 @@ class LocalMediaGrid extends StatelessWidget {
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 180,
+      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: _tileWidth,
         mainAxisSpacing: AppSpacing.md,
         crossAxisSpacing: AppSpacing.md,
-        // 2:3 poster (width * 1.5) + ~45px caption block = needs ~width / 0.56.
-        // Anything tighter clips the title row and triggers Flutter's striped
-        // overflow indicator at the card's bottom edge.
-        childAspectRatio: 152 / 272,
+        // Measured, not guessed. The old hardcoded 152/272 was tuned with
+        // about zero slack at exactly a 152px tile, but this delegate hands
+        // out 90–180px tiles depending on the viewport while the caption's
+        // cost stays the same — so anything narrower clipped the title row,
+        // silently, because the striped overflow indicator is assert-guarded
+        // and a release build simply cuts the text off. heightForWidth
+        // measures through the ambient TextScaler, so this survives Windows'
+        // "Make text bigger" too.
+        childAspectRatio:
+            _tileWidth /
+            MediaPosterCard.heightForWidth(context, width: _tileWidth),
       ),
       itemCount: files.length,
       itemBuilder: (_, index) {
@@ -154,14 +167,21 @@ class ShowsGrid extends StatelessWidget {
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 180,
+      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: _tileWidth,
         mainAxisSpacing: AppSpacing.md,
         crossAxisSpacing: AppSpacing.md,
-        // 2:3 poster (width * 1.5) + ~45px caption block = needs ~width / 0.56.
-        // Anything tighter clips the title row and triggers Flutter's striped
-        // overflow indicator at the card's bottom edge.
-        childAspectRatio: 152 / 272,
+        // Measured, not guessed. The old hardcoded 152/272 was tuned with
+        // about zero slack at exactly a 152px tile, but this delegate hands
+        // out 90–180px tiles depending on the viewport while the caption's
+        // cost stays the same — so anything narrower clipped the title row,
+        // silently, because the striped overflow indicator is assert-guarded
+        // and a release build simply cuts the text off. heightForWidth
+        // measures through the ambient TextScaler, so this survives Windows'
+        // "Make text bigger" too.
+        childAspectRatio:
+            _tileWidth /
+            MediaPosterCard.heightForWidth(context, width: _tileWidth),
       ),
       itemCount: shows.length,
       itemBuilder: (_, index) {

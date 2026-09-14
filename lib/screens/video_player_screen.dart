@@ -342,7 +342,12 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
     setState(() {
       _isSeeking = true;
       _seekDelta = 0;
-      _dragStartPosition = details.globalPosition;
+      // Deltas only, so local vs global does not matter for correctness — but
+      // it does for scale. UiScale can render the whole UI below 1.0, and
+      // globalPosition is in untransformed root-view pixels, so a drag would
+      // seek by the wrong amount. localPosition arrives already through the
+      // transform.
+      _dragStartPosition = details.localPosition;
       _dragStartTime = player.state.position;
     });
     onUserInteraction();
@@ -351,7 +356,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
   void _onHorizontalDragUpdate(DragUpdateDetails details) {
     if (!_isSeeking || _dragStartPosition == null) return;
 
-    final dragDistance = details.globalPosition.dx - _dragStartPosition!.dx;
+    final dragDistance = details.localPosition.dx - _dragStartPosition!.dx;
 
     // Each 100 pixels = 10 seconds
     final seekSeconds = (dragDistance / 100) * 10;

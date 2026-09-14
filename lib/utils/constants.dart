@@ -43,8 +43,28 @@ class AppConstants {
   static const double retryBackoffMultiplier = 2.0;
 
   // UI
+  /// The smallest logical viewport the desktop layout is designed for.
+  ///
+  /// NOT the window minimum — see [hardMinWindowWidth]. Below this, `UiScale`
+  /// (lib/design/ui_scale.dart) scales the whole UI down so the layout keeps
+  /// its proportions instead of clipping.
   static const double minWindowWidth = 800;
   static const double minWindowHeight = 600;
+
+  /// The smallest window the OS is allowed to enforce.
+  ///
+  /// Deliberately far below the design floor. window_manager turns
+  /// `WindowOptions.minimumSize` into `ptMinTrackSize` in *physical* pixels by
+  /// multiplying it by the current monitor's scale, so a 600-logical floor is
+  /// 1350 physical at 225% and 1800 at 300% — taller than the work area of a
+  /// 1080p panel. That is a window the user cannot resize to fit their own
+  /// screen, which is how a high-DPI external monitor broke the layout.
+  ///
+  /// Exactly [minWindowWidth]/[minWindowHeight] times `UiScale.minScale`, so
+  /// the smallest window Windows will allow is still the smallest window that
+  /// can render the full 800x600 desktop layout.
+  static const double hardMinWindowWidth = 400;
+  static const double hardMinWindowHeight = 300;
 }
 
 /// qBittorrent executable paths for each platform

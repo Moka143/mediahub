@@ -123,14 +123,81 @@ void main() {
       );
     });
 
-    test('never shrinks below the minimum window size', () {
-      expect(
-        WindowStateService.fitToWorkArea(
-          const Size(1100, 720),
+    test(
+      'clamps to the work area even when that is below the design floor',
+      () {
+        // A 1080p panel at 300% reports a ~640x312 logical work area, and at
+        // 225% about 853x432 — both under the 800x600 design floor. Preferring
+        // the floor here produced a window bigger than the screen it was on,
+        // which is how a high-DPI external monitor became unusable. `UiScale`
+        // now scales the layout to fit rather than letting it clip, so the work
+        // area is allowed to win.
+        expect(
+          WindowStateService.fitToWorkArea(
+            const Size(1100, 720),
+            const Size(640, 480),
+            minimum,
+          ),
           const Size(640, 480),
-          minimum,
+        );
+      },
+    );
+  });
+
+  group('WindowStateService.clampToWorkArea', () {
+    test('leaves bounds that already fit alone', () {
+      const bounds = Rect.fromLTWH(100, 100, 1100, 720);
+      expect(
+        WindowStateService.clampToWorkArea(bounds, const [
+          Rect.fromLTWH(0, 0, 1920, 1040),
+        ]),
+        bounds,
+      );
+    });
+
+    test('shrinks bounds saved on a roomier display', () {
+      // Closed on a 1080p monitor at 100%, reopened on the same panel after
+      // the user raised the scale to 225% — the work area is now ~853x432
+      // logical and the saved 1100x720 cannot fit it.
+      expect(
+        WindowStateService.clampToWorkArea(
+          const Rect.fromLTWH(0, 0, 1100, 720),
+          const [Rect.fromLTWH(0, 0, 853, 432)],
         ),
-        minimum,
+        const Rect.fromLTWH(0, 0, 853, 432),
+      );
+    });
+
+    test('pulls the title bar back onto the screen', () {
+      // Shrinking in place is not enough: a window positioned near the bottom
+      // of a larger display lands with its title bar off the top of a smaller
+      // one, where it cannot be dragged.
+      expect(
+        WindowStateService.clampToWorkArea(
+          const Rect.fromLTWH(600, 500, 800, 600),
+          const [Rect.fromLTWH(0, 0, 1000, 700)],
+        ),
+        const Rect.fromLTWH(200, 100, 800, 600),
+      );
+    });
+
+    test('keeps bounds untouched when no display could be enumerated', () {
+      const bounds = Rect.fromLTWH(10, 20, 1100, 720);
+      expect(WindowStateService.clampToWorkArea(bounds, const []), bounds);
+    });
+
+    test('clamps against the display the window mostly sits on', () {
+      // Two monitors side by side; the window is mostly on the small right
+      // one, so that is the work area it must be made to fit.
+      expect(
+        WindowStateService.clampToWorkArea(
+          const Rect.fromLTWH(1800, 0, 900, 700),
+          const [
+            Rect.fromLTWH(0, 0, 1920, 1040),
+            Rect.fromLTWH(1920, 0, 800, 600),
+          ],
+        ),
+        const Rect.fromLTWH(1920, 0, 800, 600),
       );
     });
   });

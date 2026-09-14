@@ -13,6 +13,7 @@ import 'services/app_logger.dart';
 import 'services/app_shutdown.dart';
 import 'services/prefs_recovery.dart';
 import 'services/secret_store.dart';
+import 'services/window_fit_service.dart';
 import 'services/window_state_service.dart';
 import 'utils/constants.dart';
 
@@ -114,7 +115,19 @@ Future<void> _bootstrap() async {
   final displays = await _displayGeometry();
   final savedState = windowStateService.loadStateFor(displays.workAreas);
 
+  // Two different minimums, on purpose. `minimumSize` is what Windows will
+  // enforce as `ptMinTrackSize` *in physical pixels* — window_manager
+  // multiplies it by the monitor's scale — so it has to stay small enough that
+  // the window can still fit a high-DPI panel. At 225% the old 800x600 became
+  // a 1800x1350 physical floor, which is taller than a 1080p work area: the
+  // window could not be resized to fit the screen it was on. `designFloor` is
+  // what the layout wants, and it is only ever a preference — `UiScale` covers
+  // the gap between the two.
   const minimumSize = Size(
+    AppConstants.hardMinWindowWidth,
+    AppConstants.hardMinWindowHeight,
+  );
+  const designFloor = Size(
     AppConstants.minWindowWidth,
     AppConstants.minWindowHeight,
   );
@@ -127,7 +140,7 @@ Future<void> _bootstrap() async {
       : WindowStateService.fitToWorkArea(
           preferredSize,
           displays.primaryWorkArea!.size,
-          minimumSize,
+          designFloor,
         );
 
   final windowOptions = WindowOptions(
@@ -143,7 +156,16 @@ Future<void> _bootstrap() async {
   // the same work here keeps it ordered.
   await windowManager.waitUntilReadyToShow(windowOptions);
   if (savedState.bounds != null) {
-    await windowManager.setBounds(savedState.bounds);
+    // Saved bounds are logical pixels from whichever display the window was
+    // last closed on. Reopening on a display with fewer logical pixels (a
+    // higher-DPI panel, or the same one after a scale change) would otherwise
+    // apply a size the screen cannot hold.
+    await windowManager.setBounds(
+      WindowStateService.clampToWorkArea(
+        savedState.bounds!,
+        displays.workAreas,
+      ),
+    );
   }
   if (savedState.maximized) {
     await windowManager.maximize();
@@ -153,6 +175,11 @@ Future<void> _bootstrap() async {
   AppLog.i('[Startup] window shown');
 
   windowManager.addListener(windowStateService);
+
+  // Watch for the window being dragged onto a display with a different scale.
+  // The layout reflows on its own (UiScale reads the new MediaQuery), but the
+  // window can be left physically larger than the new monitor's work area.
+  WindowFitService().start();
 
   // Required for the close-time save to actually land. Without it the native
   // side emits `close` and tears the window down in the same message, so an

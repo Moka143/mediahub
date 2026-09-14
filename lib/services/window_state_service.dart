@@ -124,18 +124,68 @@ class WindowStateService with WindowListener {
     return false;
   }
 
-  /// Shrink [desired] to fit inside [workArea], but never below [minimum].
+  /// Shrink [desired] to fit inside [workArea], preferring [minimum] but never
+  /// exceeding the work area itself.
   ///
   /// The default 1100x720 is taller than the work area of a 720p screen, and
   /// centring a window taller than the screen puts its title bar above the
-  /// top edge where it cannot be dragged. [minimum] wins over the work area
-  /// when the two conflict: a window clipped at the bottom is still usable,
-  /// one narrower than its own layout is not.
+  /// top edge where it cannot be dragged.
+  ///
+  /// The work area wins when the two conflict. It has to: on Windows the work
+  /// area arrives in logical pixels, so a 1080p panel at 225% reports about
+  /// 853x432 and at 300% about 640x312 — both below the 800x600 design floor.
+  /// This used to prefer [minimum], on the reasoning that a bottom-clipped
+  /// window beats a too-narrow layout. That stopped being true once `UiScale`
+  /// began scaling the layout to fit instead of letting it clip, and it was
+  /// the reason the window could not be made to fit a high-DPI monitor.
   static Size fitToWorkArea(Size desired, Size workArea, Size minimum) {
     return Size(
-      math.max(minimum.width, math.min(desired.width, workArea.width)),
-      math.max(minimum.height, math.min(desired.height, workArea.height)),
+      math.min(workArea.width, math.max(minimum.width, desired.width)),
+      math.min(workArea.height, math.max(minimum.height, desired.height)),
     );
+  }
+
+  /// Shrink restored [bounds] so they fit the work area they land on.
+  ///
+  /// Saved bounds are logical pixels measured on whichever display the window
+  /// was last closed on. Reopen on a display with fewer logical pixels —
+  /// undocking from a 1080p monitor at 100% onto a high-DPI laptop panel, or
+  /// the same monitor after the user raised its scale — and the window is
+  /// applied verbatim at a size the new screen cannot hold. [isSane] only
+  /// floors at 200 and [isOnScreen] only wants 120px of overlap, so nothing
+  /// caught this.
+  ///
+  /// The position is pulled back too, not just the size: a window shrunk in
+  /// place can still have its title bar above the top edge.
+  ///
+  /// Picks the work area with the largest overlap, which is what Windows
+  /// itself considers the window's monitor.
+  static Rect clampToWorkArea(Rect bounds, List<Rect> workAreas) {
+    if (workAreas.isEmpty) return bounds;
+
+    var best = workAreas.first;
+    var bestArea = 0.0;
+    for (final area in workAreas) {
+      final overlap = bounds.intersect(area);
+      final covered =
+          math.max(0.0, overlap.width) * math.max(0.0, overlap.height);
+      if (covered > bestArea) {
+        bestArea = covered;
+        best = area;
+      }
+    }
+
+    final width = math.min(bounds.width, best.width);
+    final height = math.min(bounds.height, best.height);
+    final left = math.min(
+      math.max(bounds.left, best.left),
+      math.max(best.left, best.right - width),
+    );
+    final top = math.min(
+      math.max(bounds.top, best.top),
+      math.max(best.top, best.bottom - height),
+    );
+    return Rect.fromLTWH(left, top, width, height);
   }
 
   /// [loadState], with saved bounds discarded when they no longer land on a

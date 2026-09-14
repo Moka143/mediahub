@@ -400,36 +400,47 @@ class _ShowsGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final width = MediaQuery.of(context).size.width;
-    final crossAxisCount = (width / 200).floor().clamp(2, 6);
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: crossAxisCount,
-        childAspectRatio: 0.65,
-        crossAxisSpacing: AppSpacing.md,
-        mainAxisSpacing: AppSpacing.md,
-      ),
-      itemCount: shows.length,
-      itemBuilder: (context, index) {
-        final show = shows[index];
-        return MediaPosterCard(
-          title: show.name,
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => ShowDetailsScreen(show: show)),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Its own box, not the window. This grid sits in an Expanded beside a
+        // 246px sidebar (78 when collapsed), and counting columns against the
+        // whole window put up to two more cards in a row than there was room
+        // for — roughly 144px posters where the divisor assumed 200.
+        final crossAxisCount = (constraints.maxWidth / 200).floor().clamp(2, 6);
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            childAspectRatio: 0.65,
+            crossAxisSpacing: AppSpacing.md,
+            mainAxisSpacing: AppSpacing.md,
+          ),
+          itemCount: shows.length,
+          itemBuilder: (context, index) {
+            final show = shows[index];
+            return MediaPosterCard(
+              title: show.name,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => ShowDetailsScreen(show: show),
+                  ),
+                );
+              },
+              posterAsync: AsyncValue.data(show.posterUrl),
+              titleStyle: CardTitleStyle.overlay,
+              overlayYear: show.year,
+              overlayRating: show.voteAverage > 0
+                  ? '★ ${show.voteAverage.toStringAsFixed(1)}'
+                  : null,
+              overlayRatingTone: show.voteAverage >= 8
+                  ? AppColors.accent
+                  : null,
+              width: null,
             );
           },
-          posterAsync: AsyncValue.data(show.posterUrl),
-          titleStyle: CardTitleStyle.overlay,
-          overlayYear: show.year,
-          overlayRating: show.voteAverage > 0
-              ? '★ ${show.voteAverage.toStringAsFixed(1)}'
-              : null,
-          overlayRatingTone: show.voteAverage >= 8 ? AppColors.accent : null,
-          width: null,
         );
       },
     );
@@ -442,38 +453,47 @@ class _MoviesGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final width = MediaQuery.of(context).size.width;
-    final crossAxisCount = (width / 200).floor().clamp(2, 6);
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: crossAxisCount,
-        childAspectRatio: 0.65,
-        crossAxisSpacing: AppSpacing.md,
-        mainAxisSpacing: AppSpacing.md,
-      ),
-      itemCount: movies.length,
-      itemBuilder: (context, index) {
-        final movie = movies[index];
-        return MediaPosterCard(
-          title: movie.title,
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => MovieDetailsScreen(movie: movie),
-              ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Its own box, not the window. This grid sits in an Expanded beside a
+        // 246px sidebar (78 when collapsed), and counting columns against the
+        // whole window put up to two more cards in a row than there was room
+        // for — roughly 144px posters where the divisor assumed 200.
+        final crossAxisCount = (constraints.maxWidth / 200).floor().clamp(2, 6);
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            childAspectRatio: 0.65,
+            crossAxisSpacing: AppSpacing.md,
+            mainAxisSpacing: AppSpacing.md,
+          ),
+          itemCount: movies.length,
+          itemBuilder: (context, index) {
+            final movie = movies[index];
+            return MediaPosterCard(
+              title: movie.title,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => MovieDetailsScreen(movie: movie),
+                  ),
+                );
+              },
+              posterAsync: AsyncValue.data(movie.posterUrl),
+              titleStyle: CardTitleStyle.overlay,
+              overlayYear: movie.year,
+              overlayRating: movie.voteAverage > 0
+                  ? '★ ${movie.voteAverage.toStringAsFixed(1)}'
+                  : null,
+              overlayRatingTone: movie.voteAverage >= 8
+                  ? AppColors.accent
+                  : null,
+              width: null,
             );
           },
-          posterAsync: AsyncValue.data(movie.posterUrl),
-          titleStyle: CardTitleStyle.overlay,
-          overlayYear: movie.year,
-          overlayRating: movie.voteAverage > 0
-              ? '★ ${movie.voteAverage.toStringAsFixed(1)}'
-              : null,
-          overlayRatingTone: movie.voteAverage >= 8 ? AppColors.accent : null,
-          width: null,
         );
       },
     );
