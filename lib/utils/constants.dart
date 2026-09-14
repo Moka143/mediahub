@@ -13,7 +13,7 @@ class AppConstants {
   /// version that had not shipped for two releases. `app_version_test.dart`
   /// now fails the build when the two disagree, which is the only thing that
   /// keeps a hand-copied constant honest.
-  static const String appVersion = '0.6.1';
+  static const String appVersion = '0.7.0';
 
   // Built-in engine (rqbit) defaults.
   //
