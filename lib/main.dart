@@ -8,9 +8,9 @@ import 'package:screen_retriever/screen_retriever.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app.dart';
-import 'providers/connection_provider.dart';
 import 'providers/settings_provider.dart';
 import 'services/app_logger.dart';
+import 'services/app_shutdown.dart';
 import 'services/prefs_recovery.dart';
 import 'services/secret_store.dart';
 import 'services/window_state_service.dart';
@@ -92,9 +92,19 @@ Future<void> _bootstrap() async {
     ],
   );
 
-  final windowStateService = WindowStateService(
+  // `late` so the close handler can name the service that owns the save it
+  // waits on. Definitely assigned long before anything can call back into it:
+  // the window cannot be closed before it has been shown.
+  late final WindowStateService windowStateService;
+  windowStateService = WindowStateService(
     sharedPreferences,
-    onClosed: () => _shutDown(container),
+    onClosed: () => shutDown(
+      container,
+      // A close-time save that overran its budget is still writing when the
+      // shutdown reaches its exit(). Hand it over so it gets a last moment to
+      // land instead of being truncated by it.
+      finalWrite: () => windowStateService.pendingSave,
+    ),
   );
 
   // Ask the OS what screens exist before trusting the saved position: a
@@ -154,32 +164,4 @@ Future<void> _bootstrap() async {
   runApp(
     UncontrolledProviderScope(container: container, child: const MediaHubApp()),
   );
-}
-
-/// Stop the engine we started, then let the window go.
-///
-/// Without this the sidecar outlived the app. It is headless by design, so
-/// nothing on screen said it was still there — it kept its port, kept
-/// seeding, and the next launch met a port that was already taken. On Windows
-/// it also made quitting look like it had hung: the window went but the
-/// process tree did not, so the app sat in Task Manager for as long as the
-/// child lived.
-///
-/// Only ever kills a process *we* started — see `RqbitProcessService.stop`.
-/// An engine the user runs themselves is not ours to close.
-///
-/// Timed out, because a teardown that hangs must not trap the user in an app
-/// they have already asked to close. Two seconds is far longer than a
-/// `kill` needs and far shorter than a person will wait.
-Future<void> _shutDown(ProviderContainer container) async {
-  try {
-    await container
-        .read(engineProcessProvider)
-        .stop()
-        .timeout(const Duration(seconds: 2));
-  } catch (e) {
-    AppLog.w('[Shutdown] engine did not stop cleanly: $e');
-  }
-  container.dispose();
-  await windowManager.destroy();
 }

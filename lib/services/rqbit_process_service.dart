@@ -31,6 +31,20 @@ class RqbitProcessService implements TorrentEngineProcess {
   /// the old instance, leaving nothing able to stop the process it started.
   /// There is only ever one sidecar, so one handle models it correctly.
   static Process? _spawned;
+
+  /// Set once [stop] has run, and never cleared.
+  ///
+  /// The health check restarts an engine it finds dead, which is right while
+  /// the app is running and exactly wrong while it is closing: [stop] cancels
+  /// the timer but cannot cancel a tick already in flight, and that tick will
+  /// happily spawn a *new* detached rqbit moments after we killed the old one.
+  /// The app then exits and nothing is left alive that could kill it — the
+  /// orphan this whole class exists to prevent.
+  ///
+  /// Static for the same reason [_spawned] is: this service is rebuilt on
+  /// every settings change, so the instance that closes the app need not be
+  /// the instance that started the engine.
+  static bool _isStopping = false;
   late final PollLoop _healthCheck = PollLoop(
     name: 'rqbit-process-health',
     onTick: _performHealthCheck,
@@ -157,6 +171,11 @@ class RqbitProcessService implements TorrentEngineProcess {
 
   @override
   Future<bool> start() async {
+    if (_isStopping) {
+      _log('app is closing — not starting rqbit');
+      return false;
+    }
+
     if (_isStarting) {
       _log('Already starting rqbit...');
       return false;
@@ -242,6 +261,7 @@ class RqbitProcessService implements TorrentEngineProcess {
   }
 
   Future<void> _performHealthCheck() async {
+    if (_isStopping) return;
     if (await isRunning()) return;
     _log('rqbit health check failed — not running');
     onConnectionStatusChanged?.call(false);
@@ -257,6 +277,7 @@ class RqbitProcessService implements TorrentEngineProcess {
   /// would be well outside our remit.
   @override
   Future<void> stop() async {
+    _isStopping = true;
     _healthCheck.stop();
     final process = _spawned;
     if (process != null) {

@@ -30,6 +30,18 @@ class WindowStateService with WindowListener {
   final SharedPreferences _prefs;
   Timer? _saveDebouncer;
 
+  /// The close-time save, once one has been started.
+  ///
+  /// [_saveThenClose] stops *waiting* on this after [closeSaveTimeout], but the
+  /// write itself carries on — and the teardown that follows now ends in
+  /// `exit()` on Windows, which would cut it off mid-file. Exposed so the
+  /// shutdown path can give it one last moment to land. Never completes with an
+  /// error: the failure is logged where it happens.
+  Future<void>? _inFlightSave;
+
+  /// The close-time save, or an already-completed future when none ran.
+  Future<void> get pendingSave => _inFlightSave ?? Future<void>.value();
+
   /// How to finish closing once the state is written. Injected so a test can
   /// observe it, and so this file need not decide the app's exit semantics.
   final Future<void> Function() onClosed;
@@ -232,11 +244,43 @@ class WindowStateService with WindowListener {
 
   Future<void> _saveThenClose() async {
     _saveDebouncer?.cancel();
+
+    // Acknowledge the click before doing anything that can take time.
+    //
+    // Everything after this line — the save, killing the sidecar, tearing down
+    // providers, and on Windows the whole of native engine teardown — happens
+    // with the window still on screen and no longer repainting, because
+    // closing is what stopped the frames. `windowManager.destroy()` on Windows
+    // is only `PostQuitMessage(0)`; the HWND is not touched until after every
+    // destructor has run. That is the entire "it freezes for fifteen seconds
+    // when I close it" report. One `ShowWindow(SW_HIDE)` moves all of it out
+    // of sight, and it does not disturb the save: bounds come from
+    // `GetWindowRect` and maximized from `IsZoomed`, neither of which cares
+    // whether the window is visible.
     try {
-      await saveNow().timeout(closeSaveTimeout);
+      await windowManager.hide().timeout(const Duration(milliseconds: 250));
     } catch (_) {
-      // Disk full, prefs locked, a window_manager call that never answered —
-      // none of it is a reason to trap the user in the app.
+      // A hide that will not answer is not a reason to stop closing.
+    }
+
+    // Held in a field so [pendingSave] can hand it to the shutdown if the
+    // timeout below gives up on it. `catchError` first, so the future we stop
+    // listening to cannot resurface as an unhandled async error.
+    final save = saveNow().catchError((Object e) {
+      AppLog.w('[WindowState] close-time save failed: $e');
+    });
+    _inFlightSave = save;
+
+    try {
+      await save.timeout(closeSaveTimeout);
+    } on TimeoutException {
+      // Disk busy, prefs locked, a window_manager call that never answered —
+      // none of it is a reason to trap the user in the app. The write is still
+      // running; the shutdown gives it a little longer before exiting.
+      AppLog.w(
+        '[WindowState] close-time save overran '
+        '${closeSaveTimeout.inSeconds}s — carrying on',
+      );
     } finally {
       await onClosed();
     }
