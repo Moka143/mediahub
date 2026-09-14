@@ -498,7 +498,26 @@ class _FadeIndexedStackState extends State<_FadeIndexedStack>
   Widget build(BuildContext context) {
     return FadeTransition(
       opacity: _opacity,
-      child: IndexedStack(index: widget.index, children: widget.children),
+      child: IndexedStack(
+        index: widget.index,
+        children: [
+          for (var i = 0; i < widget.children.length; i++)
+            // Every tab screen stays mounted for the whole session — that is
+            // the point of the IndexedStack, and it is what keeps scroll
+            // offsets and already-loaded pages alive across tab switches.
+            // What the IndexedStack does *not* do is stop the hidden children
+            // animating: it skips painting them, nothing more. So a shimmer
+            // skeleton or a pulsing dot on a tab nobody is looking at goes on
+            // asking for a frame sixty times a second for as long as the app
+            // is open, and the app never reaches an idle frame at all.
+            // TickerMode mutes the tickers under the hidden children.
+            //
+            // Visible effect: an off-screen animation is frozen while it is
+            // off-screen and picks up when its tab comes forward. Since it was
+            // off-screen, there is nothing to have seen.
+            TickerMode(enabled: i == widget.index, child: widget.children[i]),
+        ],
+      ),
     );
   }
 }

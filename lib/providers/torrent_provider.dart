@@ -132,9 +132,26 @@ class TorrentListNotifier extends Notifier<TorrentListState> {
   TorrentListState build() {
     final connectionState = ref.watch(connectionProvider);
 
-    // Clean up timer and debouncer on dispose
+    // `stop()`, not `dispose()`. This callback runs on *every* rebuild, not
+    // only at teardown — Riverpod runs the previous build's `onDispose`
+    // callbacks before re-running `build`, and it reuses this same notifier
+    // instance, so `_poll` survives while its disposal flag does not reset.
+    // `PollLoop.dispose()` is sticky by design: `_disposed` is never cleared,
+    // and `start()` is a permanent no-op afterwards.
+    //
+    // Because `ConnectionState` published a new identity on every `copyWith`,
+    // the very first disconnected -> connecting transition at startup landed
+    // here and killed torrent polling for the rest of the session. Nothing
+    // looked broken, which is why it went unnoticed: the `Future.microtask`
+    // below still fired, its one-shot `refresh` still filled the list, and
+    // then progress bars, speeds and the app-bar speed pill simply froze at
+    // that first snapshot until something forced a manual refresh.
+    //
+    // `stop()` cancels the timer and leaves the loop restartable, which is
+    // what a rebuild wants. Real teardown runs this too, and a cancelled timer
+    // is all that needs.
     ref.onDispose(() {
-      _poll.dispose();
+      _poll.stop();
       _refreshDebouncer.dispose();
     });
 
@@ -182,6 +199,11 @@ class TorrentListNotifier extends Notifier<TorrentListState> {
   /// every tick costs nothing and never resets the schedule out from under
   /// the fetch.
   Future<void> _pollTick() async {
+    // The loop is no longer sticky-disposed (see [build]), so the one case it
+    // can no longer refuse on its own is a tick already in flight when the
+    // provider itself was torn down. Writing `state` then throws; drop the
+    // tick instead.
+    if (!ref.mounted) return;
     _poll.setInterval(_updateInterval);
     await refresh();
   }

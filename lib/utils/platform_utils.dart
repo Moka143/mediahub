@@ -131,19 +131,47 @@ class PlatformUtils {
         h == '0.0.0.0';
   }
 
-  /// Check if a port is in use by trying to connect to it
+  /// Check if a port is in use by trying to connect to it.
+  ///
+  /// The connect *is* the whole test: if the TCP handshake completes then
+  /// something is listening. Nothing is ever read from or written to this
+  /// socket.
+  ///
+  /// [Socket.destroy] rather than `close()`, and that is not a style choice.
+  /// `close()` is a *half*-close — it shuts down our sending direction and
+  /// returns. The descriptor is only handed back once the read side has also
+  /// finished, and dart:io deliberately withholds the read-close event from a
+  /// socket nobody subscribed to. From `socket_patch.dart`, in `issueReadEvent`:
+  ///
+  ///   // Note: it is by design that we don't deliver closedRead event
+  ///   // unless read events are enabled. This also means we will not
+  ///   // fully close (and dispose) of the socket unless it is drained
+  ///   // of accumulated incomming data.
+  ///   if (!sendReadEvents) return;
+  ///
+  /// and only a `listen()` ever sets `sendReadEvents`. So this probe leaked one
+  /// file descriptor — plus the `RawReceivePort` pinning the native socket, so
+  /// not even the GC could reclaim it — on every successful call. The engine
+  /// health check runs it every [AppConstants.connectionCheckInterval], which
+  /// is 720 descriptors an hour for as long as the app is open, while
+  /// completely idle and whether or not anything is downloading. It is the one
+  /// cost in this app that grows purely with uptime.
+  ///
+  /// `destroy()` closes both directions and releases the descriptor now. The
+  /// try/finally is there so a throw after the connect cannot skip it.
   static Future<bool> isPortInUse(int port, {String host = 'localhost'}) async {
-    // Try to connect to the port - if successful, something is listening
+    Socket? socket;
     try {
-      final socket = await Socket.connect(
+      socket = await Socket.connect(
         host,
         port,
         timeout: const Duration(seconds: 2),
       );
-      await socket.close();
       return true; // Connection succeeded, port is in use
     } catch (e) {
       return false; // Connection failed, port is free
+    } finally {
+      socket?.destroy();
     }
   }
 }

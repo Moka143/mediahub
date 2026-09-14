@@ -48,6 +48,24 @@ class ConnectionState {
   bool get isConnected => status == ConnectionStatus.connected;
   bool get isConnecting => status == ConnectionStatus.connecting;
   bool get hasError => status == ConnectionStatus.error;
+
+  // Value equality, so a `copyWith` that changes nothing does not look like a
+  // new state. Riverpod decides whether to recompute dependants with
+  // `previous != next`, and with the default identity equality every write —
+  // including the no-op connecting -> connecting ones during startup — rebuilt
+  // every provider watching this one. Rebuilding `torrentListProvider` used to
+  // be fatal to its poll loop, so this was not merely wasteful.
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ConnectionState &&
+          other.status == status &&
+          other.errorMessage == errorMessage &&
+          other.qbVersion == qbVersion &&
+          other.apiVersion == apiVersion;
+
+  @override
+  int get hashCode => Object.hash(status, errorMessage, qbVersion, apiVersion);
 }
 
 /// The engine process, chosen by the same setting as [torrentEngineProvider].
