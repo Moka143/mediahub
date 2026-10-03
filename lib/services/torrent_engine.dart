@@ -8,9 +8,9 @@ import '../models/tracker.dart';
 /// What a given [TorrentEngine] can actually do.
 ///
 /// The app was written against qBittorrent, whose Web API answers everything.
-/// A purpose-built streaming engine does not: it has no global preferences
-/// dialog to read, no tracker table, no delta-sync endpoint. Rather than have
-/// the UI discover that through empty lists, it asks here.
+/// A purpose-built streaming engine does not: it has no tracker table and no
+/// delta-sync endpoint. Rather than have the UI discover that through empty
+/// lists, it asks here.
 ///
 /// Every flag defaults to the qBittorrent answer, so an engine only declares
 /// what it *lacks*.
@@ -24,28 +24,45 @@ class EngineCapabilities {
   /// A delta-sync endpoint, so list polling need not refetch everything.
   final bool deltaSync;
 
-  /// Readable/writable global engine preferences.
-  final bool globalPreferences;
-
   /// Speed limits that can be changed without restarting the engine.
   final bool liveSpeedLimits;
 
-  /// Piece priorities and sequential-download toggles the caller can drive.
+  /// Sequential-download control the caller has to drive itself.
   ///
-  /// False means the engine orders pieces itself — see [streamUrl].
+  /// False means the engine orders pieces for streaming on its own — see
+  /// [TorrentEngine.streamUrl].
   final bool pieceLevelControl;
 
   /// Force-recheck and tracker reannounce.
   final bool maintenanceActions;
 
+  /// Files can be *ranked* — qBittorrent's Maximum / High / Normal — as well
+  /// as skipped. False means include or exclude only: such an engine reports
+  /// every included file as priority 1, so offering High would be accepted
+  /// and then snap back to Normal on the next refresh.
+  final bool rankedFilePriorities;
+
+  /// A torrent's connected peers come split into seeds (`Torrent.numSeeds`)
+  /// and leechers (`Torrent.numLeeches`), with swarm totals in `numComplete`
+  /// / `numIncomplete`. False means one count of connected peers, which the
+  /// engine reports in `numSeeds`.
+  final bool seedsAndPeersSplit;
+
+  /// Each `Peer` carries its client name, its own progress and live
+  /// download and upload rates. False means only its address, connection
+  /// state and byte counters are real; the rest read as zero.
+  final bool peerDetails;
+
   const EngineCapabilities({
     this.trackers = true,
     this.peers = true,
     this.deltaSync = true,
-    this.globalPreferences = true,
     this.liveSpeedLimits = true,
     this.pieceLevelControl = true,
     this.maintenanceActions = true,
+    this.rankedFilePriorities = true,
+    this.seedsAndPeersSplit = true,
+    this.peerDetails = true,
   });
 }
 
@@ -82,19 +99,17 @@ abstract class TorrentEngine {
   /// Root URL of the engine's HTTP API, e.g. `http://localhost:8080`.
   String get baseUrl;
 
-  /// Whether a session is currently established. Engines with no auth step
-  /// report true once reachable.
-  bool get isAuthenticated;
-
   // ---------------------------------------------------------------------
   // Session
   // ---------------------------------------------------------------------
 
-  /// Establish a session. Engines with no auth step return true if reachable.
+  /// Establish a session. Engines with no auth step return true if
+  /// reachable, false if not.
+  ///
+  /// May throw a transport error (`DioException`) for an engine that has an
+  /// auth step, so the caller can tell "wrong password" from "nothing is
+  /// listening" — the two need different advice.
   Future<bool> login();
-
-  /// Tear down the session. A no-op where there is nothing to tear down.
-  Future<void> logout();
 
   /// Cheap reachability probe. Must not throw.
   Future<bool> testConnection();
@@ -102,33 +117,32 @@ abstract class TorrentEngine {
   /// Engine version string, for the connection panel.
   Future<String?> getVersion();
 
-  /// API version string, for the connection panel. Null when the engine does
-  /// not version its API separately.
-  Future<String?> getApiVersion();
-
   // ---------------------------------------------------------------------
   // Listing and detail
   // ---------------------------------------------------------------------
 
-  /// List torrents. Filtering/sorting arguments are hints: an engine that
-  /// cannot push them down may answer the full list and let the caller sort.
-  Future<List<Torrent>> getTorrents({
-    String? filter,
-    String? category,
-    String? tag,
-    String? sort,
-    bool? reverse,
-    int? limit,
-    int? offset,
-    List<String>? hashes,
-  });
+  /// The torrents the engine holds — all of them, or those among [hashes].
+  ///
+  /// **Null means the engine could not be asked**: it is not running, it
+  /// refused us, or it answered something unreadable. An empty list means it
+  /// answered and holds nothing. The streaming state machine needs the
+  /// difference: treating one failed poll as "the torrent is gone" used to
+  /// fail healthy sessions with a metadata timeout.
+  Future<List<Torrent>?> tryGetTorrents({List<String>? hashes});
 
-  /// Engine-specific extended properties for one torrent. Shape is not
-  /// normalised — only the info tab reads it, defensively.
-  Future<Map<String, dynamic>?> getTorrentProperties(String hash);
+  /// [tryGetTorrents], with "could not ask" folded into an empty list — for
+  /// callers that render a list and have nothing better to do on failure.
+  Future<List<Torrent>> getTorrents({List<String>? hashes}) async =>
+      await tryGetTorrents(hashes: hashes) ?? <Torrent>[];
 
-  /// Files inside a torrent, with per-file progress and priority.
-  Future<List<TorrentFile>> getTorrentFiles(String hash);
+  /// Files inside a torrent, with per-file progress and priority, in torrent
+  /// order. Null when the engine could not be asked; empty while the engine
+  /// does not have the torrent's metadata yet.
+  Future<List<TorrentFile>?> tryGetTorrentFiles(String hash);
+
+  /// [tryGetTorrentFiles], with "could not ask" folded into an empty list.
+  Future<List<TorrentFile>> getTorrentFiles(String hash) async =>
+      await tryGetTorrentFiles(hash) ?? <TorrentFile>[];
 
   // ---------------------------------------------------------------------
   // Mutation
@@ -136,18 +150,15 @@ abstract class TorrentEngine {
 
   /// Add a torrent from a magnet link or a `.torrent` file.
   ///
-  /// [sequentialDownload] and [firstLastPiecePrio] are hints an engine with
-  /// no [EngineCapabilities.pieceLevelControl] may ignore — it is expected to
+  /// [sequentialDownload] is a hint an engine with no
+  /// [EngineCapabilities.pieceLevelControl] may ignore — it is expected to
   /// order pieces correctly on its own.
   Future<bool> addTorrent({
     String? magnetLink,
     File? torrentFile,
     String? savePath,
-    String? category,
     bool? paused,
-    bool? skipChecking,
     bool? sequentialDownload,
-    bool? firstLastPiecePrio,
   });
 
   Future<bool> pauseTorrents(List<String> hashes);
@@ -191,34 +202,20 @@ abstract class TorrentEngine {
   /// Zero when unknown.
   Future<int> getPieceSize(String hash) async => 0;
 
-  // ---------------------------------------------------------------------
-  // Optional: piece-level control
-  //
-  // An engine without EngineCapabilities.pieceLevelControl orders pieces for
-  // streaming itself, so these are no-ops rather than failures.
-  // ---------------------------------------------------------------------
-
-  /// Sequential on, first/last piece priority off, so the piece picker starts
-  /// at the first wanted piece of the selected file.
+  /// Sequential download on, first/last-piece priority off, so the piece
+  /// picker works forward from the first wanted piece. [resetPicker] turns it
+  /// off and on again, to move a picker that a previous session left parked
+  /// elsewhere.
   ///
-  /// Defaults to true — "the engine already delivers in order" — rather than
-  /// false, because a false here reads to callers as a broken session.
+  /// The only ordering control any engine offers: qBittorrent's Web API has
+  /// no per-piece priority at all. An engine without
+  /// [EngineCapabilities.pieceLevelControl] orders pieces itself, so this
+  /// answers true — "the engine already delivers in order" — rather than
+  /// false, which callers read as a broken session.
   Future<bool> ensureInOrderDownload(
     String hash, {
     bool resetPicker = false,
   }) async => true;
-
-  Future<bool> toggleSequentialDownload(String hash) async => false;
-
-  Future<bool> toggleFirstLastPiecePrio(String hash) async => false;
-
-  /// Raise (or lower) the priority of specific pieces, to pull the head of
-  /// the selected file first.
-  Future<bool> setPiecePriority(
-    String hash,
-    List<int> pieceIds,
-    int priority,
-  ) async => false;
 
   // ---------------------------------------------------------------------
   // Optional: detail tabs
@@ -238,9 +235,6 @@ abstract class TorrentEngine {
 
   Future<bool> reannounceTorrents(List<String> hashes) async => false;
 
-  Future<bool> setTorrentPriority(List<String> hashes, String priority) async =>
-      false;
-
   // ---------------------------------------------------------------------
   // Optional: global state
   // ---------------------------------------------------------------------
@@ -251,13 +245,6 @@ abstract class TorrentEngine {
   /// [getTorrents]. See [EngineCapabilities.deltaSync].
   Future<Map<String, dynamic>?> getMainData({bool fullUpdate = false}) async =>
       null;
-
-  Future<Map<String, dynamic>?> getPreferences() async => null;
-
-  Future<bool> setPreferences(Map<String, dynamic> prefs) async => false;
-
-  /// Global transfer counters — speeds, session totals.
-  Future<Map<String, dynamic>?> getTransferInfo() async => null;
 
   /// Bytes per second; 0 means unlimited.
   Future<bool> setDownloadLimit(int limit) async => false;

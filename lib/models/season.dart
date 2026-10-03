@@ -33,19 +33,6 @@ class Season {
     );
   }
 
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'season_number': seasonNumber,
-      'name': name,
-      'overview': overview,
-      'poster_path': posterPath,
-      'air_date': airDate,
-      'episode_count': episodeCount,
-      'vote_average': voteAverage,
-    };
-  }
-
   /// Get the full poster URL
   String? get posterUrl =>
       posterPath != null ? 'https://image.tmdb.org/t/p/w300$posterPath' : null;
@@ -53,9 +40,6 @@ class Season {
   /// Get the year from air date
   String? get year =>
       airDate != null && airDate!.length >= 4 ? airDate!.substring(0, 4) : null;
-
-  /// Check if this is a special season (season 0)
-  bool get isSpecials => seasonNumber == 0;
 
   @override
   bool operator ==(Object other) =>

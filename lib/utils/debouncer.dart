@@ -31,9 +31,6 @@ class Debouncer {
     _timer = null;
   }
 
-  /// Whether there's a pending action.
-  bool get isPending => _timer?.isActive ?? false;
-
   /// Disposes the debouncer, cancelling any pending action.
   void dispose() {
     cancel();

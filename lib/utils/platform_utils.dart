@@ -39,14 +39,6 @@ class PlatformUtils {
     throw UnsupportedError('Unsupported platform: ${Platform.operatingSystem}');
   }
 
-  /// Get the current platform name
-  static String getPlatformName() {
-    if (Platform.isWindows) return 'windows';
-    if (Platform.isLinux) return 'linux';
-    if (Platform.isMacOS) return 'macos';
-    return 'unknown';
-  }
-
   /// Check if qBittorrent exists at the given path
   static Future<bool> qBittorrentExists(String path) async {
     final file = File(path);

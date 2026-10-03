@@ -4,6 +4,7 @@ import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
 import '../../design/app_typography.dart';
 import '../editorial/editorial.dart';
+import 'hub_pressable.dart';
 
 /// Editorial bottom-sheet primitive for "pick one from a list" flows —
 /// subtitle / audio / speed pickers in the video player, etc. Differs
@@ -30,13 +31,11 @@ class MediaHubPickerSheet extends StatelessWidget {
     required String title,
     IconData? icon,
     required Widget child,
-    bool scrollControlled = false,
   }) {
     return showModalBottomSheet<T>(
       context: context,
       backgroundColor: AppColors.bgSurface,
-      barrierColor: Colors.black.withValues(alpha: 0.5),
-      isScrollControlled: scrollControlled,
+      barrierColor: AppColors.barrier,
       showDragHandle: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
@@ -90,7 +89,7 @@ class MediaHubPickerSheet extends StatelessWidget {
                         ),
                         const SizedBox(width: AppSpacing.sm),
                       ],
-                      SerifTitle(title, size: 22, height: 1.05),
+                      Expanded(child: Text(title, style: AppType.title())),
                     ],
                   ),
                 ),
@@ -106,16 +105,19 @@ class MediaHubPickerSheet extends StatelessWidget {
   }
 }
 
-/// One row in a [MediaHubPickerSheet]. Renders as a tappable row with
-/// leading icon, title, optional subtitle, optional trailing widget,
-/// and a selected state (accent icon + accent text + soft accent fill).
-class PickerSheetTile extends StatelessWidget {
+/// One row in a [MediaHubPickerSheet]: leading icon, title, optional
+/// subtitle, and a selected state (accent icon + accent text + soft accent
+/// fill + check mark).
+///
+/// Built on [HubPressable], so the list can be walked with Tab and picked
+/// with Enter or Space, and a screen reader hears each row as a button and
+/// which one is current.
+class PickerSheetTile extends StatefulWidget {
   const PickerSheetTile({
     super.key,
     required this.icon,
     required this.title,
     this.subtitle,
-    this.trailing,
     this.selected = false,
     required this.onTap,
   });
@@ -123,18 +125,33 @@ class PickerSheetTile extends StatelessWidget {
   final IconData icon;
   final String title;
   final String? subtitle;
-  final Widget? trailing;
   final bool selected;
   final VoidCallback onTap;
 
   @override
+  State<PickerSheetTile> createState() => _PickerSheetTileState();
+}
+
+class _PickerSheetTileState extends State<PickerSheetTile> {
+  bool _hover = false;
+
+  @override
   Widget build(BuildContext context) {
+    final selected = widget.selected;
     final fg = selected ? AppColors.accent : AppColors.fg;
     final iconColor = selected ? AppColors.accent : AppColors.fg2;
-    return Material(
-      color: selected ? AppColors.accent.withValues(alpha: 0.08) : null,
-      child: InkWell(
-        onTap: onTap,
+    final bg = selected
+        ? AppColors.accent.withAlpha(AppOpacity.subtle)
+        : _hover
+        ? AppColors.bgSurfaceHi
+        : Colors.transparent;
+    return HubPressable(
+      onTap: widget.onTap,
+      selected: selected,
+      borderRadius: BorderRadius.zero,
+      onHoverChanged: (h) => setState(() => _hover = h),
+      child: ColoredBox(
+        color: bg,
         child: Padding(
           padding: const EdgeInsets.symmetric(
             horizontal: AppSpacing.xxl,
@@ -142,7 +159,7 @@ class PickerSheetTile extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Icon(icon, color: iconColor, size: AppIconSize.sm),
+              Icon(widget.icon, color: iconColor, size: AppIconSize.sm),
               const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Column(
@@ -150,28 +167,21 @@ class PickerSheetTile extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      title,
+                      widget.title,
                       style: AppType.ui(
-                        size: 14,
+                        size: AppType.sizeLead,
                         color: fg,
                         weight: selected ? FontWeight.w600 : FontWeight.w500,
                       ),
                     ),
-                    if (subtitle != null) ...[
+                    if (widget.subtitle != null) ...[
                       const SizedBox(height: 2),
-                      Text(
-                        subtitle!,
-                        style: AppType.ui(size: 12, color: AppColors.fg2),
-                      ),
+                      Text(widget.subtitle!, style: AppType.caption()),
                     ],
                   ],
                 ),
               ),
-              if (trailing != null) ...[
-                const SizedBox(width: AppSpacing.sm),
-                trailing!,
-              ],
-              if (selected && trailing == null)
+              if (selected)
                 const Icon(
                   Icons.check_rounded,
                   color: AppColors.accent,
@@ -200,7 +210,7 @@ class PickerSheetSection extends StatelessWidget {
         AppSpacing.xxl,
         AppSpacing.xs,
       ),
-      child: MonoLabel(label, color: AppColors.fg3, letterSpacing: 0.12),
+      child: MonoLabel(label, letterSpacing: 0.12),
     );
   }
 }

@@ -45,7 +45,7 @@ class AppColorsExtension extends ThemeExtension<AppColorsExtension> {
   static const dark = AppColorsExtension(
     downloading: AppColors.accent,
     seeding: AppColors.ok,
-    paused: AppColors.fg3,
+    paused: AppColors.paused,
     pausedBackground: AppColors.bgSurface,
     queued: AppColors.warn,
     errorState: AppColors.err,
@@ -55,7 +55,9 @@ class AppColorsExtension extends ThemeExtension<AppColorsExtension> {
     warning: AppColors.warn,
     warningBackground: Color(0x24F3B94C),
     info: AppColors.accent,
-    mutedText: AppColors.fg3,
+    // fg2, not fg3: this is *text* — every Settings subtitle, empty-state
+    // explanation and helper line — and fg3 is 2.4:1 at best.
+    mutedText: AppColors.fg2,
     cardBackground: AppColors.bgSurface,
   );
 
@@ -199,6 +201,15 @@ ThemeData buildDarkTheme() {
     canvasColor: AppColors.bgPage,
     splashFactory: InkSparkle.splashFactory,
 
+    // Keyboard focus has to be visible. Material's default is a ~10% wash
+    // that disappears on these near-black surfaces, so tabbing through a
+    // screen gave no hint of where you were. Ink-based controls (tabs, list
+    // tiles, dropdowns, switches) use this fill; buttons add a 2px ring
+    // through [_focusRing]; custom controls get the same ring from
+    // `HubPressable`.
+    focusColor: _focusFill,
+    hoverColor: const Color(0x0AFFFFFF),
+
     appBarTheme: AppBarTheme(
       centerTitle: false,
       elevation: 0,
@@ -262,22 +273,30 @@ ThemeData buildDarkTheme() {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(AppRadius.xs),
-        borderSide: const BorderSide(color: AppColors.accent, width: 1),
+        borderSide: const BorderSide(color: AppColors.accent, width: 2),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(AppRadius.xs),
         borderSide: const BorderSide(color: AppColors.err, width: 1),
       ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppRadius.xs),
+        borderSide: const BorderSide(color: AppColors.err, width: 2),
+      ),
       contentPadding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.md,
         vertical: AppSpacing.sm + 2,
       ),
-      hintStyle: GoogleFonts.geist(fontSize: 13, color: AppColors.fg3),
+      hintStyle: GoogleFonts.geist(fontSize: 13, color: AppColors.fg2),
       labelStyle: GoogleFonts.jetBrainsMono(
-        fontSize: 10,
-        color: AppColors.fg3,
+        fontSize: 11,
+        color: AppColors.fg2,
         letterSpacing: 1.2,
       ),
+      helperStyle: GoogleFonts.geist(fontSize: 12, color: AppColors.fg2),
+      errorStyle: GoogleFonts.geist(fontSize: 12, color: AppColors.err),
+      errorMaxLines: 3,
+      helperMaxLines: 3,
     ),
 
     chipTheme: ChipThemeData(
@@ -332,7 +351,7 @@ ThemeData buildDarkTheme() {
           borderRadius: BorderRadius.circular(AppRadius.xs),
         ),
         textStyle: GoogleFonts.geist(fontSize: 13, fontWeight: FontWeight.w500),
-      ),
+      ).copyWith(side: _focusRing()),
     ),
 
     filledButtonTheme: FilledButtonThemeData(
@@ -347,23 +366,32 @@ ThemeData buildDarkTheme() {
           borderRadius: BorderRadius.circular(AppRadius.xs),
         ),
         textStyle: GoogleFonts.geist(fontSize: 13, fontWeight: FontWeight.w600),
-      ),
+        // The ring is off-white here: an accent ring on an accent fill
+        // would not show.
+      ).copyWith(side: _focusRing(color: AppColors.fg)),
     ),
 
     outlinedButtonTheme: OutlinedButtonThemeData(
-      style: OutlinedButton.styleFrom(
-        foregroundColor: AppColors.fg,
-        backgroundColor: Colors.transparent,
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.lg,
-          vertical: AppSpacing.sm + 2,
-        ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppRadius.xs),
-        ),
-        side: const BorderSide(color: AppColors.lineStrong, width: 1),
-        textStyle: GoogleFonts.geist(fontSize: 13, fontWeight: FontWeight.w500),
-      ),
+      style:
+          OutlinedButton.styleFrom(
+            foregroundColor: AppColors.fg,
+            backgroundColor: Colors.transparent,
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.lg,
+              vertical: AppSpacing.sm + 2,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadius.xs),
+            ),
+            textStyle: GoogleFonts.geist(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ).copyWith(
+            side: _focusRing(
+              rest: const BorderSide(color: AppColors.lineStrong, width: 1),
+            ),
+          ),
     ),
 
     textButtonTheme: TextButtonThemeData(
@@ -377,7 +405,7 @@ ThemeData buildDarkTheme() {
           borderRadius: BorderRadius.circular(AppRadius.xs),
         ),
         textStyle: GoogleFonts.geist(fontSize: 13, fontWeight: FontWeight.w500),
-      ),
+      ).copyWith(side: _focusRing()),
     ),
 
     iconButtonTheme: IconButtonThemeData(
@@ -386,7 +414,7 @@ ThemeData buildDarkTheme() {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadius.xs),
         ),
-      ),
+      ).copyWith(side: _focusRing()),
     ),
 
     snackBarTheme: SnackBarThemeData(
@@ -403,6 +431,7 @@ ThemeData buildDarkTheme() {
     dialogTheme: DialogThemeData(
       elevation: 0,
       backgroundColor: AppColors.bgSurface,
+      barrierColor: AppColors.barrier,
       surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppRadius.md - 2),
@@ -418,6 +447,7 @@ ThemeData buildDarkTheme() {
     bottomSheetTheme: BottomSheetThemeData(
       elevation: 0,
       backgroundColor: AppColors.bgSurface,
+      modalBarrierColor: AppColors.barrier,
       surfaceTintColor: Colors.transparent,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.md)),
@@ -484,6 +514,7 @@ ThemeData buildDarkTheme() {
     ),
 
     switchTheme: SwitchThemeData(
+      overlayColor: _focusOverlay,
       thumbColor: WidgetStateProperty.resolveWith((states) {
         if (states.contains(WidgetState.selected)) return AppColors.bgPage;
         return AppColors.fg;
@@ -496,6 +527,7 @@ ThemeData buildDarkTheme() {
     ),
 
     checkboxTheme: CheckboxThemeData(
+      overlayColor: _focusOverlay,
       fillColor: WidgetStateProperty.resolveWith((states) {
         if (states.contains(WidgetState.selected)) return AppColors.accent;
         return Colors.transparent;
@@ -503,6 +535,14 @@ ThemeData buildDarkTheme() {
       checkColor: WidgetStateProperty.all(AppColors.bgPage),
       side: const BorderSide(color: AppColors.lineStrong, width: 1),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(2)),
+    ),
+
+    radioTheme: RadioThemeData(
+      overlayColor: _focusOverlay,
+      fillColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) return AppColors.accent;
+        return AppColors.fg2;
+      }),
     ),
 
     sliderTheme: const SliderThemeData(
@@ -530,7 +570,9 @@ ThemeData buildDarkTheme() {
 
     tabBarTheme: TabBarThemeData(
       labelColor: AppColors.fg,
-      unselectedLabelColor: AppColors.fg3,
+      // fg2: an unselected tab is still text you have to read to choose it.
+      unselectedLabelColor: AppColors.fg2,
+      overlayColor: _focusOverlay,
       indicator: const UnderlineTabIndicator(
         borderSide: BorderSide(color: AppColors.accent, width: 2),
       ),
@@ -561,6 +603,34 @@ ThemeData buildDarkTheme() {
     ),
   );
 }
+
+/// Focus fill for ink-based controls: strong enough to see on bgPage.
+const Color _focusFill = Color(0x38FF7448); // accent at 22%
+
+/// Overlay for toggles and tabs: the focus fill when focused, Material's
+/// usual faint wash on hover and press.
+final WidgetStateProperty<Color?> _focusOverlay =
+    WidgetStateProperty.resolveWith((states) {
+      if (states.contains(WidgetState.focused)) return _focusFill;
+      if (states.contains(WidgetState.pressed)) {
+        return const Color(0x1FFFFFFF);
+      }
+      if (states.contains(WidgetState.hovered)) {
+        return const Color(0x0AFFFFFF);
+      }
+      return null;
+    });
+
+/// A 2px [color] ring while a button has keyboard focus, [rest] otherwise.
+WidgetStateProperty<BorderSide?> _focusRing({
+  BorderSide? rest,
+  Color color = AppColors.accent,
+}) => WidgetStateProperty.resolveWith((states) {
+  if (states.contains(WidgetState.focused)) {
+    return BorderSide(color: color, width: 2);
+  }
+  return rest;
+});
 
 /// Base text theme (Material's TextTheme slots). Geist via GoogleFonts
 /// is layered on top in [buildDarkTheme]. Headlines that should be

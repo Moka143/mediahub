@@ -9,12 +9,15 @@ import '../../design/app_typography.dart';
 ///
 /// The text is auto-uppercased by default. Pass `uppercase: false` to
 /// keep the original casing (e.g. for hashes, paths, codecs).
+///
+/// Defaults to [AppColors.fg2]: these labels are text, and the old fg3
+/// default was 2.4:1 against the page.
 class MonoLabel extends StatelessWidget {
   const MonoLabel(
     this.text, {
     super.key,
-    this.color = AppColors.fg3,
-    this.size = 10,
+    this.color = AppColors.fg2,
+    this.size = AppType.sizeLabel,
     this.letterSpacing = 0.14,
     this.uppercase = true,
     this.maxLines,
@@ -54,7 +57,7 @@ class MonoText extends StatelessWidget {
   const MonoText(
     this.text, {
     super.key,
-    this.size = 12,
+    this.size = AppType.sizeCaption,
     this.color = AppColors.fg1,
     this.weight = FontWeight.w400,
     this.maxLines,

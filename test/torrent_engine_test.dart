@@ -13,17 +13,15 @@ import 'package:mediahub/services/torrent_engine.dart';
 /// inherits, and a change to any of them is a silent behaviour change for
 /// every such engine.
 class _MinimalEngine extends TorrentEngine {
+  /// What the listings answer: a list, or null for "could not be asked".
+  List<Torrent>? torrents = const [];
+  List<TorrentFile>? files = const [];
+
   @override
   String get baseUrl => 'http://127.0.0.1:1';
 
   @override
-  bool get isAuthenticated => true;
-
-  @override
   Future<bool> login() async => true;
-
-  @override
-  Future<void> logout() async {}
 
   @override
   Future<bool> testConnection() async => true;
@@ -32,36 +30,19 @@ class _MinimalEngine extends TorrentEngine {
   Future<String?> getVersion() async => '1.0';
 
   @override
-  Future<String?> getApiVersion() async => null;
+  Future<List<Torrent>?> tryGetTorrents({List<String>? hashes}) async =>
+      torrents;
 
   @override
-  Future<List<Torrent>> getTorrents({
-    String? filter,
-    String? category,
-    String? tag,
-    String? sort,
-    bool? reverse,
-    int? limit,
-    int? offset,
-    List<String>? hashes,
-  }) async => const [];
-
-  @override
-  Future<Map<String, dynamic>?> getTorrentProperties(String hash) async => null;
-
-  @override
-  Future<List<TorrentFile>> getTorrentFiles(String hash) async => const [];
+  Future<List<TorrentFile>?> tryGetTorrentFiles(String hash) async => files;
 
   @override
   Future<bool> addTorrent({
     String? magnetLink,
     File? torrentFile,
     String? savePath,
-    String? category,
     bool? paused,
-    bool? skipChecking,
     bool? sequentialDownload,
-    bool? firstLastPiecePrio,
   }) async => true;
 
   @override
@@ -101,7 +82,9 @@ void main() {
       expect(caps.trackers, isTrue);
       expect(caps.peers, isTrue);
       expect(caps.deltaSync, isTrue);
-      expect(caps.globalPreferences, isTrue);
+      expect(caps.rankedFilePriorities, isTrue);
+      expect(caps.seedsAndPeersSplit, isTrue);
+      expect(caps.peerDetails, isTrue);
       expect(caps.liveSpeedLimits, isTrue);
       expect(caps.pieceLevelControl, isTrue);
       expect(caps.maintenanceActions, isTrue);
@@ -146,12 +129,6 @@ void main() {
         );
       },
     );
-
-    test('the toggles report that nothing was toggled', () async {
-      expect(await engine.toggleSequentialDownload('abc'), isFalse);
-      expect(await engine.toggleFirstLastPiecePrio('abc'), isFalse);
-      expect(await engine.setPiecePriority('abc', const [0, 1], 7), isFalse);
-    });
   });
 
   group('detail-tab defaults', () {
@@ -163,13 +140,9 @@ void main() {
   });
 
   group('maintenance defaults', () {
-    test('recheck, reannounce and queue priority all decline', () async {
+    test('recheck and reannounce decline', () async {
       expect(await engine.recheckTorrents(const ['abc']), isFalse);
       expect(await engine.reannounceTorrents(const ['abc']), isFalse);
-      expect(
-        await engine.setTorrentPriority(const ['abc'], 'topPrio'),
-        isFalse,
-      );
     });
   });
 
@@ -182,15 +155,35 @@ void main() {
       },
     );
 
-    test('preferences and transfer info are absent', () async {
-      expect(await engine.getPreferences(), isNull);
-      expect(await engine.setPreferences(const {'a': 1}), isFalse);
-      expect(await engine.getTransferInfo(), isNull);
-    });
-
     test('speed limits decline rather than pretending to apply', () async {
       expect(await engine.setDownloadLimit(1024), isFalse);
       expect(await engine.setUploadLimit(0), isFalse);
     });
   });
+
+  group('listing', () {
+    // The error-aware variants are what let streaming tell "the engine did
+    // not answer" from "the engine has nothing"; the plain ones fold the
+    // first into an empty list for callers that only render.
+    test('a failed listing reads as empty through the plain variant', () async {
+      engine
+        ..torrents = null
+        ..files = null;
+      expect(await engine.tryGetTorrents(), isNull);
+      expect(await engine.getTorrents(), isEmpty);
+      expect(await engine.tryGetTorrentFiles('abc'), isNull);
+      expect(await engine.getTorrentFiles('abc'), isEmpty);
+    });
+
+    test('the plain variant hands back a list the caller may modify', () async {
+      engine.torrents = null;
+      final list = await engine.getTorrents();
+      expect(
+        () => list.add(list.isEmpty ? _anyTorrent() : list.first),
+        returnsNormally,
+      );
+    });
+  });
 }
+
+Torrent _anyTorrent() => Torrent.fromJson(const {'hash': 'abc'});

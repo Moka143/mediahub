@@ -3,38 +3,40 @@ import 'package:flutter/material.dart';
 import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
 import '../design/app_typography.dart';
+import '../design/torrent_tone.dart';
 import '../models/torrentio_stream.dart';
 import '../services/torrentio_api_service.dart';
 import '../utils/media_quality.dart';
+import 'common/hub_pressable.dart';
+import 'common/mediahub_chip.dart';
 import 'common/mediahub_drawer_header.dart';
 import 'editorial/editorial.dart';
 import 'mediahub_drawer.dart';
 
-/// Result from a stream-picker presentation. Returned by
-/// [MediaHubTorrentDrawer.show] when the user selects a source.
-class StreamPickerResult {
-  final TorrentioStream stream;
-  final bool isStreaming;
-
-  StreamPickerResult({required this.stream, required this.isStreaming});
+/// The source most likely to play well, or null when there are none.
+///
+/// Ranked by [TorrentioStream.streamingScore] — single-episode releases over
+/// packs, then quality, then peers — among sources anyone is sharing. The
+/// star used to go on the first row of the first quality tier: with tiers
+/// ordered 2160p first, a 3-peer 4K source outranked a 1080p one with 800.
+TorrentioStream? bestSource(List<TorrentioStream> streams) {
+  if (streams.isEmpty) return null;
+  final alive = streams.where((s) => s.seeders > 0).toList();
+  final pool = alive.isEmpty ? streams : alive;
+  return pool.reduce((a, b) => b.streamingScore > a.streamingScore ? b : a);
 }
 
-/// MediaHub right-side torrent picker drawer.
+/// Right-side source picker: every source for a movie or an episode, grouped
+/// by quality.
 ///
-/// Drop-in replacement for the centered `TorrentioStreamPickerDialog`
-/// — same `show()` API surface returning a `StreamPickerResult?` —
-/// but rendered as a slide-in drawer matching the design's
-/// `ShowTorrentDrawer` / `MovieTorrentDrawer` (`screen-detail.jsx`).
+/// Watching is the point, so **Stream** is the primary action — the row
+/// itself streams — and **Download** is the secondary one beside it.
 ///
 /// Layout:
-///   * Header — "CHOOSE A SOURCE" kicker + big title + subtitle + ✕
-///   * Quality filter row (`All (n)` / `4K` / `1080p` / `720p`) +
-///     `Seeded`/`Size` sort segment
-///   * Scrollable list of source rows: quality pill (with ●CACHED
-///     marker for Real-Debrid hits), mono filename, codec/source/size
-///     line, ●seeders + leechers, Stream + GRAB buttons; first row
-///     gets a ★BEST tag.
-///   * Footer — "n sources · sorted by …" + Cancel
+///   * Header — "CHOOSE A SOURCE" kicker + title + subtitle + ✕
+///   * Quality filter row (`All` / `2160p` / `1080p` / `720p`) + sort
+///   * Source rows grouped by quality tier; the best one carries ★ Best
+///   * Footer — source count + sort + Cancel
 class MediaHubTorrentDrawer extends StatefulWidget {
   const MediaHubTorrentDrawer({
     super.key,
@@ -47,19 +49,21 @@ class MediaHubTorrentDrawer extends StatefulWidget {
   final String title;
   final String? subtitle;
   final List<TorrentioStream> streams;
+
+  /// Called with the chosen source and whether to stream it (true) or
+  /// download it (false). The drawer closes first.
   final void Function(TorrentioStream stream, bool isStreaming) onSelect;
 
-  /// Drop-in replacement for the legacy centered dialog. Backdrop blur,
-  /// tap-out, drag-to-dismiss and slide animation are all owned by
-  /// [MediaHubDrawer].
-  static Future<StreamPickerResult?> show({
+  /// Slide the picker in. Backdrop blur, tap-out, drag-to-dismiss and the
+  /// slide animation are [MediaHubDrawer]'s.
+  static Future<void> show({
     required BuildContext context,
     required String title,
     String? subtitle,
     required List<TorrentioStream> streams,
     required void Function(TorrentioStream stream, bool isStreaming) onSelect,
   }) {
-    return MediaHubDrawer.show<StreamPickerResult>(
+    return MediaHubDrawer.show<void>(
       context: context,
       builder: (_) => MediaHubTorrentDrawer(
         title: title,
@@ -76,153 +80,111 @@ class MediaHubTorrentDrawer extends StatefulWidget {
 
 class _MediaHubTorrentDrawerState extends State<MediaHubTorrentDrawer> {
   String? _qualityFilter;
-  bool _sortBySize = false; // false = sort by seeders
+  bool _sortBySize = false; // false = most peers first
 
   List<TorrentioStream> get _filtered {
     var s = List<TorrentioStream>.from(widget.streams);
     if (_qualityFilter != null) {
       s = TorrentioApiService.filterByQuality(s, _qualityFilter!);
     }
-    if (_sortBySize) {
-      s = TorrentioApiService.sortStreams(
-        s,
-        sortBy: TorrentioSortOption.sizeDesc,
-      );
-    } else {
-      s = TorrentioApiService.sortStreams(
-        s,
-        sortBy: TorrentioSortOption.seeders,
-      );
-    }
-    return s;
+    return TorrentioApiService.sortStreams(
+      s,
+      sortBy: _sortBySize
+          ? TorrentioSortOption.sizeDesc
+          : TorrentioSortOption.seeders,
+    );
   }
+
+  int _countFor(String quality) =>
+      TorrentioApiService.filterByQuality(widget.streams, quality).length;
 
   @override
   Widget build(BuildContext context) {
+    final filtered = _filtered;
     return Padding(
       padding: const EdgeInsets.only(left: MediaHubDrawer.dragGripWidth),
-      child: _DrawerPanel(
-        title: widget.title,
-        subtitle: widget.subtitle,
-        filtered: _filtered,
-        total: widget.streams.length,
-        qualityFilter: _qualityFilter,
-        onQualityChange: (q) => setState(() => _qualityFilter = q),
-        sortBySize: _sortBySize,
-        onSortChange: (b) => setState(() => _sortBySize = b),
-        onPick: (stream, isStreaming) {
-          widget.onSelect(stream, isStreaming);
-          Navigator.of(
-            context,
-          ).pop(StreamPickerResult(stream: stream, isStreaming: isStreaming));
-        },
-        onCancel: () => Navigator.of(context).pop(),
+      child: Column(
+        children: [
+          MediaHubDrawerHeader(
+            kicker: 'CHOOSE A SOURCE',
+            title: widget.title,
+            subtitle: widget.subtitle,
+            onClose: () => Navigator.of(context).pop(),
+          ),
+          _FilterBar(
+            total: widget.streams.length,
+            countFor: _countFor,
+            qualityFilter: _qualityFilter,
+            onQualityChange: (q) => setState(() => _qualityFilter = q),
+            sortBySize: _sortBySize,
+            onSortChange: (b) => setState(() => _sortBySize = b),
+          ),
+          Expanded(
+            child: filtered.isEmpty
+                ? Center(
+                    child: Text(
+                      'No sources match this filter.',
+                      style: AppType.ui(
+                        size: AppType.sizeBody,
+                        color: AppColors.fg2,
+                      ),
+                    ),
+                  )
+                : _GroupedSourceList(
+                    filtered: filtered,
+                    best: bestSource(filtered),
+                    onPick: (stream, isStreaming) {
+                      // Close first, so whatever the pick opens next (the
+                      // streaming overlay, a snackbar) lands on the page.
+                      Navigator.of(context).pop();
+                      widget.onSelect(stream, isStreaming);
+                    },
+                  ),
+          ),
+          _Footer(
+            count: filtered.length,
+            sortLabel: _sortBySize ? 'largest first' : 'most peers first',
+            onCancel: () => Navigator.of(context).pop(),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _DrawerPanel extends StatelessWidget {
-  const _DrawerPanel({
-    required this.title,
-    required this.subtitle,
+/// Sources grouped by quality tier (2160p / 1080p / 720p / 480p / Other)
+/// under a small header per tier. Within a tier the parent's sort order is
+/// kept.
+class _GroupedSourceList extends StatelessWidget {
+  const _GroupedSourceList({
     required this.filtered,
-    required this.total,
-    required this.qualityFilter,
-    required this.onQualityChange,
-    required this.sortBySize,
-    required this.onSortChange,
+    required this.best,
     required this.onPick,
-    required this.onCancel,
   });
 
-  final String title;
-  final String? subtitle;
   final List<TorrentioStream> filtered;
-  final int total;
-  final String? qualityFilter;
-  final ValueChanged<String?> onQualityChange;
-  final bool sortBySize;
-  final ValueChanged<bool> onSortChange;
-  final void Function(TorrentioStream, bool isStreaming) onPick;
-  final VoidCallback onCancel;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        MediaHubDrawerHeader(
-          kicker: 'CHOOSE A SOURCE',
-          title: title,
-          subtitle: subtitle,
-          onClose: onCancel,
-        ),
-        _FilterBar(
-          total: total,
-          qualityFilter: qualityFilter,
-          onQualityChange: onQualityChange,
-          sortBySize: sortBySize,
-          onSortChange: onSortChange,
-        ),
-        Expanded(
-          child: filtered.isEmpty
-              ? const Center(
-                  child: Text(
-                    'No sources match this filter.',
-                    style: TextStyle(color: AppColors.fg2),
-                  ),
-                )
-              : _GroupedSourceList(filtered: filtered, onPick: onPick),
-        ),
-        _Footer(
-          count: filtered.length,
-          sortLabel: sortBySize ? 'size' : 'seeders',
-          onCancel: onCancel,
-        ),
-      ],
-    );
-  }
-}
-
-/// Groups sources by quality tier (4K / 1080p / 720p / SD) with a small
-/// section header per tier. Within each tier the row order is preserved
-/// from the parent's filter+sort, so the existing "best" star still goes
-/// on the very first item overall.
-class _GroupedSourceList extends StatelessWidget {
-  const _GroupedSourceList({required this.filtered, required this.onPick});
-
-  final List<TorrentioStream> filtered;
+  final TorrentioStream? best;
   final void Function(TorrentioStream, bool isStreaming) onPick;
 
   /// Resolution tier, or "Other" for source-only tags (BluRay, WEB-DL…)
-  /// and anything unrecognised. Delegates to [MediaQuality] so the picker
-  /// groups by the same rules the sorter ranks by.
+  /// and anything unrecognised — the same rules the sorter ranks by.
   String _tier(TorrentioStream s) =>
       s.mediaQuality.isResolution ? s.mediaQuality.label : 'Other';
 
   @override
   Widget build(BuildContext context) {
-    // Preserve filter ordering within each tier; the tier order itself
-    // follows the canonical 4K → 1080p → 720p → SD → Other.
     const tierOrder = ['2160p', '1080p', '720p', '480p', 'Other'];
     final groups = <String, List<TorrentioStream>>{};
     for (final s in filtered) {
       groups.putIfAbsent(_tier(s), () => <TorrentioStream>[]).add(s);
     }
-    final orderedTiers = tierOrder.where(groups.containsKey).toList();
 
-    // Build a flat list of [section header, ...rows] entries so we can
-    // use a single ListView (good for sticky scroll behaviour and lazy
-    // construction).
-    final items = <_GroupedItem>[];
-    var globalIndex = 0;
-    for (final tier in orderedTiers) {
+    // One flat list of headers and rows, so a single lazy ListView serves.
+    final items = <Object>[];
+    for (final tier in tierOrder.where(groups.containsKey)) {
       final rows = groups[tier]!;
-      items.add(_GroupedItem.header(tier, rows.length));
-      for (final s in rows) {
-        items.add(_GroupedItem.row(s, globalIndex == 0));
-        globalIndex++;
-      }
+      items.add((tier: tier, count: rows.length));
+      items.addAll(rows);
     }
 
     return ListView.builder(
@@ -230,42 +192,18 @@ class _GroupedSourceList extends StatelessWidget {
       itemCount: items.length,
       itemBuilder: (_, i) {
         final item = items[i];
-        if (item.isHeader) {
-          return _TierHeader(
-            label: item.headerLabel!,
-            count: item.headerCount!,
+        if (item is TorrentioStream) {
+          return _SourceRow(
+            stream: item,
+            best: identical(item, best),
+            onPick: onPick,
           );
         }
-        return _SourceRow(
-          stream: item.stream!,
-          best: item.best,
-          onPick: onPick,
-        );
+        final header = item as ({String tier, int count});
+        return _TierHeader(label: header.tier, count: header.count);
       },
     );
   }
-}
-
-class _GroupedItem {
-  _GroupedItem._({
-    required this.isHeader,
-    this.headerLabel,
-    this.headerCount,
-    this.stream,
-    this.best = false,
-  });
-
-  factory _GroupedItem.header(String label, int count) =>
-      _GroupedItem._(isHeader: true, headerLabel: label, headerCount: count);
-
-  factory _GroupedItem.row(TorrentioStream stream, bool best) =>
-      _GroupedItem._(isHeader: false, stream: stream, best: best);
-
-  final bool isHeader;
-  final String? headerLabel;
-  final int? headerCount;
-  final TorrentioStream? stream;
-  final bool best;
 }
 
 class _TierHeader extends StatelessWidget {
@@ -274,23 +212,12 @@ class _TierHeader extends StatelessWidget {
   final String label;
   final int count;
 
-  Color _accent(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    switch (label) {
-      case '2160p':
-        return scheme.tertiary;
-      case '1080p':
-        return scheme.primary;
-      case '720p':
-        return scheme.secondary;
-      default:
-        return scheme.onSurfaceVariant;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final accent = _accent(context);
+    // The same colour as the quality badges on the rows below it — the
+    // header used to take a Material scheme colour of its own, so a green
+    // "2160p" header sat over orange 2160p badges.
+    final accent = qualityTone(MediaQuality.fromText(label));
     return Padding(
       padding: const EdgeInsets.only(top: AppSpacing.sm, bottom: AppSpacing.xs),
       child: Row(
@@ -307,14 +234,17 @@ class _TierHeader extends StatelessWidget {
           Text(
             label,
             style: AppType.mono(
-              size: 11,
+              size: AppType.sizeSmall,
               color: accent,
               weight: FontWeight.w700,
               letterSpacing: 0.05,
             ),
           ),
           const SizedBox(width: 6),
-          Text('· $count', style: AppType.mono(size: 11, color: AppColors.fg2)),
+          Text(
+            '· $count',
+            style: AppType.mono(size: AppType.sizeSmall, color: AppColors.fg2),
+          ),
         ],
       ),
     );
@@ -324,6 +254,7 @@ class _TierHeader extends StatelessWidget {
 class _FilterBar extends StatelessWidget {
   const _FilterBar({
     required this.total,
+    required this.countFor,
     required this.qualityFilter,
     required this.onQualityChange,
     required this.sortBySize,
@@ -331,6 +262,7 @@ class _FilterBar extends StatelessWidget {
   });
 
   final int total;
+  final int Function(String quality) countFor;
   final String? qualityFilter;
   final ValueChanged<String?> onQualityChange;
   final bool sortBySize;
@@ -338,71 +270,6 @@ class _FilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget pill({
-      required String label,
-      required bool selected,
-      required VoidCallback onTap,
-    }) {
-      return GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.md,
-            vertical: 6,
-          ),
-          decoration: BoxDecoration(
-            color: selected
-                ? AppColors.seedColor.withAlpha(36)
-                : Colors.transparent,
-            border: Border.all(
-              color: selected
-                  ? AppColors.seedColor.withAlpha(0x66)
-                  : Colors.transparent,
-            ),
-            borderRadius: BorderRadius.circular(AppRadius.full),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: selected ? AppColors.seedColor : AppColors.fg1,
-            ),
-          ),
-        ),
-      );
-    }
-
-    Widget seg({
-      required String label,
-      required bool selected,
-      required VoidCallback onTap,
-    }) {
-      return GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.sm + 2,
-            vertical: 4,
-          ),
-          decoration: BoxDecoration(
-            color: selected ? AppColors.bgSurfaceHi : Colors.transparent,
-            borderRadius: BorderRadius.circular(AppRadius.sm),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: selected ? AppColors.fg : AppColors.fg2,
-            ),
-          ),
-        ),
-      );
-    }
-
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.xl,
@@ -418,36 +285,28 @@ class _FilterBar extends StatelessWidget {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  pill(
-                    label: 'All ($total)',
+                  MediaHubFilterChip(
+                    label: 'All',
+                    count: total,
                     selected: qualityFilter == null,
                     onTap: () => onQualityChange(null),
                   ),
-                  const SizedBox(width: AppSpacing.xs),
-                  pill(
-                    label: '2160p',
-                    selected: qualityFilter == '2160p',
-                    onTap: () => onQualityChange('2160p'),
-                  ),
-                  const SizedBox(width: AppSpacing.xs),
-                  pill(
-                    label: '1080p',
-                    selected: qualityFilter == '1080p',
-                    onTap: () => onQualityChange('1080p'),
-                  ),
-                  const SizedBox(width: AppSpacing.xs),
-                  pill(
-                    label: '720p',
-                    selected: qualityFilter == '720p',
-                    onTap: () => onQualityChange('720p'),
-                  ),
+                  for (final q in const ['2160p', '1080p', '720p']) ...[
+                    const SizedBox(width: AppSpacing.xs),
+                    MediaHubFilterChip(
+                      label: q,
+                      count: countFor(q),
+                      selected: qualityFilter == q,
+                      onTap: () => onQualityChange(q),
+                    ),
+                  ],
                 ],
               ),
             ),
           ),
           const SizedBox(width: AppSpacing.md),
           Container(
-            padding: const EdgeInsets.all(2),
+            padding: const EdgeInsets.all(AppSpacing.xxs),
             decoration: BoxDecoration(
               color: AppColors.bgSurface,
               border: Border.all(color: AppColors.line),
@@ -456,13 +315,13 @@ class _FilterBar extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                seg(
-                  label: 'Seeded',
+                _SortSegment(
+                  label: 'Most peers',
                   selected: !sortBySize,
                   onTap: () => onSortChange(false),
                 ),
-                seg(
-                  label: 'Size',
+                _SortSegment(
+                  label: 'Largest',
                   selected: sortBySize,
                   onTap: () => onSortChange(true),
                 ),
@@ -475,6 +334,47 @@ class _FilterBar extends StatelessWidget {
   }
 }
 
+class _SortSegment extends StatelessWidget {
+  const _SortSegment({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return HubPressable(
+      onTap: onTap,
+      selected: selected,
+      borderRadius: BorderRadius.circular(AppRadius.sm),
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.xs,
+        ),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.bgSurfaceHi : Colors.transparent,
+          borderRadius: BorderRadius.circular(AppRadius.sm),
+        ),
+        child: Text(
+          label,
+          style: AppType.ui(
+            size: AppType.sizeSmall,
+            weight: FontWeight.w600,
+            color: selected ? AppColors.fg : AppColors.fg2,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One source. The row itself streams it; the buttons on the right stream
+/// or download it explicitly.
 class _SourceRow extends StatefulWidget {
   const _SourceRow({
     required this.stream,
@@ -492,6 +392,7 @@ class _SourceRow extends StatefulWidget {
 
 class _SourceRowState extends State<_SourceRow> {
   bool _hover = false;
+  bool _focus = false;
 
   @override
   Widget build(BuildContext context) {
@@ -499,218 +400,180 @@ class _SourceRowState extends State<_SourceRow> {
     final quality = qualityBadgeLabel(s.name);
     final source = s.sourceSite;
     final size = s.sizeFormatted;
+    final active = _hover || _focus;
+    final releaseName = s.title.split('\n').first;
 
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: AnimatedContainer(
-        duration: AppDuration.fast,
-        margin: const EdgeInsets.only(bottom: 4),
-        decoration: BoxDecoration(
-          color: _hover ? AppColors.bgSurfaceHi : Colors.transparent,
-          border: Border.all(
-            color: widget.best
-                ? AppColors.seedColor.withAlpha(0x66)
-                : Colors.transparent,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+      child: HubPressable(
+        onTap: () => widget.onPick(s, true),
+        onHoverChanged: (h) => setState(() => _hover = h),
+        onFocusChanged: (f) => setState(() => _focus = f),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        child: AnimatedContainer(
+          duration: AppDuration.fast,
+          decoration: BoxDecoration(
+            color: active ? AppColors.bgSurfaceHi : Colors.transparent,
+            border: Border.all(
+              color: widget.best
+                  ? AppColors.accent.withAlpha(AppOpacity.semi)
+                  : Colors.transparent,
+            ),
+            borderRadius: BorderRadius.circular(AppRadius.md),
           ),
-          borderRadius: BorderRadius.circular(AppRadius.md),
-        ),
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            if (widget.best)
-              Positioned(
-                top: -1,
-                left: AppSpacing.md,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 1,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.seedColor,
-                    borderRadius: const BorderRadius.only(
-                      bottomLeft: Radius.circular(4),
-                      bottomRight: Radius.circular(4),
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              if (widget.best)
+                Positioned(
+                  top: -1,
+                  left: AppSpacing.md,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.xs,
+                      vertical: AppSpacing.xxs,
                     ),
-                  ),
-                  child: Text(
-                    '★ BEST',
-                    style: AppType.mono(
-                      size: 8,
-                      color: Colors.white,
-                      weight: FontWeight.w800,
-                      letterSpacing: 0.075,
+                    decoration: const BoxDecoration(
+                      color: AppColors.accent,
+                      borderRadius: BorderRadius.only(
+                        bottomLeft: Radius.circular(AppRadius.xxs),
+                        bottomRight: Radius.circular(AppRadius.xxs),
+                      ),
+                    ),
+                    child: Text(
+                      '★ Best',
+                      style: AppType.mono(
+                        size: AppType.sizeLabel,
+                        color: AppColors.onAccent,
+                        weight: FontWeight.w800,
+                        letterSpacing: 0.05,
+                      ),
                     ),
                   ),
                 ),
-              ),
-            Padding(
-              padding: EdgeInsets.fromLTRB(
-                AppSpacing.md,
-                widget.best ? AppSpacing.md + 4 : AppSpacing.md,
-                AppSpacing.md,
-                AppSpacing.md,
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  // Quality + cached column
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      EditorialBadge(
-                        quality,
-                        compact: true,
-                        tone: quality.qualityColor,
-                      ),
-                      // ●CACHED green badge — Real-Debrid hits surface
-                      // through the source name; we use a heuristic.
-                      if (s.name.toLowerCase().contains('cached') ||
-                          s.name.toLowerCase().contains('rd+'))
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Text(
-                            '● CACHED',
-                            style: AppType.mono(
-                              size: 8,
-                              color: AppColors.seeding,
-                              weight: FontWeight.w700,
-                              letterSpacing: 0.06,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(width: AppSpacing.md),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          s.title.split('\n').first,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppType.mono(
-                            size: 12,
-                            color: AppColors.fg,
-                            weight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            if (source.isNotEmpty)
-                              _MetaBit(text: source.toUpperCase()),
-                            if (size.isNotEmpty) ...[
-                              const _Dot(),
-                              _MetaBit(text: size, brighter: true),
-                            ],
-                            if (s.isSeasonPack) ...[
-                              const _Dot(),
-                              Text(
-                                'FULL SEASON',
-                                style: AppType.mono(
-                                  size: 10,
-                                  color: AppColors.accentPrimary,
-                                  weight: FontWeight.w700,
-                                  letterSpacing: 0.05,
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ],
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  AppSpacing.md,
+                  // Clears the "★ Best" tab hanging from the top edge.
+                  widget.best ? AppSpacing.xl : AppSpacing.md,
+                  AppSpacing.md,
+                  AppSpacing.md,
+                ),
+                child: Row(
+                  children: [
+                    EditorialBadge(
+                      quality,
+                      tone: qualityTone(MediaQuality.fromText(quality)),
                     ),
-                  ),
-                  const SizedBox(width: AppSpacing.md),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        '● ${s.seeders}',
-                        style: AppType.mono(
-                          size: 11,
-                          color: AppColors.seeding,
-                          weight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      _StreamabilityChip(seeders: s.seeders),
-                      const SizedBox(height: 2),
-                      Text(
-                        s.isSeasonPack
-                            ? 'pack'
-                            : (s.isSingleFile ? 'single' : 'multi'),
-                        style: AppType.mono(size: 10, color: AppColors.fg2),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(width: AppSpacing.md),
-                  // Stream button
-                  IconButton(
-                    onPressed: () => widget.onPick(s, true),
-                    tooltip: 'Stream now',
-                    icon: const Icon(Icons.play_arrow_rounded, size: 14),
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.transparent,
-                      foregroundColor: AppColors.fg1,
-                      side: const BorderSide(color: AppColors.lineStrong),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppRadius.sm),
-                      ),
-                      padding: const EdgeInsets.all(8),
-                      minimumSize: const Size(32, 32),
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  // GRAB button
-                  GestureDetector(
-                    onTap: () => widget.onPick(s, false),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.md,
-                        vertical: AppSpacing.sm,
-                      ),
-                      decoration: BoxDecoration(
-                        color: widget.best || _hover
-                            ? AppColors.seedColor
-                            : AppColors.seedColor.withAlpha(36),
-                        borderRadius: BorderRadius.circular(AppRadius.sm),
-                        border: Border.all(
-                          color: AppColors.seedColor.withAlpha(0x66),
-                        ),
-                      ),
-                      child: Row(
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
-                            Icons.download_rounded,
-                            size: 11,
-                            color: widget.best || _hover
-                                ? Colors.white
-                                : AppColors.seedColor,
-                          ),
-                          const SizedBox(width: 4),
                           Text(
-                            'GRAB',
+                            releaseName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: AppType.mono(
-                              size: 11,
-                              color: widget.best || _hover
-                                  ? Colors.white
-                                  : AppColors.seedColor,
-                              weight: FontWeight.w700,
-                              letterSpacing: 0.05,
+                              size: AppType.sizeCaption,
+                              color: AppColors.fg,
+                              weight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            [
+                              if (source.isNotEmpty) source,
+                              if (size.isNotEmpty) size,
+                              if (s.isSeasonPack) 'Full season',
+                            ].join(' · '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppType.mono(
+                              size: AppType.sizeLabel,
+                              color: AppColors.fg1,
                             ),
                           ),
                         ],
                       ),
                     ),
-                  ),
-                ],
+                    const SizedBox(width: AppSpacing.md),
+                    _SourceHealth(peers: s.seeders),
+                    const SizedBox(width: AppSpacing.md),
+                    _RowButton(
+                      label: 'Stream',
+                      icon: Icons.play_arrow_rounded,
+                      tooltip: 'Watch now while it downloads',
+                      filled: widget.best || active,
+                      onTap: () => widget.onPick(s, true),
+                    ),
+                    const SizedBox(width: 4),
+                    _RowButton(
+                      label: 'Download',
+                      icon: Icons.download_rounded,
+                      tooltip: 'Download to keep — watch later',
+                      filled: false,
+                      onTap: () => widget.onPick(s, false),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A compact row button. Filled means the primary action: the accent with
+/// dark text, which reads (white on this orange is 2.7:1).
+class _RowButton extends StatelessWidget {
+  const _RowButton({
+    required this.label,
+    required this.icon,
+    required this.tooltip,
+    required this.filled,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final String tooltip;
+  final bool filled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = filled ? AppColors.onAccent : AppColors.fg1;
+    return HubPressable(
+      onTap: onTap,
+      tooltip: tooltip,
+      borderRadius: BorderRadius.circular(AppRadius.sm),
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.sm,
+        ),
+        decoration: BoxDecoration(
+          color: filled ? AppColors.accent : Colors.transparent,
+          borderRadius: BorderRadius.circular(AppRadius.sm),
+          border: Border.all(
+            color: filled ? AppColors.accent : AppColors.lineStrong,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 13, color: fg),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: AppType.ui(
+                size: AppType.sizeCaption,
+                color: fg,
+                weight: FontWeight.w600,
               ),
             ),
           ],
@@ -720,32 +583,41 @@ class _SourceRowState extends State<_SourceRow> {
   }
 }
 
-class _MetaBit extends StatelessWidget {
-  const _MetaBit({required this.text, this.brighter = false});
+/// How healthy a source is, in plain words: how many peers share it, and
+/// what that means for playback. The thresholds are deliberately loose —
+/// swarm health varies too much to be precise; the point is one glanceable
+/// hint about whether a source will play or struggle.
+class _SourceHealth extends StatelessWidget {
+  const _SourceHealth({required this.peers});
 
-  final String text;
-  final bool brighter;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: AppType.mono(
-        size: 10,
-        color: brighter ? AppColors.fg1 : AppColors.fg2,
-      ),
-    );
-  }
-}
-
-class _Dot extends StatelessWidget {
-  const _Dot();
+  final int peers;
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.symmetric(horizontal: 6),
-      child: Text('·', style: TextStyle(color: AppColors.fg3, fontSize: 10)),
+    final (String hint, Color color) = switch (peers) {
+      >= 50 => ('Plays fast', AppColors.ok),
+      >= 10 => ('Plays well', AppColors.accent),
+      >= 1 => ('May buffer', AppColors.warn),
+      _ => ('No peers', AppColors.err),
+    };
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          peers == 1 ? '1 peer' : '$peers peers',
+          style: AppType.mono(size: AppType.sizeSmall, color: AppColors.fg1),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          hint,
+          style: AppType.ui(
+            size: AppType.sizeSmall,
+            color: color,
+            weight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -776,73 +648,19 @@ class _Footer extends StatelessWidget {
         children: [
           Expanded(
             child: Text(
-              '$count sources · sorted by $sortLabel',
-              style: AppType.mono(size: 11, color: AppColors.fg2),
-            ),
-          ),
-          OutlinedButton(
-            onPressed: onCancel,
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.fg1,
-              side: const BorderSide(color: AppColors.lineStrong),
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.lg,
-                vertical: AppSpacing.sm,
+              '${count == 1 ? '1 source' : '$count sources'} · $sortLabel',
+              style: AppType.mono(
+                size: AppType.sizeSmall,
+                color: AppColors.fg2,
               ),
             ),
-            child: const Text('Cancel'),
+          ),
+          EditorialButton(
+            label: 'Cancel',
+            kind: EditorialButtonKind.ghost,
+            onPressed: onCancel,
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// Compact "fast / good / slow" hint based on the seeder count. The
-/// thresholds are intentionally loose — torrent health varies too much
-/// to be precise. The goal is just to give the user one glanceable
-/// hint about whether a row is going to play or struggle.
-class _StreamabilityChip extends StatelessWidget {
-  const _StreamabilityChip({required this.seeders});
-
-  final int seeders;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final String label;
-    final Color color;
-    if (seeders >= 50) {
-      label = 'fast';
-      color = scheme.tertiary;
-    } else if (seeders >= 10) {
-      label = 'good';
-      color = scheme.primary;
-    } else if (seeders >= 1) {
-      label = 'slow';
-      color = scheme.secondary;
-    } else {
-      label = 'dead';
-      color = scheme.error;
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: AppOpacity.medium / 255.0),
-        border: Border.all(
-          color: color.withValues(alpha: AppOpacity.semi / 255.0),
-          width: AppBorderWidth.thin,
-        ),
-        borderRadius: BorderRadius.circular(AppRadius.full),
-      ),
-      child: Text(
-        label,
-        style: AppType.mono(
-          size: 9,
-          color: color,
-          weight: FontWeight.w700,
-          letterSpacing: 0.045,
-        ),
       ),
     );
   }

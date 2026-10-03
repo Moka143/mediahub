@@ -3,17 +3,21 @@ import 'package:flutter/material.dart';
 import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
 import '../../design/app_typography.dart';
-import '../editorial/editorial.dart';
+import '../editorial/editorial_button.dart';
 import 'editorial_dialog_shell.dart';
 
 /// Editorial confirm dialog — dark surface, hairline border, serif
-/// title, mono buttons. Used for delete / reset / discard prompts so
-/// they match the MediaHub design language instead of the default
-/// rounded Material AlertDialog.
+/// title, editorial buttons. The one confirm shell: delete / reset /
+/// discard / switch prompts all use it, so they match the MediaHub design
+/// language instead of the default rounded Material AlertDialog.
 ///
 /// Use the [show] helper to present and await a boolean result. The
 /// `extraContent` slot can hold additional UI (e.g. a "Also delete
 /// files" checkbox).
+///
+/// Keyboard: the safe choice has focus when it opens — Cancel for a
+/// destructive prompt, the confirm button otherwise — so Enter never
+/// deletes anything by accident, and Esc always cancels.
 class MediaHubConfirmDialog extends StatelessWidget {
   const MediaHubConfirmDialog({
     super.key,
@@ -76,12 +80,9 @@ class MediaHubConfirmDialog extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.md),
           ],
-          SerifTitle(title, size: 22, height: 1.05),
+          Text(title, style: AppType.title()),
           const SizedBox(height: AppSpacing.md),
-          Text(
-            message,
-            style: AppType.ui(size: 14, color: AppColors.fg1, height: 1.5),
-          ),
+          Text(message, style: AppType.body()),
           if (extraContent != null) ...[
             const SizedBox(height: AppSpacing.lg),
             extraContent!,
@@ -93,6 +94,7 @@ class MediaHubConfirmDialog extends StatelessWidget {
               EditorialButton(
                 label: cancelLabel,
                 kind: EditorialButtonKind.ghost,
+                autofocus: destructive,
                 onPressed: () => Navigator.of(context).pop(false),
               ),
               const SizedBox(width: AppSpacing.sm),
@@ -101,6 +103,7 @@ class MediaHubConfirmDialog extends StatelessWidget {
                 kind: destructive
                     ? EditorialButtonKind.danger
                     : EditorialButtonKind.accent,
+                autofocus: !destructive,
                 onPressed: () => Navigator.of(context).pop(true),
               ),
             ],

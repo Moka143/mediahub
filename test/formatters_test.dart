@@ -192,15 +192,4 @@ void main() {
       expect(Formatters.formatRatio(-1), '∞');
     });
   });
-
-  group('truncate', () {
-    test('leaves short strings alone', () {
-      expect(Formatters.truncate('abc', 10), 'abc');
-      expect(Formatters.truncate('abcdefghij', 10), 'abcdefghij');
-    });
-
-    test('ellipsises past the limit', () {
-      expect(Formatters.truncate('abcdefghijk', 10), 'abcdefg...');
-    });
-  });
 }

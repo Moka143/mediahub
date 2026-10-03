@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../design/app_colors.dart';
@@ -6,19 +5,20 @@ import '../../design/app_tokens.dart';
 import '../../design/app_typography.dart';
 import '../editorial/mono_label.dart';
 import '../editorial/serif_title.dart';
+import 'hub_pressable.dart';
 
 /// Editorial topbar — italic serif title, mono "crumb" on a hairline
-/// vertical divider, optional search field, trailing actions.
-/// Matches the `.tb` rule in the prototype.
+/// vertical divider, trailing actions. Matches the `.tb` rule in the
+/// prototype.
+///
+/// It used to carry a search field with a ⌘K hint. Neither caller ever
+/// turned it on, and nothing handled ⌘K, so it is gone; search lives in each
+/// browse screen's filter row.
 class MediaHubTopBar extends StatelessWidget implements PreferredSizeWidget {
   const MediaHubTopBar({
     super.key,
     required this.title,
     this.subtitle,
-    this.showSearch = true,
-    this.searchHint = 'Search shows, movies, magnet links…',
-    this.onSearchChanged,
-    this.searchController,
     this.actions = const [],
     this.leading,
   });
@@ -26,15 +26,15 @@ class MediaHubTopBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Size get preferredSize => const Size.fromHeight(64);
 
+  /// Side gutter from the prototype's `.tb` rule, between the 24 and 32
+  /// steps.
+  static const double _gutter = 28;
+
   final String title;
 
   /// Rendered as the editorial "crumb" — uppercase mono on a divider.
   final String? subtitle;
 
-  final bool showSearch;
-  final String searchHint;
-  final ValueChanged<String>? onSearchChanged;
-  final TextEditingController? searchController;
   final List<Widget> actions;
 
   /// Optional widget placed before the title — typically a back button on
@@ -50,7 +50,7 @@ class MediaHubTopBar extends StatelessWidget implements PreferredSizeWidget {
       // actions (settings button etc.) hug the macOS title bar instead
       // of sitting on the topbar's centerline.
       height: preferredSize.height,
-      padding: const EdgeInsets.symmetric(horizontal: 28),
+      padding: const EdgeInsets.symmetric(horizontal: _gutter),
       decoration: const BoxDecoration(
         color: AppColors.bgPage,
         border: Border(bottom: BorderSide(color: AppColors.line, width: 1)),
@@ -69,12 +69,15 @@ class MediaHubTopBar extends StatelessWidget implements PreferredSizeWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Flexible(
-                  child: SerifTitle(
-                    title,
-                    size: 28,
-                    height: 1.0,
-                    letterSpacing: -0.01,
-                    maxLines: 1,
+                  child: Semantics(
+                    header: true,
+                    child: SerifTitle(
+                      title,
+                      size: AppType.sizePageTitle,
+                      height: 1.0,
+                      letterSpacing: -0.01,
+                      maxLines: 1,
+                    ),
                   ),
                 ),
                 if (subtitle != null && subtitle!.isNotEmpty) ...[
@@ -84,7 +87,6 @@ class MediaHubTopBar extends StatelessWidget implements PreferredSizeWidget {
                   Flexible(
                     child: MonoLabel(
                       subtitle!,
-                      color: AppColors.fg3,
                       letterSpacing: 0.12,
                       maxLines: 1,
                     ),
@@ -93,17 +95,6 @@ class MediaHubTopBar extends StatelessWidget implements PreferredSizeWidget {
               ],
             ),
           ),
-          if (showSearch) ...[
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 320, minWidth: 220),
-              child: _SearchField(
-                hint: searchHint,
-                controller: searchController,
-                onChanged: onSearchChanged,
-              ),
-            ),
-            const SizedBox(width: 10),
-          ],
           if (actions.isNotEmpty)
             Wrap(
               spacing: 8,
@@ -116,101 +107,25 @@ class MediaHubTopBar extends StatelessWidget implements PreferredSizeWidget {
   }
 }
 
-class _SearchField extends StatelessWidget {
-  const _SearchField({this.hint, this.controller, this.onChanged});
-
-  final String? hint;
-  final TextEditingController? controller;
-  final ValueChanged<String>? onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 32,
-      decoration: BoxDecoration(
-        color: AppColors.bgSurface,
-        border: Border.all(color: AppColors.line, width: 1),
-        borderRadius: BorderRadius.circular(AppRadius.xs),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Row(
-        children: [
-          const Icon(Icons.search_rounded, size: 14, color: AppColors.fg3),
-          const SizedBox(width: 8),
-          Expanded(
-            child: TextField(
-              controller: controller,
-              onChanged: onChanged,
-              cursorColor: AppColors.accent,
-              style: AppType.ui(size: 12, color: AppColors.fg),
-              decoration: InputDecoration(
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                hintText: hint,
-                hintStyle: AppType.ui(size: 12, color: AppColors.fg3),
-                filled: false,
-              ),
-            ),
-          ),
-          const SizedBox(width: 6),
-          _Kbd(label: _isMac() ? '⌘K' : 'Ctrl+K'),
-        ],
-      ),
-    );
-  }
-
-  static bool _isMac() {
-    // Best-effort — defaults to Mac if unknown so UI looks right on
-    // the primary dev target. Doesn't affect functionality.
-    return defaultTargetPlatform == TargetPlatform.macOS;
-  }
-}
-
-class _Kbd extends StatelessWidget {
-  const _Kbd({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-      decoration: BoxDecoration(
-        border: Border.all(color: AppColors.line, width: 1),
-        borderRadius: BorderRadius.circular(3),
-      ),
-      child: Text(
-        label,
-        style: AppType.mono(
-          size: 10,
-          color: AppColors.fg3,
-          letterSpacing: 0.04,
-        ),
-      ),
-    );
-  }
-}
-
 /// 32×32 ghost icon button. Used in the topbar action row.
+///
+/// Focusable, Enter/Space-activated and announced as a button with
+/// [tooltip] as its name — the Settings gear and Back were mouse-only.
 class MediaHubIconButton extends StatefulWidget {
   const MediaHubIconButton({
     super.key,
     required this.icon,
     required this.tooltip,
     this.onPressed,
-    this.hasDot = false,
-    this.dotColor,
     this.active = false,
   });
 
   final IconData icon;
   final String tooltip;
   final VoidCallback? onPressed;
-  final bool hasDot;
-  final Color? dotColor;
+
+  /// For toggles (selection mode): drawn pressed-in, and announced as
+  /// selected.
   final bool active;
 
   @override
@@ -222,62 +137,31 @@ class _MediaHubIconButtonState extends State<MediaHubIconButton> {
 
   @override
   Widget build(BuildContext context) {
-    final dotColor = widget.dotColor ?? AppColors.accent;
-    return Tooltip(
-      message: widget.tooltip,
-      child: MouseRegion(
-        onEnter: (_) => setState(() => _hover = true),
-        onExit: (_) => setState(() => _hover = false),
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          onTap: widget.onPressed,
-          behavior: HitTestBehavior.opaque,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 120),
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              color: widget.active
-                  ? AppColors.bgSurfaceHi
-                  : (_hover ? AppColors.bgSurface : Colors.transparent),
-              borderRadius: BorderRadius.circular(AppRadius.xs),
-              border: Border.all(
-                color: widget.active ? AppColors.lineStrong : AppColors.line,
-                width: 1,
-              ),
-            ),
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Center(
-                  child: Icon(
-                    widget.icon,
-                    size: 14,
-                    color: widget.active ? AppColors.fg : AppColors.fg1,
-                  ),
-                ),
-                if (widget.hasDot)
-                  Positioned(
-                    top: 7,
-                    right: 7,
-                    child: Container(
-                      width: 6,
-                      height: 6,
-                      decoration: BoxDecoration(
-                        color: dotColor,
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: dotColor.withValues(alpha: 0.6),
-                            blurRadius: 5,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-              ],
-            ),
+    final radius = BorderRadius.circular(AppRadius.xs);
+    return HubPressable(
+      onTap: widget.onPressed,
+      tooltip: widget.tooltip,
+      selected: widget.active ? true : null,
+      borderRadius: radius,
+      onHoverChanged: (h) => setState(() => _hover = h),
+      child: AnimatedContainer(
+        duration: AppDuration.fast,
+        width: 32,
+        height: 32,
+        decoration: BoxDecoration(
+          color: widget.active
+              ? AppColors.bgSurfaceHi
+              : (_hover ? AppColors.bgSurface : Colors.transparent),
+          borderRadius: radius,
+          border: Border.all(
+            color: widget.active ? AppColors.lineStrong : AppColors.line,
+            width: 1,
           ),
+        ),
+        child: Icon(
+          widget.icon,
+          size: 14,
+          color: widget.active || _hover ? AppColors.fg : AppColors.fg1,
         ),
       ),
     );

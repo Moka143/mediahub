@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mediahub/models/home_recommendation.dart';
 import 'package:mediahub/models/movie.dart';
 import 'package:mediahub/models/show.dart';
 import 'package:mediahub/providers/home_recommendations_provider.dart';
@@ -116,6 +117,26 @@ void main() {
       final a = pickDailySeeds(showIds: [1, 2], movieIds: [100], dayIndex: 4);
       final b = pickDailySeeds(showIds: [1, 2], movieIds: [100], dayIndex: 4);
       expect(a, b);
+    });
+  });
+
+  group('HomeRecTile', () {
+    test('a show with no air date or poster reads as a show', () {
+      // `show?.year ?? movie!.year` fell through to the null movie and
+      // threw for exactly these.
+      final tile = HomeRecTile.show(Show(id: 7, name: 'Untitled Pilot'));
+      expect(tile.isShow, isTrue);
+      expect(tile.year, isNull);
+      expect(tile.posterUrl, isNull);
+      expect(tile.title, 'Untitled Pilot');
+      expect(tile.id, 7);
+    });
+
+    test('a movie reads as a movie', () {
+      final tile = HomeRecTile.movie(Movie(id: 3, title: 'Arrival'));
+      expect(tile.isShow, isFalse);
+      expect(tile.title, 'Arrival');
+      expect(tile.year, isNull);
     });
   });
 }

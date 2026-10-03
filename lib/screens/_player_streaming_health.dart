@@ -5,19 +5,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/connection_provider.dart';
 import '../providers/player_provider.dart';
+import '../services/app_logger.dart';
 import '../services/playback_health_monitor.dart';
-import '../widgets/streaming_status_indicator.dart';
+import '../services/player_service.dart';
 
 /// Everything the player does *because the file is still downloading*:
 /// the download-edge health monitor, the debounce that keeps mpv's buffering
-/// signal from strobing the spinner, and the status chip both of them drive.
+/// signal from strobing the spinner, and the buffering chip the monitor
+/// drives.
 ///
 /// Split out of `video_player_screen.dart` as step 2 of
 /// docs/player-screen-decomposition.md. The heavy lifting was already
 /// self-contained in [PlaybackHealthMonitor], which owns its own timer and
 /// subscription and has its own tests; what lived on the screen was the
-/// wiring, four tuning constants and eleven fields that only these three
-/// methods touched.
+/// wiring, four tuning constants and the fields that only these methods
+/// touched.
 ///
 /// Nothing here runs unless the screen is streaming — [startPlaybackHealthMonitor]
 /// returns immediately without a torrent hash, since without one only the
@@ -31,7 +33,7 @@ mixin PlayerStreamingHealth<T extends ConsumerStatefulWidget>
     on ConsumerState<T> {
   // ── What the host screen must provide ──────────────────────────────────
 
-  /// qBittorrent info-hash backing this playback, or null when the file is
+  /// Torrent info-hash backing this playback, or null when the file is
   /// complete on disk.
   String? get streamingTorrentHash;
 
@@ -45,15 +47,14 @@ mixin PlayerStreamingHealth<T extends ConsumerStatefulWidget>
 
   // ── Owned state ────────────────────────────────────────────────────────
 
-  // Streaming status indicator (current-episode health monitor only —
-  // next-episode prefetch lives in [nextPrefetch] beside the CW pill).
-  StreamingStatus? streamingStatus;
+  /// The buffering chip's text while the stream waits on the download, or
+  /// null when there is no chip. Current-episode health only — the
+  /// next-episode prefetch lives in `nextPrefetch` beside the Next episode
+  /// pill.
+  String? streamingStatusMessage;
 
-  String streamingMessage = '';
-
-  String? streamingEpisodeCode;
-
-  double? streamingProgress;
+  /// How much of the file is downloaded, for the chip.
+  double? streamingStatusProgress;
 
   // Debounced buffering state for streaming mode —
   // mpv's buffering signal flickers rapidly when reading at the edge
@@ -84,22 +85,29 @@ mixin PlayerStreamingHealth<T extends ConsumerStatefulWidget>
   // or permanently if qBittorrent won't give us one.
   List<BufferedSpan> bufferedSpans = const [];
 
+  /// Buffering shorter than this is a micro-stall and never shows the spinner.
   static const _bufferingShowDelay = Duration(milliseconds: 400);
 
+  /// Once shown, the spinner outlasts the buffering by this, so it can't flash.
   static const _bufferingHideDelay = Duration(seconds: 1);
 
   // Keep this in sync with PlayerService.waitForFirstPlay's default — both
   // values gate the same "still loading?" deadline.
   static const _firstPlayTimeout = Duration(seconds: 7);
 
+  /// Settling time after the first frame, to absorb the first decode stalls.
   static const _postPlayGrace = Duration(milliseconds: 500);
 
   /// Build and start the playback health monitor for this streaming session.
   ///
-  /// Called from both `_initializePlayer` and `_handleResume`; safe to call
-  /// twice because the previous instance is disposed first and the monitor
-  /// resets all of its counters in `start()`.
+  /// Called once the media is open, from both the first open and the resume
+  /// prompt's; safe to call twice because the previous instance is disposed
+  /// first and the monitor resets all of its counters in `start()`. Does
+  /// nothing on a screen that has already gone — closing the player while a
+  /// file was still opening used to reach `ref.read` here, which throws once
+  /// the screen is disposed.
   void startPlaybackHealthMonitor() {
+    if (!mounted) return;
     final hash = streamingTorrentHash;
     if (hash == null) {
       // Without a hash we can't query torrent state — only the stall detector
@@ -112,7 +120,7 @@ mixin PlayerStreamingHealth<T extends ConsumerStatefulWidget>
     _healthMonitor?.dispose();
     _healthMonitor = PlaybackHealthMonitor(
       player: ref.read(playerProvider),
-      qbt: engine,
+      engine: engine,
       torrentHash: hash,
       fileIndex: streamingFileIndex,
       usingProxy: streamingProxyUrl != null,
@@ -134,11 +142,8 @@ mixin PlayerStreamingHealth<T extends ConsumerStatefulWidget>
           setState(() => bufferedSpans = spans);
         }
       },
-      onBuffering: (message, progress) => showStreamingStatus(
-        status: StreamingStatus.buffering,
-        message: message,
-        progress: progress,
-      ),
+      onBuffering: (message, progress) =>
+          showStreamingStatus(message: message, progress: progress),
       onBufferingResolved: dismissStreamingStatus,
     )..start();
   }
@@ -146,28 +151,25 @@ mixin PlayerStreamingHealth<T extends ConsumerStatefulWidget>
   /// Smooth out mpv's rapid buffering signal during streaming.
   ///
   /// • Suppress the indicator until mpv actually starts playing (dynamic grace
-  ///   period), plus 1 s stabilisation — avoids a second "loading" right after
-  ///   the streaming overlay just disappeared.
+  ///   period), plus a short stabilisation — avoids a second "loading" right
+  ///   after the streaming overlay just disappeared.
   /// • Show the indicator only after buffering has been true for 400 ms
   ///   (ignores sub-second micro-stalls).
   /// • Once shown, keep it visible for at least 1 s after buffering clears
   ///   (prevents rapid on/off flicker).
+  ///
+  /// Like [startPlaybackHealthMonitor], a no-op on a screen that has gone.
   void setupStreamingBufferingDebounce() {
-    // Restart-safe: _handleResume calls this a second time after the resume
-    // prompt, and a second listener on the same stream would double every
-    // buffering transition.
-    _bufferingSubscription?.cancel();
+    if (!mounted) return;
+    // Restart-safe: the resume prompt calls this a second time after the
+    // first open, and a second listener on the same stream would double
+    // every buffering transition.
+    unawaited(_bufferingSubscription?.cancel());
 
     // Grace period — suppress indicator until mpv actually starts playing,
     // rather than using a fixed timer that may expire too early for large files.
     streamBufferingGrace = true;
-    final playerService = ref.read(playerServiceProvider);
-    playerService.waitForFirstPlay(timeout: _firstPlayTimeout).then((_) {
-      // Extra stabilisation after first play to absorb initial decode stalls.
-      Future.delayed(_postPlayGrace, () {
-        if (mounted) setState(() => streamBufferingGrace = false);
-      });
-    });
+    unawaited(_endGraceAfterFirstPlay(ref.read(playerServiceProvider)));
 
     final player = ref.read(playerProvider);
     _bufferingSubscription = player.stream.buffering.listen((isBuffering) {
@@ -195,15 +197,24 @@ mixin PlayerStreamingHealth<T extends ConsumerStatefulWidget>
     });
   }
 
-  void dismissStreamingStatus() {
-    if (mounted) {
-      setState(() {
-        streamingStatus = null;
-        streamingMessage = '';
-        streamingEpisodeCode = null;
-        streamingProgress = null;
-      });
+  /// End the initial grace period once mpv is really playing, plus a short
+  /// stabilisation to absorb the first decode stalls.
+  Future<void> _endGraceAfterFirstPlay(PlayerService playerService) async {
+    try {
+      await playerService.waitForFirstPlay(timeout: _firstPlayTimeout);
+      await Future<void>.delayed(_postPlayGrace);
+    } catch (e) {
+      AppLog.d('[Player] waiting for first play failed: $e');
     }
+    if (mounted) setState(() => streamBufferingGrace = false);
+  }
+
+  void dismissStreamingStatus() {
+    if (!mounted || streamingStatusMessage == null) return;
+    setState(() {
+      streamingStatusMessage = null;
+      streamingStatusProgress = null;
+    });
   }
 
   /// Compose the chip text shown under the buffering spinner during
@@ -215,27 +226,19 @@ mixin PlayerStreamingHealth<T extends ConsumerStatefulWidget>
     return 'Buffering — $pct% downloaded';
   }
 
-  void showStreamingStatus({
-    required StreamingStatus status,
-    required String message,
-    String? episodeCode,
-    double? progress,
-  }) {
-    if (mounted) {
-      setState(() {
-        streamingStatus = status;
-        streamingMessage = message;
-        streamingEpisodeCode = episodeCode;
-        streamingProgress = progress;
-      });
-    }
+  void showStreamingStatus({required String message, double? progress}) {
+    if (!mounted) return;
+    setState(() {
+      streamingStatusMessage = message;
+      streamingStatusProgress = progress;
+    });
   }
 
   /// Stop the monitor and the debounce. Called from the screen's `dispose()`
   /// in the position these three teardowns already occupied.
   void disposeStreamingHealth() {
     _bufferingDebounceTimer?.cancel();
-    _bufferingSubscription?.cancel();
+    unawaited(_bufferingSubscription?.cancel());
     // Synchronous and ref-free — the monitor owns its own timer and stream
     // subscription and needs no providers to shut down.
     _healthMonitor?.dispose();

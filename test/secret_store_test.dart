@@ -468,6 +468,90 @@ void main() {
       expect(SecretStore.inMemory().read(Secret.tmdbReadToken), isNull);
     });
   });
+
+  group('plaintext a failed migration had to keep', () {
+    // The migration leaves a credential in the settings blob when it cannot
+    // confirm the Keychain has it — the only durable copy. But the settings
+    // save rewrites that blob without credential fields, so upgrading,
+    // denying the Keychain prompt and then toggling any setting used to
+    // leave the credentials nowhere. The store now names what a settings
+    // save has to carry.
+    test('is named for the settings save to carry', () async {
+      final prefs = await prefsWith(legacyStore());
+      final store = await SecretStore.open(
+        prefs,
+        backend: _WriteFailsBackend(),
+      );
+
+      expect(store.pendingLegacySettingsFields, {
+        'password': 'hunter2',
+        'tmdb_api_key': 'eyJhbGciOiJIUzI1NiJ9.read',
+      });
+    });
+
+    test('is named when secure storage cannot even be read', () async {
+      final prefs = await prefsWith(legacyStore());
+      final store = await SecretStore.open(prefs, backend: _ReadFailsBackend());
+
+      expect(store.pendingLegacySettingsFields['password'], 'hunter2');
+    });
+
+    test('is nothing once the migration succeeds', () async {
+      final prefs = await prefsWith(legacyStore());
+      final store = await SecretStore.open(
+        prefs,
+        backend: InMemorySecretBackend(),
+      );
+
+      expect(store.pendingLegacySettingsFields, isEmpty);
+    });
+
+    test('stops being carried once a new value is safely stored', () async {
+      final prefs = await prefsWith(legacyStore());
+      final backend = _FlakyBackend()..failing = true;
+      final store = await SecretStore.open(prefs, backend: backend);
+      expect(store.pendingLegacySettingsFields, contains('password'));
+
+      backend.failing = false;
+      expect(await store.write(Secret.qbittorrentPassword, 'new'), isTrue);
+
+      expect(store.pendingLegacySettingsFields.keys, ['tmdb_api_key']);
+    });
+
+    test('a cleared secret is not carried, nor adopted next launch', () async {
+      // Signing out must not sign back in at the next launch from the
+      // plaintext copy the failed migration left.
+      final prefs = await prefsWith(legacyStore());
+      final store = await SecretStore.open(
+        prefs,
+        backend: _WriteFailsBackend(),
+      );
+
+      await store.write(Secret.tmdbAccessToken, null);
+      await store.write(Secret.qbittorrentPassword, null);
+
+      expect(prefs.getString(SecretStore.legacyAccessTokenKey), isNull);
+      expect(store.pendingLegacySettingsFields.keys, ['tmdb_api_key']);
+    });
+  });
+}
+
+/// Fails every write while [failing], then behaves.
+class _FlakyBackend implements SecretBackend {
+  bool failing = false;
+  final Map<String, String> _values = {};
+
+  @override
+  Future<String?> read(String key) async => _values[key];
+
+  @override
+  Future<void> write(String key, String value) async {
+    if (failing) throw StateError('keychain locked');
+    _values[key] = value;
+  }
+
+  @override
+  Future<void> delete(String key) async => _values.remove(key);
 }
 
 /// Writes fail for one named key only.

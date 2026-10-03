@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:media_kit/media_kit.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../providers/player_provider.dart';
@@ -12,9 +11,8 @@ import '../providers/subtitle_provider.dart';
 /// around.
 ///
 /// Step 3 of docs/player-screen-decomposition.md. Small, but the most
-/// platform-specific code in the player and the piece most recently changed
-/// (61dc989), so it earns its own file rather than sitting between the
-/// gesture handlers and `build()`.
+/// platform-specific code in the player, so it earns its own file rather
+/// than sitting between the gesture handlers and `build()`.
 ///
 /// Three things here are not obvious, and all three are load-bearing:
 ///
@@ -26,9 +24,9 @@ import '../providers/subtitle_provider.dart';
 ///    drops the active subtitle track when it is. The selection is snapshotted
 ///    before and re-applied 200 ms after.
 ///
-/// [restoreWindowFromFullscreen] is the same unwind, for the case where the
-/// player is closed while still fullscreen and there will be no exit
-/// transition to do it.
+/// [exitWindowFullscreen] is the same unwind, for the case where the player
+/// is closed while still fullscreen and there will be no exit transition to
+/// do it.
 mixin PlayerWindowChrome<T extends ConsumerStatefulWidget> on ConsumerState<T> {
   bool isWindowFullscreen = false;
 
@@ -38,12 +36,31 @@ mixin PlayerWindowChrome<T extends ConsumerStatefulWidget> on ConsumerState<T> {
   /// `setFullScreen(false)`, so we replay it ourselves.
   Size? _preFullscreenSize;
 
+  /// A transition is in flight. A second F press during one used to start
+  /// another, interleaving their window calls.
+  bool _fullscreenTransition = false;
+
+  /// How long the video surface gets to settle after a transition before
+  /// the subtitle selection is re-applied.
+  static const Duration _surfaceSettleDelay = Duration(milliseconds: 200);
+
   Future<void> toggleWindowFullscreen() async {
+    if (_fullscreenTransition) return;
+    _fullscreenTransition = true;
+    try {
+      await _toggleWindowFullscreen();
+    } finally {
+      _fullscreenTransition = false;
+    }
+  }
+
+  Future<void> _toggleWindowFullscreen() async {
     // Snapshot selected subtitles before the window resizes — on some
     // platforms the video surface is recreated during fullscreen transitions
     // and mpv drops the active external/embedded track. We re-apply below.
     final externalSub = ref.read(currentExternalSubtitleProvider);
     final embeddedSub = ref.read(playerProvider).state.track.subtitle;
+    final playerService = ref.read(playerServiceProvider);
 
     final newFullscreen = !isWindowFullscreen;
     // Capture the user's window size before going fullscreen so we
@@ -54,6 +71,7 @@ mixin PlayerWindowChrome<T extends ConsumerStatefulWidget> on ConsumerState<T> {
       } catch (_) {
         _preFullscreenSize = null;
       }
+      if (!mounted) return;
     }
     setState(() => isWindowFullscreen = newFullscreen);
 
@@ -74,19 +92,16 @@ mixin PlayerWindowChrome<T extends ConsumerStatefulWidget> on ConsumerState<T> {
       );
       // Restore pre-fullscreen size so the user's window doesn't snap
       // to the platform's default size.
-      if (_preFullscreenSize != null) {
-        await windowManager.setSize(_preFullscreenSize!);
-      }
+      final pre = _preFullscreenSize;
+      if (pre != null) await windowManager.setSize(pre);
     }
 
     // Let the surface settle, then restore whichever subtitle was selected.
-    await Future.delayed(const Duration(milliseconds: 200));
+    await Future<void>.delayed(_surfaceSettleDelay);
     if (!mounted) return;
-    final playerService = ref.read(playerServiceProvider);
     if (externalSub != null) {
       await playerService.loadExternalSubtitle(externalSub.url);
-    } else if (embeddedSub != SubtitleTrack.no() &&
-        embeddedSub != SubtitleTrack.auto()) {
+    } else if (isRealTrackId(embeddedSub.id)) {
       await playerService.setSubtitleTrack(embeddedSub);
     }
   }
@@ -96,14 +111,15 @@ mixin PlayerWindowChrome<T extends ConsumerStatefulWidget> on ConsumerState<T> {
   ///
   /// Guarded on [isWindowFullscreen] because calling `setFullScreen` when we
   /// are not fullscreen triggers the framework's own resize path and resets
-  /// the user's window to the platform default.
+  /// the user's window to the platform default. The flag is cleared before
+  /// the first await: the close button awaits this and then `dispose()`
+  /// calls it again, and both used to run the full unwind.
   ///
-  /// Shared by the close button and `dispose()`. The close path awaits it;
-  /// dispose cannot, and passes it to `unawaited`. Either way the steps run
-  /// in order, which matters — `setSize` before `setFullScreen` has settled
-  /// is the bug 61dc989 was about.
+  /// Either way the steps run in order, which matters — `setSize` before
+  /// `setFullScreen` has settled restores the wrong bounds.
   Future<void> exitWindowFullscreen() async {
     if (!isWindowFullscreen) return;
+    isWindowFullscreen = false;
     await windowManager.setFullScreen(false);
     await windowManager.setTitleBarStyle(
       TitleBarStyle.normal,

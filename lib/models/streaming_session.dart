@@ -28,57 +28,11 @@ enum StreamingState {
   cancelled,
 }
 
-/// What to do about a session that hasn't reached its buffer threshold yet.
-enum BufferOutcome {
-  /// Enough bytes are down — start playing.
-  ready,
-
-  /// Progressing at a workable rate; keep waiting.
-  waiting,
-
-  /// No bytes arriving at all. A peer problem, not a speed problem.
-  stalled,
-
-  /// Moving, but so slowly that reaching the threshold isn't worth waiting
-  /// for. Better to say so than to spin and fail later.
-  tooSlow,
-
-  /// [StreamingService.bufferHardCeiling] elapsed. Distinct from [tooSlow]
-  /// because it is the one outcome `allowSlowBuffer` must NOT swallow — a
-  /// background prefetch is allowed to be slow indefinitely by the rate
-  /// checks, so without a deadline it polls qBittorrent forever.
-  gaveUp,
-}
-
-/// Download-rate telemetry for one session's buffering phase.
+/// One streaming session for a single video, as `StreamingService` reports
+/// it.
 ///
-/// Exists so [StreamingService.assessBuffering] can tell "slow but viable"
-/// from "not happening" — a distinction a wall-clock deadline cannot make.
-class BufferWatch {
-  BufferWatch(this.startedAt) : lastProgressAt = startedAt;
-
-  final DateTime startedAt;
-  int lastBytes = 0;
-  DateTime lastProgressAt;
-  double bytesPerSecond = 0;
-
-  /// Fold in a new observation. Rate is exponentially smoothed so one slow
-  /// poll doesn't condemn a torrent and one fast poll doesn't rescue it.
-  void observe(int bytes, DateTime now) {
-    if (bytes <= lastBytes) return;
-    final seconds = now.difference(lastProgressAt).inMilliseconds / 1000.0;
-    if (seconds > 0) {
-      final sample = (bytes - lastBytes) / seconds;
-      bytesPerSecond = bytesPerSecond == 0
-          ? sample
-          : bytesPerSecond * 0.7 + sample * 0.3;
-    }
-    lastBytes = bytes;
-    lastProgressAt = now;
-  }
-}
-
-/// Represents a streaming session for a single video
+/// Immutable: every update is a [copyWith], published to the session's
+/// stream, so a listener never sees a value change underneath it.
 class StreamingSession {
   final String id;
 
@@ -93,41 +47,40 @@ class StreamingSession {
   final int? episode;
   final String? episodeCode;
 
-  /// When this session was first created. Drives the [metadataTimeout] check
-  /// in the monitoring loop and seeds the buffering rate window.
+  /// When this session was first created. Drives the metadata timeout in the
+  /// monitoring loop and seeds the buffering rate window.
   ///
-  /// **Must be threaded through [copyWith].** `_updateSession` copies the
-  /// session on every 2 s poll tick as a heartbeat; if `copyWith` let the
-  /// constructor default this back to `DateTime.now()`, session age would
-  /// never exceed one poll interval and both timeouts would be dead code.
+  /// **Must be threaded through [copyWith].** The service copies the session
+  /// on every 2 s poll tick as a heartbeat; if `copyWith` let the constructor
+  /// default this back to `DateTime.now()`, session age would never exceed
+  /// one poll interval and both timeouts would be dead code.
   final DateTime createdAt;
 
-  StreamingState state;
-  String? torrentHash;
-  String? contentPath;
-  String? selectedFilePath;
-  int? selectedFileIndex;
-  double bufferProgress;
-  String? errorMessage;
-  LocalMediaFile? videoFile;
+  final StreamingState state;
+  final String? torrentHash;
+  final String? contentPath;
+  final String? selectedFilePath;
+  final int? selectedFileIndex;
+  final double bufferProgress;
+  final String? errorMessage;
+  final LocalMediaFile? videoFile;
 
-  /// HTTP URL the player should open instead of [videoFile.path] while the
-  /// torrent is still downloading. Populated once the local streaming proxy
-  /// is up. Null when streaming isn't available (or once the file is
-  /// fully downloaded and direct file playback is fine).
-  String? streamUrl;
+  /// HTTP URL the player should open instead of [videoFile]'s path while the
+  /// torrent is still downloading: the engine's own stream endpoint, or the
+  /// local streaming proxy in front of a downloader. Null once the file is
+  /// complete and is opened straight from disk.
+  final String? streamUrl;
 
-  /// Latest qBittorrent download rate for this torrent in bytes/second.
-  /// Refreshed on every monitoring poll. Drives the "X MB/s" hint in the
-  /// prep overlay so the user can tell whether the torrent has peers vs.
-  /// is stuck waiting on metadata.
-  int downloadRateBytesPerSec;
+  /// Latest download rate for this torrent in bytes/second, refreshed on
+  /// every monitoring poll. Drives the "X MB/s" hint in the prep overlay so
+  /// the user can tell a torrent with peers from one still finding them.
+  final int downloadRateBytesPerSec;
 
-  /// When true, [assessBuffering] outcomes of `tooSlow` / `stalled` do
-  /// **not** fail the session. Used for background next-episode prefetch:
-  /// that torrent shares the pipe with the episode currently playing, so
-  /// a 10-minute projected wait is expected — aborting would freeze the
-  /// pill on "Too slow to stream" and never update again.
+  /// When true, `tooSlow` / `stalled` buffering outcomes do **not** fail the
+  /// session. Used for background next-episode prefetch: that torrent shares
+  /// the pipe with the episode currently playing, so a 10-minute projected
+  /// wait is expected — aborting would freeze the pill on "Too slow to
+  /// stream" and never update again.
   final bool allowSlowBuffer;
 
   StreamingSession({
@@ -203,14 +156,3 @@ class StreamingSession {
     );
   }
 }
-
-/// Service for managing robust streaming of torrents
-///
-/// This service handles the complete streaming workflow:
-/// 1. Add torrent with streaming-optimized settings
-/// 2. Wait for metadata and file list
-/// 3. Select the correct file (using fileIdx for season packs)
-/// 4. Monitor buffering progress
-/// 5. Provide ready callback when enough is buffered
-///
-/// Based on Stremio's approach to torrent streaming.

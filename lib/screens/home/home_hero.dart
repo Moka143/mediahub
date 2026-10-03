@@ -1,6 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
@@ -8,45 +7,80 @@ import '../../design/app_typography.dart';
 import '../../models/show.dart';
 import '../../models/watch_progress.dart';
 import '../../widgets/editorial/editorial.dart';
+import '../../widgets/media/hue_backdrop.dart';
+import '../../widgets/media/poster_lookup.dart';
 import 'home_hero_data.dart';
 
-class HeroCard extends ConsumerWidget {
+/// The Home hero: the title in progress, or — before anything has been
+/// watched — the week's top trending show.
+///
+/// Its actions use the browse spotlight's words for the same thing:
+/// "Stream" to watch, "Details" for the page. The hero said "Browse" and
+/// "More info" where the spotlight, for the same title, said "Get torrent"
+/// and "Details".
+class HeroCard extends StatelessWidget {
   const HeroCard({
     super.key,
-    required this.continueWatching,
-    this.fallbackShow,
-    this.onPrimaryTap,
+    required this.progress,
+    required this.art,
+    required this.fallbackShow,
+    required this.onPrimaryTap,
     this.onSecondaryTap,
   });
 
-  final List<WatchProgress> continueWatching;
+  /// The most recent Continue Watching entry, if any.
+  final WatchProgress? progress;
+  final HeroArt? art;
 
-  /// When the user has no continue-watching items yet, the hero
-  /// pulls art + title from this trending show so the page never
-  /// shows an empty gradient on first run.
+  /// Shown when there is nothing in progress.
   final Show? fallbackShow;
 
-  final VoidCallback? onPrimaryTap;
+  final VoidCallback onPrimaryTap;
   final VoidCallback? onSecondaryTap;
 
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final hero = continueWatching.isNotEmpty ? continueWatching.first : null;
-    final fb = fallbackShow;
-    final hue = hero != null
-        ? (hero.showName?.codeUnits.fold<int>(0, (a, b) => a + b) ?? 220) % 360
-        : (fb != null ? (fb.id * 37) % 360 : 220);
+  /// The largest type on Home — above the type ramp's top step,
+  /// [AppType.sizeDisplay].
+  static const double _titleSize = 64;
 
-    // Continue Watching uses that title's own backdrop + poster.
-    // Trending art is only for the empty-library welcome hero — mixing
-    // it in here is how Lioness ended up on another show's still.
-    final cwArt = hero == null
-        ? null
-        : ref.watch(homeContinueHeroArtProvider).asData?.value;
-    final backdropUrl = hero != null
-        ? cwArt?.backdropUrl
-        : (fb?.backdropUrl ?? fb?.posterUrl);
-    final posterUrl = hero != null ? cwArt?.posterUrl : fb?.posterUrl;
+  @override
+  Widget build(BuildContext context) {
+    final hero = progress;
+    final fb = hero == null ? fallbackShow : null;
+    final title = hero != null
+        ? (art?.title ?? watchProgressTitle(hero))
+        : (fb?.name ?? 'MediaHub');
+    final hue = hero != null
+        ? hueForText(title)
+        : (fb != null ? hueForId(fb.id) : 220.0);
+    final backdropUrl = tmdbResized(
+      hero != null ? art?.backdropUrl : (fb?.backdropUrl ?? fb?.posterUrl),
+    );
+    final posterUrl = hero != null ? art?.posterUrl : fb?.posterUrl;
+
+    final String badge;
+    final String body;
+    final String primaryLabel;
+    final IconData primaryIcon;
+    if (hero != null) {
+      badge = 'Continue watching';
+      body = 'Pick up where you left off — ${_remaining(hero)} left.';
+      primaryLabel = 'Resume';
+      primaryIcon = Icons.play_arrow_rounded;
+    } else if (fb != null) {
+      badge = '▲ Trending';
+      body = (fb.overview != null && fb.overview!.isNotEmpty)
+          ? fb.overview!
+          : 'This week\'s most-watched show.';
+      primaryLabel = 'Stream';
+      primaryIcon = Icons.play_arrow_rounded;
+    } else {
+      badge = 'Welcome';
+      body =
+          'Browse shows or movies, pick a source, and start watching while '
+          'it downloads.';
+      primaryLabel = 'Browse shows';
+      primaryIcon = Icons.explore_rounded;
+    }
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppRadius.xl),
@@ -59,18 +93,19 @@ class HeroCard extends ConsumerWidget {
               CachedNetworkImage(
                 imageUrl: backdropUrl,
                 fit: BoxFit.cover,
-                errorWidget: (_, _, _) => hueBackdrop(hue),
-                placeholder: (_, _) => hueBackdrop(hue),
+                memCacheWidth: 1600,
+                errorWidget: (_, _, _) => HueBackdrop(hue: hue, dark: true),
+                placeholder: (_, _) => HueBackdrop(hue: hue, dark: true),
               )
             else
-              hueBackdrop(hue),
+              HueBackdrop(hue: hue, dark: true),
             DecoratedBox(
               decoration: BoxDecoration(
                 gradient: RadialGradient(
                   center: const Alignment(-0.6, -0.4),
                   radius: 1.0,
                   colors: [
-                    HSLColor.fromAHSL(0.5, hue.toDouble(), 0.7, 0.3).toColor(),
+                    HSLColor.fromAHSL(0.5, hue % 360, 0.7, 0.3).toColor(),
                     Colors.transparent,
                   ],
                 ),
@@ -86,10 +121,12 @@ class HeroCard extends ConsumerWidget {
                   child: DecoratedBox(
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(AppRadius.md),
-                      border: Border.all(color: Colors.white.withAlpha(28)),
+                      border: Border.all(
+                        color: AppColors.onMedia.withAlpha(AppOpacity.light),
+                      ),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withAlpha(140),
+                          color: AppColors.shadow.withValues(alpha: 0.55),
                           blurRadius: 24,
                           offset: const Offset(0, 10),
                         ),
@@ -100,6 +137,7 @@ class HeroCard extends ConsumerWidget {
                       child: CachedNetworkImage(
                         imageUrl: posterUrl,
                         fit: BoxFit.cover,
+                        memCacheWidth: 400,
                         errorWidget: (_, _, _) => const SizedBox.shrink(),
                       ),
                     ),
@@ -113,8 +151,8 @@ class HeroCard extends ConsumerWidget {
                   end: Alignment.centerRight,
                   stops: const [0.0, 0.55, 0.82],
                   colors: [
-                    AppColors.bgPage.withAlpha(200),
-                    AppColors.bgPage.withAlpha(90),
+                    AppColors.bgPage.withAlpha(AppOpacity.heavy),
+                    AppColors.bgPage.withValues(alpha: 0.35),
                     Colors.transparent,
                   ],
                 ),
@@ -131,29 +169,17 @@ class HeroCard extends ConsumerWidget {
                     runSpacing: AppSpacing.xs,
                     children: [
                       EditorialBadge(
-                        hero != null
-                            ? 'Continue Watching'
-                            : (fb != null ? '▲ Trending' : 'Welcome'),
-                        compact: true,
-                        tone: hero != null
-                            ? AppColors.seedColor
-                            : AppColors.accentAmber,
+                        badge,
+                        tone: hero != null ? AppColors.accent : AppColors.warn,
                       ),
                       if (hero?.episodeCode != null)
-                        EditorialBadge(
-                          hero!.episodeCode!,
-                          compact: true,
-                          tone: AppColors.fg2,
-                        ),
+                        EditorialBadge(hero!.episodeCode!, tone: AppColors.fg1),
                     ],
                   ),
                   const SizedBox(height: AppSpacing.md),
                   SerifTitle(
-                    hero?.showName ??
-                        hero?.episodeTitle ??
-                        fb?.name ??
-                        'MediaHub',
-                    size: 64,
+                    title,
+                    size: _titleSize,
                     height: 0.95,
                     letterSpacing: -0.02,
                     color: AppColors.fg,
@@ -163,17 +189,11 @@ class HeroCard extends ConsumerWidget {
                   ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 540),
                     child: Text(
-                      hero != null
-                          ? 'Pick up where you left off — '
-                                '${_progressLabel(hero)} remaining.'
-                          : (fb?.overview != null && fb!.overview!.isNotEmpty
-                                ? fb.overview!
-                                : 'Browse Shows or Movies, queue a torrent, '
-                                      'and start watching the moment it\'s ready.'),
+                      body,
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                       style: AppType.ui(
-                        size: 14,
+                        size: AppType.sizeLead,
                         color: AppColors.fg1,
                         height: 1.6,
                       ),
@@ -183,33 +203,28 @@ class HeroCard extends ConsumerWidget {
                     const SizedBox(height: AppSpacing.md),
                     SizedBox(
                       width: 320,
-                      child: HomeProgressBar(
-                        progress:
-                            hero.position.inSeconds /
-                            (hero.duration.inSeconds == 0
-                                ? 1
-                                : hero.duration.inSeconds),
-                      ),
+                      child: EditorialProgress(value: hero.progress),
                     ),
                   ],
                   const SizedBox(height: AppSpacing.lg),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
+                  Wrap(
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.sm,
                     children: [
                       EditorialButton(
-                        label: hero != null ? 'Resume' : 'Browse',
-                        icon: Icons.play_arrow_rounded,
+                        label: primaryLabel,
+                        icon: primaryIcon,
                         kind: EditorialButtonKind.accent,
                         large: true,
-                        onPressed: onPrimaryTap ?? () {},
+                        onPressed: onPrimaryTap,
                       ),
-                      const SizedBox(width: AppSpacing.sm),
-                      EditorialButton(
-                        label: 'More info',
-                        kind: EditorialButtonKind.ghost,
-                        large: true,
-                        onPressed: onSecondaryTap ?? () {},
-                      ),
+                      if (onSecondaryTap != null)
+                        EditorialButton(
+                          label: 'Details',
+                          kind: EditorialButtonKind.ghost,
+                          large: true,
+                          onPressed: onSecondaryTap,
+                        ),
                     ],
                   ),
                 ],
@@ -221,82 +236,10 @@ class HeroCard extends ConsumerWidget {
     );
   }
 
-  static String _progressLabel(WatchProgress p) {
-    final remaining = p.duration - p.position;
-    final m = remaining.inMinutes;
-    if (m < 1) return '< 1 min';
+  static String _remaining(WatchProgress p) {
+    final m = (p.duration - p.position).inMinutes;
+    if (m < 1) return 'under a minute';
     if (m < 60) return '$m min';
     return '${m ~/ 60}h ${m % 60}m';
-  }
-}
-
-class HomeProgressBar extends StatelessWidget {
-  const HomeProgressBar({super.key, required this.progress});
-
-  final double progress;
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(2),
-      child: SizedBox(
-        height: 4,
-        child: Stack(
-          children: [
-            Container(color: AppColors.glassBorder),
-            FractionallySizedBox(
-              widthFactor: progress.clamp(0.0, 1.0),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: AppColors.seedColor,
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.seedColor.withAlpha(120),
-                      blurRadius: 8,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class HomeSectionHeader extends StatelessWidget {
-  const HomeSectionHeader({super.key, required this.title, this.onSeeAll});
-
-  final String title;
-  final VoidCallback? onSeeAll;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.baseline,
-      textBaseline: TextBaseline.alphabetic,
-      children: [
-        SerifTitle(title, size: 24, height: 1.0),
-        const Spacer(),
-        if (onSeeAll != null)
-          InkWell(
-            onTap: onSeeAll,
-            borderRadius: BorderRadius.circular(4),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-              child: Text(
-                'see all →',
-                style: AppType.mono(
-                  size: 11,
-                  color: AppColors.fg2,
-                  letterSpacing: 0.06,
-                  weight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
   }
 }

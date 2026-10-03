@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
@@ -14,35 +13,88 @@ import '../utils/platform_utils.dart';
 import 'app_logger.dart';
 import 'torrent_engine.dart';
 
-/// Exception for qBittorrent API errors
-class QBittorrentApiException implements Exception {
-  final String message;
-  final int? statusCode;
-
-  QBittorrentApiException(this.message, {this.statusCode});
-
-  @override
-  String toString() =>
-      'QBittorrentApiException: $message (status: $statusCode)';
-}
-
 /// Service for interacting with qBittorrent Web API v2.
 ///
 /// The reference [TorrentEngine]: it answers every optional member, so no
 /// capability is declared away. It does *not* answer [streamUrl] — qBittorrent
 /// is a downloader, and serving its partially-written files is
 /// `LocalStreamingServer`'s job.
+///
+/// Every authenticated call goes through [_request], which logs in when there
+/// is no session yet and once more when qBittorrent answers 403 — which it
+/// does to every request after it restarts, because sessions do not survive
+/// a restart. Before that, a restarted qBittorrent made every call quietly
+/// return an empty list until the connection check gave up on it.
 class QBittorrentApiService extends TorrentEngine {
-  late Dio _dio;
+  QBittorrentApiService({
+    String host = AppConstants.defaultHost,
+    int port = AppConstants.defaultPort,
+    String username = AppConstants.defaultUsername,
+    String password = AppConstants.defaultPassword,
+    @visibleForTesting HttpClientAdapter? httpClientAdapter,
+  }) : _host = host,
+       _port = port,
+       _username = username,
+       _password = password,
+       _dio = Dio(
+         BaseOptions(
+           baseUrl: 'http://$host:$port',
+           connectTimeout: const Duration(seconds: 10),
+           receiveTimeout: const Duration(seconds: 10),
+           headers: {
+             'Referer': 'http://$host:$port',
+             'Origin': 'http://$host:$port',
+           },
+           // 4xx is an answer here, not an exception: 403 drives re-login,
+           // 404 the v4/v5 endpoint fallbacks, 409 a rejected add.
+           validateStatus: (status) => status != null && status < 500,
+         ),
+       ) {
+    if (httpClientAdapter != null) _dio.httpClientAdapter = httpClientAdapter;
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          final cookie = _sessionCookie;
+          if (cookie != null) options.headers['Cookie'] = cookie;
+          _log('API Request: ${options.method} ${options.path}');
+          handler.next(options);
+        },
+        onResponse: (response, handler) {
+          _log(
+            'API Response: ${response.statusCode} '
+            '${response.requestOptions.path}',
+          );
+          handler.next(response);
+        },
+        onError: (error, handler) {
+          _log('API Error: ${error.message}');
+          handler.next(error);
+        },
+      ),
+    );
+  }
+
+  final Dio _dio;
   final String _host;
   final int _port;
   final String _username;
   final String _password;
-  String? _sid;
+
+  // No setters: a settings change disposes this service and builds a new one
+  // through `torrentEngineProvider`, which is also what keeps the session,
+  // `_pieceSizeCache` and `_syncRid` from going stale against another host.
+
+  /// The session cookie exactly as qBittorrent set it, `name=value`.
+  ///
+  /// Kept whole because the name is not fixed: `SID` up to 5.1, `QBT_SID_<port>`
+  /// from 5.2, and whatever the user configured where the name is
+  /// customisable. Sending back a hard-coded `SID=` meant a correct password
+  /// still failed every request after the login.
+  String? _sessionCookie;
   bool _isAuthenticated = false;
+  Future<bool>? _loginInFlight;
   int _syncRid = 0;
   final Map<String, int> _pieceSizeCache = {};
-  bool? _piecePrioSupported;
 
   /// True when the HTTP status code is in the 2xx success range.
   ///
@@ -53,25 +105,19 @@ class QBittorrentApiService extends TorrentEngine {
   static bool isSuccessStatus(int? code) =>
       code != null && code >= 200 && code < 300;
 
-  /// Callback for logging
-  final void Function(String message)? onLog;
-
   /// Form-encode a request body.
   ///
   /// The login body used to interpolate the username and password raw, so a
   /// password containing `&`, `=`, `+`, `%` or a space produced a malformed
-  /// body — and the only symptom was the generic "Failed to authenticate.
-  /// Check username/password in Settings." The hash and id parameters are hex
-  /// and integers today, but they go through the same door so the next
-  /// parameter added cannot reintroduce it.
+  /// body — and the only symptom was a generic authentication failure. The
+  /// hash and id parameters are hex and integers today, but they go through
+  /// the same door so the next parameter added cannot reintroduce it.
   ///
   /// [Uri.encodeComponent], **not** [Uri.encodeQueryComponent]: the two differ
   /// only on the space, which the latter writes as `+`. That is an HTML-form
   /// convention, and qBittorrent parses these bodies with Qt's `QUrlQuery`,
   /// which percent-decodes but does not turn `+` back into a space — so a
-  /// password with a space in it would arrive with a literal `+`. The
-  /// pre-existing `setPreferences` call already used `encodeComponent` against
-  /// this same server, which is the evidence for which one it understands.
+  /// password with a space in it would arrive with a literal `+`.
   @visibleForTesting
   static String formEncode(Map<String, String> fields) => fields.entries
       .map(
@@ -81,70 +127,51 @@ class QBittorrentApiService extends TorrentEngine {
       )
       .join('&');
 
+  /// The session cookie among a response's `Set-Cookie` headers, as the
+  /// `name=value` pair to send back — or null when there is none.
+  ///
+  /// Prefers a name containing `SID` (qBittorrent's own choices), and
+  /// otherwise takes the first cookie with a value, since qBittorrent sets no
+  /// other cookie on login and the name may be user-defined. An empty value
+  /// is a deletion, not a session.
+  @visibleForTesting
+  static String? sessionCookieFrom(List<String>? setCookieHeaders) {
+    if (setCookieHeaders == null) return null;
+    String? firstNamed;
+    for (final header in setCookieHeaders) {
+      final pair = header.split(';').first.trim();
+      final eq = pair.indexOf('=');
+      if (eq <= 0) continue;
+      final name = pair.substring(0, eq).trim();
+      final value = pair.substring(eq + 1).trim();
+      if (name.isEmpty || value.isEmpty) continue;
+      if (name.toUpperCase().contains('SID')) return '$name=$value';
+      firstNamed ??= '$name=$value';
+    }
+    return firstNamed;
+  }
+
+  /// Whether a login response means we are in.
+  ///
+  /// qBittorrent up to 5.1 answers 200 with `Ok.`; 5.2 answers with an empty
+  /// body and a session cookie. `Fails.` is a wrong username or password, and
+  /// a 403 is an IP banned after too many of those.
+  @visibleForTesting
+  static bool loginSucceeded({
+    required int? statusCode,
+    required Object? body,
+    required String? sessionCookie,
+  }) {
+    if (!isSuccessStatus(statusCode)) return false;
+    final text = body?.toString().trim() ?? '';
+    if (text == 'Ok.') return true;
+    if (text.isEmpty) return sessionCookie != null;
+    return false;
+  }
+
   static final Options _formOptions = Options(
     contentType: 'application/x-www-form-urlencoded',
   );
-
-  QBittorrentApiService({
-    String host = AppConstants.defaultHost,
-    int port = AppConstants.defaultPort,
-    String username = AppConstants.defaultUsername,
-    String password = AppConstants.defaultPassword,
-    this.onLog,
-  }) : _host = host,
-       _port = port,
-       _username = username,
-       _password = password {
-    _initDio();
-  }
-
-  /// Initialize Dio client
-  void _initDio() {
-    _dio = Dio(
-      BaseOptions(
-        baseUrl: 'http://$_host:$_port',
-        connectTimeout: const Duration(seconds: 10),
-        receiveTimeout: const Duration(seconds: 10),
-        headers: {
-          'Referer': 'http://$_host:$_port',
-          'Origin': 'http://$_host:$_port',
-        },
-        validateStatus: (status) => status != null && status < 500,
-      ),
-    );
-
-    // Add interceptor for logging and auth
-    _dio.interceptors.add(
-      InterceptorsWrapper(
-        onRequest: (options, handler) {
-          if (_sid != null) {
-            options.headers['Cookie'] = 'SID=$_sid';
-          }
-          _log('API Request: ${options.method} ${options.path}');
-          return handler.next(options);
-        },
-        onResponse: (response, handler) {
-          _log(
-            'API Response: ${response.statusCode} ${response.requestOptions.path}',
-          );
-          return handler.next(response);
-        },
-        onError: (error, handler) {
-          _log('API Error: ${error.message}');
-          return handler.next(error);
-        },
-      ),
-    );
-  }
-
-  // No updateSettings: a settings change disposes this service and builds a
-  // new one through `torrentEngineProvider`, which is also what kept
-  // `_pieceSizeCache`, `_piecePrioSupported` and `_syncRid` from going stale
-  // against a different host.
-
-  /// Check if authenticated
-  @override
-  bool get isAuthenticated => _isAuthenticated;
 
   /// Get API base URL
   @override
@@ -152,223 +179,156 @@ class QBittorrentApiService extends TorrentEngine {
 
   // ==================== Auth ====================
 
-  /// Login to qBittorrent
+  void _clearSession() {
+    _sessionCookie = null;
+    _isAuthenticated = false;
+  }
+
+  /// Log in to qBittorrent.
+  ///
+  /// Concurrent callers share one attempt: after a qBittorrent restart every
+  /// in-flight poll gets a 403 at once, and each logging in separately would
+  /// also trip qBittorrent's failed-login ban if the password is wrong.
+  ///
+  /// Returns false when qBittorrent refused the credentials. Throws the
+  /// [DioException] when it could not be reached at all, so the caller can
+  /// say which of the two happened.
   @override
-  Future<bool> login() async {
+  Future<bool> login() =>
+      _loginInFlight ??= _login().whenComplete(() => _loginInFlight = null);
+
+  Future<bool> _login() async {
+    _clearSession();
+
+    // qBittorrent can be set to skip authentication for localhost or a
+    // whitelisted subnet; then an anonymous request simply works.
     try {
-      // First, try to access the API without authentication
-      // qBittorrent may have "bypass authentication for localhost" enabled
-      final testResponse = await _dio.get('/api/v2/app/version');
-      if (testResponse.statusCode == 200) {
-        // Extract SID from any response cookies
-        final cookies = testResponse.headers['set-cookie'];
-        if (cookies != null) {
-          for (final cookie in cookies) {
-            if (cookie.contains('SID=')) {
-              final match = RegExp(r'SID=([^;]+)').firstMatch(cookie);
-              if (match != null) {
-                _sid = match.group(1);
-              }
-            }
-          }
-        }
+      final probe = await _dio.get<dynamic>('/api/v2/app/version');
+      if (isSuccessStatus(probe.statusCode)) {
         _isAuthenticated = true;
-        _log('Connected without authentication (localhost bypass enabled)');
+        _log('Connected without a login (authentication bypassed)');
         return true;
       }
-    } catch (e) {
-      _log('Localhost bypass check failed, trying normal login: $e');
-    }
-
-    // Normal authentication
-    try {
-      final response = await _dio.post(
-        '/api/v2/auth/login',
-        data: formEncode({'username': _username, 'password': _password}),
-        options: _formOptions,
-      );
-
-      if (isSuccessStatus(response.statusCode)) {
-        final cookies = response.headers['set-cookie'];
-        if (cookies != null) {
-          for (final cookie in cookies) {
-            if (cookie.contains('SID=')) {
-              final match = RegExp(r'SID=([^;]+)').firstMatch(cookie);
-              if (match != null) {
-                _sid = match.group(1);
-                _isAuthenticated = true;
-                _log('Login successful, SID: $_sid');
-                return true;
-              }
-            }
-          }
-        }
-
-        // Some versions return Ok. without cookie
-        if (response.data == 'Ok.') {
-          _isAuthenticated = true;
-          _log('Login successful (no SID)');
-          return true;
-        }
-      }
-
-      _log('Login failed: ${response.statusCode} - ${response.data}');
-      _isAuthenticated = false;
-      return false;
     } on DioException catch (e) {
-      _log('Login DioException: ${e.type} - ${e.message}');
-      _isAuthenticated = false;
-      rethrow;
-    } catch (e) {
-      _log('Login error: $e');
-      _isAuthenticated = false;
-      return false;
+      // An unreachable server fails the login below the same way; let that
+      // one be the error the caller sees.
+      _log('Anonymous probe failed (${e.type}) — trying a normal login');
     }
+
+    final response = await _dio.post<dynamic>(
+      '/api/v2/auth/login',
+      data: formEncode({'username': _username, 'password': _password}),
+      options: _formOptions,
+    );
+    final cookie = sessionCookieFrom(response.headers['set-cookie']);
+    if (loginSucceeded(
+      statusCode: response.statusCode,
+      body: response.data,
+      sessionCookie: cookie,
+    )) {
+      _sessionCookie = cookie;
+      _isAuthenticated = true;
+      // The name only — the value is a credential and the log is plain text.
+      final name = cookie?.split('=').first;
+      _log('Logged in${name == null ? '' : ' (session cookie $name)'}');
+      return true;
+    }
+
+    _log('Login refused: ${response.statusCode} ${response.data}');
+    return false;
   }
 
-  /// Logout from qBittorrent
-  @override
-  Future<void> logout() async {
+  /// One authenticated request.
+  ///
+  /// Logs in first when there is no session, and once more on a 403 — the
+  /// answer to a session qBittorrent no longer knows about. Null when the
+  /// engine could not be reached, or refused us after the fresh login too.
+  /// Never throws.
+  Future<Response<dynamic>?> _request(
+    String what,
+    Future<Response<dynamic>> Function() send,
+  ) async {
     try {
-      await _dio.post('/api/v2/auth/logout');
+      if (!_isAuthenticated && !await login()) return null;
+      var response = await send();
+      if (response.statusCode == 403) {
+        _log('$what: session rejected (403) — logging in again');
+        _clearSession();
+        if (!await login()) return null;
+        response = await send();
+      }
+      return response;
     } catch (e) {
-      _log('Logout error: $e');
-    } finally {
-      _sid = null;
-      _isAuthenticated = false;
+      _log('$what failed: $e');
+      return null;
     }
   }
 
-  /// Ensure authenticated before making API calls
-  Future<bool> _ensureAuthenticated() async {
-    if (!_isAuthenticated) {
-      return login();
-    }
-    return true;
-  }
+  Future<Response<dynamic>?> _get(
+    String what,
+    String path, {
+    Map<String, dynamic>? query,
+  }) => _request(what, () => _dio.get<dynamic>(path, queryParameters: query));
+
+  Future<Response<dynamic>?> _post(
+    String what,
+    String path, [
+    Map<String, String> fields = const {},
+  ]) => _request(
+    what,
+    () => _dio.post<dynamic>(
+      path,
+      data: formEncode(fields),
+      options: _formOptions,
+    ),
+  );
+
+  Future<bool> _postOk(
+    String what,
+    String path, [
+    Map<String, String> fields = const {},
+  ]) async => isSuccessStatus((await _post(what, path, fields))?.statusCode);
 
   // ==================== App ====================
 
   /// Get qBittorrent version
   @override
   Future<String?> getVersion() async {
-    if (!await _ensureAuthenticated()) return null;
-
-    try {
-      final response = await _dio.get('/api/v2/app/version');
-      return response.data as String?;
-    } catch (e) {
-      _log('Get version error: $e');
-      return null;
-    }
+    final response = await _get('get version', '/api/v2/app/version');
+    if (!isSuccessStatus(response?.statusCode)) return null;
+    return response?.data?.toString().trim();
   }
 
-  /// Get Web API version
+  /// Reachability probe, including a quiet re-login after a restart.
   @override
-  Future<String?> getApiVersion() async {
-    if (!await _ensureAuthenticated()) return null;
+  Future<bool> testConnection() async => isSuccessStatus(
+    (await _get('check connection', '/api/v2/app/version'))?.statusCode,
+  );
 
-    try {
-      final response = await _dio.get('/api/v2/app/webapiVersion');
-      return response.data as String?;
-    } catch (e) {
-      _log('Get API version error: $e');
-      return null;
-    }
-  }
-
-  /// Get application preferences
-  @override
-  Future<Map<String, dynamic>?> getPreferences() async {
-    if (!await _ensureAuthenticated()) return null;
-
-    try {
-      final response = await _dio.get('/api/v2/app/preferences');
-      return response.data as Map<String, dynamic>?;
-    } catch (e) {
-      _log('Get preferences error: $e');
-      return null;
-    }
-  }
-
-  /// Set application preferences
-  @override
-  Future<bool> setPreferences(Map<String, dynamic> prefs) async {
-    if (!await _ensureAuthenticated()) return false;
-
-    try {
-      final prefsJson = jsonEncode(prefs);
-      final response = await _dio.post(
-        '/api/v2/app/setPreferences',
-        data: formEncode({'json': prefsJson}),
-        options: _formOptions,
-      );
-      return isSuccessStatus(response.statusCode);
-    } catch (e) {
-      _log('Set preferences error: $e');
-      return false;
-    }
-  }
+  /// Ask qBittorrent to quit, the way its own File → Exit does: resume data
+  /// is saved and every torrent is shut down cleanly.
+  ///
+  /// Only for an instance this app launched — see
+  /// `QBittorrentProcessService.launchedThisSession`.
+  Future<bool> requestShutdown() =>
+      _postOk('quit qBittorrent', '/api/v2/app/shutdown');
 
   // ==================== Torrents ====================
 
-  /// Get all torrents
   @override
-  Future<List<Torrent>> getTorrents({
-    String? filter,
-    String? category,
-    String? tag,
-    String? sort,
-    bool? reverse,
-    int? limit,
-    int? offset,
-    List<String>? hashes,
-  }) async {
-    if (!await _ensureAuthenticated()) return [];
-
-    try {
-      final params = <String, dynamic>{};
-      if (filter != null) params['filter'] = filter;
-      if (category != null) params['category'] = category;
-      if (tag != null) params['tag'] = tag;
-      if (sort != null) params['sort'] = sort;
-      if (reverse != null) params['reverse'] = reverse;
-      if (limit != null) params['limit'] = limit;
-      if (offset != null) params['offset'] = offset;
-      if (hashes != null) params['hashes'] = hashes.join('|');
-
-      final response = await _dio.get(
-        '/api/v2/torrents/info',
-        queryParameters: params,
-      );
-
-      if (response.data is List) {
-        return (response.data as List)
-            .map((json) => Torrent.fromJson(json as Map<String, dynamic>))
-            .toList();
-      }
-      return [];
-    } catch (e) {
-      _log('Get torrents error: $e');
-      return [];
-    }
-  }
-
-  /// Get torrent properties
-  @override
-  Future<Map<String, dynamic>?> getTorrentProperties(String hash) async {
-    if (!await _ensureAuthenticated()) return null;
-
-    try {
-      final response = await _dio.get(
-        '/api/v2/torrents/properties',
-        queryParameters: {'hash': hash},
-      );
-      return response.data as Map<String, dynamic>?;
-    } catch (e) {
-      _log('Get torrent properties error: $e');
-      return null;
-    }
+  Future<List<Torrent>?> tryGetTorrents({List<String>? hashes}) async {
+    final response = await _get(
+      'list torrents',
+      '/api/v2/torrents/info',
+      query: hashes == null ? null : {'hashes': hashes.join('|')},
+    );
+    if (response == null || !isSuccessStatus(response.statusCode)) return null;
+    final data = response.data;
+    if (data is! List) return null;
+    return data
+        .whereType<Map>()
+        .map((json) => Torrent.fromJson(json.cast<String, dynamic>()))
+        .toList();
   }
 
   /// Piece size is not on `/torrents/info` — only on `/torrents/properties`.
@@ -377,111 +337,94 @@ class QBittorrentApiService extends TorrentEngine {
   Future<int> getPieceSize(String hash) async {
     final cached = _pieceSizeCache[hash];
     if (cached != null && cached > 0) return cached;
-    try {
-      final props = await getTorrentProperties(hash);
-      final size = (props?['piece_size'] as num?)?.toInt() ?? 0;
-      if (size > 0) _pieceSizeCache[hash] = size;
-      return size;
-    } catch (e) {
-      _log('Get piece size error: $e');
-      return 0;
-    }
+    final response = await _get(
+      'get piece size',
+      '/api/v2/torrents/properties',
+      query: {'hash': hash},
+    );
+    final data = response?.data;
+    if (!isSuccessStatus(response?.statusCode) || data is! Map) return 0;
+    final size = (data['piece_size'] as num?)?.toInt() ?? 0;
+    if (size > 0) _pieceSizeCache[hash] = size;
+    return size;
   }
 
-  /// Get torrent files
   @override
-  Future<List<TorrentFile>> getTorrentFiles(String hash) async {
-    if (!await _ensureAuthenticated()) return [];
-
-    try {
-      final response = await _dio.get(
-        '/api/v2/torrents/files',
-        queryParameters: {'hash': hash},
-      );
-
-      if (response.data is List) {
-        final files = <TorrentFile>[];
-        final list = response.data as List;
-        for (var i = 0; i < list.length; i++) {
-          files.add(TorrentFile.fromJson(list[i] as Map<String, dynamic>, i));
-        }
-        return files;
-      }
-      return [];
-    } catch (e) {
-      _log('Get torrent files error: $e');
-      return [];
-    }
+  Future<List<TorrentFile>?> tryGetTorrentFiles(String hash) async {
+    final response = await _get(
+      'list files',
+      '/api/v2/torrents/files',
+      query: {'hash': hash},
+    );
+    if (response == null) return null;
+    // An unknown hash is an answer — there is nothing there — not an outage.
+    if (response.statusCode == 404) return <TorrentFile>[];
+    if (!isSuccessStatus(response.statusCode)) return null;
+    final data = response.data;
+    if (data is! List) return null;
+    return [
+      for (var i = 0; i < data.length; i++)
+        if (data[i] is Map)
+          TorrentFile.fromJson((data[i] as Map).cast<String, dynamic>(), i),
+    ];
   }
 
-  /// Get torrent trackers
   @override
   Future<List<Tracker>> getTorrentTrackers(String hash) async {
-    if (!await _ensureAuthenticated()) return [];
-
-    try {
-      final response = await _dio.get(
-        '/api/v2/torrents/trackers',
-        queryParameters: {'hash': hash},
-      );
-
-      if (response.data is List) {
-        return (response.data as List)
-            .map((json) => Tracker.fromJson(json as Map<String, dynamic>))
-            .toList();
-      }
-      return [];
-    } catch (e) {
-      _log('Get torrent trackers error: $e');
-      return [];
+    final response = await _get(
+      'list trackers',
+      '/api/v2/torrents/trackers',
+      query: {'hash': hash},
+    );
+    final data = response?.data;
+    if (!isSuccessStatus(response?.statusCode) || data is! List) {
+      return const [];
     }
+    return data
+        .whereType<Map>()
+        .map((json) => Tracker.fromJson(json.cast<String, dynamic>()))
+        .toList();
   }
 
-  /// Get torrent peers
   @override
   Future<List<Peer>> getTorrentPeers(String hash) async {
-    if (!await _ensureAuthenticated()) return [];
-
-    try {
-      final response = await _dio.get(
-        '/api/v2/sync/torrentPeers',
-        queryParameters: {'hash': hash, 'rid': 0},
-      );
-
-      if (response.data is Map && response.data['peers'] != null) {
-        final peersMap = response.data['peers'] as Map<String, dynamic>;
-        return peersMap.entries
-            .map((e) => Peer.fromJson(e.key, e.value as Map<String, dynamic>))
-            .toList();
-      }
-      return [];
-    } catch (e) {
-      _log('Get torrent peers error: $e');
-      return [];
+    final response = await _get(
+      'list peers',
+      '/api/v2/sync/torrentPeers',
+      query: {'hash': hash, 'rid': 0},
+    );
+    final data = response?.data;
+    if (!isSuccessStatus(response?.statusCode) || data is! Map) {
+      return const [];
     }
+    final peers = data['peers'];
+    if (peers is! Map) return const [];
+    return [
+      for (final entry in peers.entries)
+        if (entry.value is Map)
+          Peer.fromJson(
+            entry.key.toString(),
+            (entry.value as Map).cast<String, dynamic>(),
+          ),
+    ];
   }
 
-  /// Add torrent from magnet link or URL
+  /// Add torrent from magnet link or file
   @override
   Future<bool> addTorrent({
     String? magnetLink,
     File? torrentFile,
     String? savePath,
-    String? category,
     bool? paused,
-    bool? skipChecking,
     bool? sequentialDownload,
-    bool? firstLastPiecePrio,
   }) async {
-    if (!await _ensureAuthenticated()) return false;
-
-    try {
+    // Built per attempt: a FormData is consumed by sending it, so the retry
+    // after a re-login needs a fresh one.
+    Future<FormData> form() async {
       final formData = FormData();
-
       if (magnetLink != null) {
         formData.fields.add(MapEntry('urls', magnetLink));
       }
-
       if (torrentFile != null) {
         formData.files.add(
           MapEntry(
@@ -493,100 +436,57 @@ class QBittorrentApiService extends TorrentEngine {
           ),
         );
       }
-
       if (savePath != null) formData.fields.add(MapEntry('savepath', savePath));
-      if (category != null) formData.fields.add(MapEntry('category', category));
       if (paused != null) {
         // qBittorrent 4.x uses 'paused'; 5.0+ uses 'stopped'. Send both —
         // each version ignores the field it doesn't recognise.
         formData.fields.add(MapEntry('paused', paused.toString()));
         formData.fields.add(MapEntry('stopped', paused.toString()));
       }
-      if (skipChecking != null) {
-        formData.fields.add(MapEntry('skip_checking', skipChecking.toString()));
-      }
       if (sequentialDownload != null) {
         formData.fields.add(
           MapEntry('sequentialDownload', sequentialDownload.toString()),
         );
       }
-      if (firstLastPiecePrio != null) {
-        formData.fields.add(
-          MapEntry('firstLastPiecePrio', firstLastPiecePrio.toString()),
-        );
-      }
-
-      final response = await _dio.post('/api/v2/torrents/add', data: formData);
-
-      // qBittorrent 4.x returns 200 + body "Ok." on success and 200 + body
-      // "Fails." on failure. qBittorrent 5.2+ returns 204 with empty body on
-      // success and 4xx on failure. Treat any 2xx + non-failure body as
-      // success rather than relying on the exact "Ok." literal.
-      if (!isSuccessStatus(response.statusCode)) return false;
-      final body = response.data?.toString().trim().toLowerCase() ?? '';
-      return body != 'fails.';
-    } catch (e) {
-      _log('Add torrent error: $e');
-      return false;
+      return formData;
     }
+
+    final response = await _request(
+      'add torrent',
+      () async =>
+          _dio.post<dynamic>('/api/v2/torrents/add', data: await form()),
+    );
+    // qBittorrent 4.x returns 200 + body "Ok." on success and 200 + body
+    // "Fails." on failure. qBittorrent 5.2+ returns 204 with empty body on
+    // success and 4xx on failure. Treat any 2xx + non-failure body as
+    // success rather than relying on the exact "Ok." literal.
+    if (!isSuccessStatus(response?.statusCode)) return false;
+    final body = response?.data?.toString().trim().toLowerCase() ?? '';
+    return body != 'fails.';
   }
 
   /// Pause (stop) torrents
   @override
   Future<bool> pauseTorrents(List<String> hashes) async {
-    if (!await _ensureAuthenticated()) return false;
-
-    try {
-      // Try v5.x API first (stop), fall back to v4.x (pause)
-      var response = await _dio.post(
-        '/api/v2/torrents/stop',
-        data: formEncode({'hashes': hashes.join('|')}),
-        options: _formOptions,
-      );
-
-      // If stop endpoint doesn't exist (404), try legacy pause
-      if (response.statusCode == 404) {
-        response = await _dio.post(
-          '/api/v2/torrents/pause',
-          data: formEncode({'hashes': hashes.join('|')}),
-          options: _formOptions,
-        );
-      }
-
-      return isSuccessStatus(response.statusCode);
-    } catch (e) {
-      _log('Pause torrents error: $e');
-      return false;
+    final fields = {'hashes': hashes.join('|')};
+    // 5.x calls it stop; 4.x answers 404 to that and wants pause.
+    var response = await _post('pause', '/api/v2/torrents/stop', fields);
+    if (response?.statusCode == 404) {
+      response = await _post('pause', '/api/v2/torrents/pause', fields);
     }
+    return isSuccessStatus(response?.statusCode);
   }
 
   /// Resume (start) torrents
   @override
   Future<bool> resumeTorrents(List<String> hashes) async {
-    if (!await _ensureAuthenticated()) return false;
-
-    try {
-      // Try v5.x API first (start), fall back to v4.x (resume)
-      var response = await _dio.post(
-        '/api/v2/torrents/start',
-        data: formEncode({'hashes': hashes.join('|')}),
-        options: _formOptions,
-      );
-
-      // If start endpoint doesn't exist (404), try legacy resume
-      if (response.statusCode == 404) {
-        response = await _dio.post(
-          '/api/v2/torrents/resume',
-          data: formEncode({'hashes': hashes.join('|')}),
-          options: _formOptions,
-        );
-      }
-
-      return isSuccessStatus(response.statusCode);
-    } catch (e) {
-      _log('Resume torrents error: $e');
-      return false;
+    final fields = {'hashes': hashes.join('|')};
+    // 5.x calls it start; 4.x answers 404 to that and wants resume.
+    var response = await _post('resume', '/api/v2/torrents/start', fields);
+    if (response?.statusCode == 404) {
+      response = await _post('resume', '/api/v2/torrents/resume', fields);
     }
+    return isSuccessStatus(response?.statusCode);
   }
 
   /// Delete torrents
@@ -595,257 +495,92 @@ class QBittorrentApiService extends TorrentEngine {
     List<String> hashes, {
     bool deleteFiles = false,
   }) async {
-    if (!await _ensureAuthenticated()) return false;
-
-    try {
-      final response = await _dio.post(
-        '/api/v2/torrents/delete',
-        data: formEncode({
-          'hashes': hashes.join('|'),
-          'deleteFiles': '$deleteFiles',
-        }),
-        options: _formOptions,
-      );
-      final ok = isSuccessStatus(response.statusCode);
-      if (ok) {
-        // Force a full snapshot on the next sync — the maindata RID can
-        // miss the deletion delta if the call lands between polls.
-        _syncRid = 0;
-      }
-      return ok;
-    } catch (e) {
-      _log('Delete torrents error: $e');
-      return false;
-    }
+    final ok = await _postOk('delete', '/api/v2/torrents/delete', {
+      'hashes': hashes.join('|'),
+      'deleteFiles': '$deleteFiles',
+    });
+    // Force a full snapshot on the next sync — the maindata RID can miss the
+    // deletion delta if the call lands between polls.
+    if (ok) _syncRid = 0;
+    return ok;
   }
 
-  /// Recheck torrents
   @override
-  Future<bool> recheckTorrents(List<String> hashes) async {
-    if (!await _ensureAuthenticated()) return false;
+  Future<bool> recheckTorrents(List<String> hashes) => _postOk(
+    'recheck',
+    '/api/v2/torrents/recheck',
+    {'hashes': hashes.join('|')},
+  );
 
-    try {
-      final response = await _dio.post(
-        '/api/v2/torrents/recheck',
-        data: formEncode({'hashes': hashes.join('|')}),
-        options: _formOptions,
-      );
-      return isSuccessStatus(response.statusCode);
-    } catch (e) {
-      _log('Recheck torrents error: $e');
-      return false;
-    }
-  }
-
-  /// Reannounce torrents to trackers
   @override
-  Future<bool> reannounceTorrents(List<String> hashes) async {
-    if (!await _ensureAuthenticated()) return false;
+  Future<bool> reannounceTorrents(List<String> hashes) => _postOk(
+    'reannounce',
+    '/api/v2/torrents/reannounce',
+    {'hashes': hashes.join('|')},
+  );
 
-    try {
-      final response = await _dio.post(
-        '/api/v2/torrents/reannounce',
-        data: formEncode({'hashes': hashes.join('|')}),
-        options: _formOptions,
-      );
-      return isSuccessStatus(response.statusCode);
-    } catch (e) {
-      _log('Reannounce torrents error: $e');
-      return false;
-    }
-  }
-
-  /// Set torrent priority
   @override
-  Future<bool> setTorrentPriority(List<String> hashes, String priority) async {
-    if (!await _ensureAuthenticated()) return false;
-
-    try {
-      String endpoint;
-      switch (priority) {
-        case 'top':
-          endpoint = '/api/v2/torrents/topPrio';
-          break;
-        case 'bottom':
-          endpoint = '/api/v2/torrents/bottomPrio';
-          break;
-        case 'increase':
-          endpoint = '/api/v2/torrents/increasePrio';
-          break;
-        case 'decrease':
-          endpoint = '/api/v2/torrents/decreasePrio';
-          break;
-        default:
-          return false;
-      }
-
-      final response = await _dio.post(
-        endpoint,
-        data: formEncode({'hashes': hashes.join('|')}),
-        options: _formOptions,
-      );
-      return isSuccessStatus(response.statusCode);
-    } catch (e) {
-      _log('Set torrent priority error: $e');
-      return false;
-    }
-  }
-
-  /// Set file priority
-  @override
-  Future<bool> setFilePriority(
-    String hash,
-    List<int> fileIds,
-    int priority,
-  ) async {
-    if (!await _ensureAuthenticated()) return false;
-
-    try {
-      final response = await _dio.post(
-        '/api/v2/torrents/filePrio',
-        data: formEncode({
-          'hash': hash,
-          'id': fileIds.join('|'),
-          'priority': '$priority',
-        }),
-        options: _formOptions,
-      );
-      return isSuccessStatus(response.statusCode);
-    } catch (e) {
-      _log('Set file priority error: $e');
-      return false;
-    }
-  }
+  Future<bool> setFilePriority(String hash, List<int> fileIds, int priority) =>
+      _postOk('set file priority', '/api/v2/torrents/filePrio', {
+        'hash': hash,
+        'id': fileIds.join('|'),
+        'priority': '$priority',
+      });
 
   // ==================== Transfer ====================
 
-  /// Get transfer info (global stats)
   @override
-  Future<Map<String, dynamic>?> getTransferInfo() async {
-    if (!await _ensureAuthenticated()) return null;
+  Future<bool> setDownloadLimit(int limit) => _postOk(
+    'set download limit',
+    '/api/v2/transfer/setDownloadLimit',
+    {'limit': '$limit'},
+  );
 
-    try {
-      final response = await _dio.get('/api/v2/transfer/info');
-      return response.data as Map<String, dynamic>?;
-    } catch (e) {
-      _log('Get transfer info error: $e');
-      return null;
-    }
-  }
-
-  /// Set global download speed limit
   @override
-  Future<bool> setDownloadLimit(int limit) async {
-    if (!await _ensureAuthenticated()) return false;
-
-    try {
-      final response = await _dio.post(
-        '/api/v2/transfer/setDownloadLimit',
-        data: formEncode({'limit': '$limit'}),
-        options: _formOptions,
-      );
-      return isSuccessStatus(response.statusCode);
-    } catch (e) {
-      _log('Set download limit error: $e');
-      return false;
-    }
-  }
-
-  /// Set global upload speed limit
-  @override
-  Future<bool> setUploadLimit(int limit) async {
-    if (!await _ensureAuthenticated()) return false;
-
-    try {
-      final response = await _dio.post(
-        '/api/v2/transfer/setUploadLimit',
-        data: formEncode({'limit': '$limit'}),
-        options: _formOptions,
-      );
-      return isSuccessStatus(response.statusCode);
-    } catch (e) {
-      _log('Set upload limit error: $e');
-      return false;
-    }
-  }
+  Future<bool> setUploadLimit(int limit) => _postOk(
+    'set upload limit',
+    '/api/v2/transfer/setUploadLimit',
+    {'limit': '$limit'},
+  );
 
   // ==================== Sync ====================
 
   /// Get main data using sync endpoint (efficient polling)
   @override
   Future<Map<String, dynamic>?> getMainData({bool fullUpdate = false}) async {
-    if (!await _ensureAuthenticated()) return null;
-
-    try {
-      final rid = fullUpdate ? 0 : _syncRid;
-      final response = await _dio.get(
-        '/api/v2/sync/maindata',
-        queryParameters: {'rid': rid},
-      );
-
-      if (response.data is Map<String, dynamic>) {
-        final data = response.data as Map<String, dynamic>;
-        if (data['rid'] != null) {
-          _syncRid = data['rid'] as int;
-        }
-        return data;
-      }
-      return null;
-    } catch (e) {
-      _log('Get main data error: $e');
-      return null;
-    }
+    final response = await _get(
+      'sync',
+      '/api/v2/sync/maindata',
+      query: {'rid': fullUpdate ? 0 : _syncRid},
+    );
+    final data = response?.data;
+    if (!isSuccessStatus(response?.statusCode) || data is! Map) return null;
+    final map = data.cast<String, dynamic>();
+    final rid = map['rid'];
+    if (rid is int) _syncRid = rid;
+    return map;
   }
 
-  /// Log a message. The tag is applied here rather than at the [onLog]
-  /// adapter, so a line is tagged exactly once.
-  void _log(String message) {
-    AppLog.d('[QBittorrentAPI] $message');
-    onLog?.call(message);
-  }
+  // ==================== Streaming ====================
 
-  /// Toggle sequential download for a torrent.
-  ///
-  /// qBittorrent's WebAPI expects `hashes` in the form-encoded body for
-  /// these toggle endpoints, not as a query parameter — passing it as a
-  /// query param silently no-ops on at least some builds (returns 200 with
-  /// an empty body but doesn't actually flip the flag, or returns a non-200
-  /// depending on version). Match `setFilePriority` / `addTorrent` /
-  /// `toggleFirstLastPiecePrio` and submit as form data.
-  @override
-  Future<bool> toggleSequentialDownload(String hash) async {
-    if (!await _ensureAuthenticated()) return false;
+  /// qBittorrent's Web API expects `hashes` in the form-encoded body for the
+  /// toggle endpoints, not as a query parameter — passing it as a query param
+  /// silently no-ops on at least some builds.
+  Future<bool> _toggleSequentialDownload(String hash) => _postOk(
+    'toggle sequential download',
+    '/api/v2/torrents/toggleSequentialDownload',
+    {'hashes': hash},
+  );
 
-    try {
-      final response = await _dio.post(
-        '/api/v2/torrents/toggleSequentialDownload',
-        data: formEncode({'hashes': hash}),
-        options: _formOptions,
-      );
-      return isSuccessStatus(response.statusCode);
-    } catch (e) {
-      _log('Toggle sequential download error: $e');
-      return false;
-    }
-  }
+  Future<bool> _toggleFirstLastPiecePrio(String hash) => _postOk(
+    'toggle first/last piece priority',
+    '/api/v2/torrents/toggleFirstLastPiecePrio',
+    {'hashes': hash},
+  );
 
-  /// Toggle first/last piece priority for a torrent. See
-  /// [toggleSequentialDownload] for why `hashes` is form-encoded.
-  @override
-  Future<bool> toggleFirstLastPiecePrio(String hash) async {
-    if (!await _ensureAuthenticated()) return false;
-
-    try {
-      final response = await _dio.post(
-        '/api/v2/torrents/toggleFirstLastPiecePrio',
-        data: formEncode({'hashes': hash}),
-        options: _formOptions,
-      );
-      return isSuccessStatus(response.statusCode);
-    } catch (e) {
-      _log('Toggle first/last piece priority error: $e');
-      return false;
-    }
+  Future<Torrent?> _torrent(String hash) async {
+    final torrents = await tryGetTorrents(hashes: [hash]);
+    return (torrents == null || torrents.isEmpty) ? null : torrents.first;
   }
 
   /// Sequential on, first/last piece priority off.
@@ -860,113 +595,48 @@ class QBittorrentApiService extends TorrentEngine {
     String hash, {
     bool resetPicker = false,
   }) async {
-    if (!await _ensureAuthenticated()) return false;
+    var torrent = await _torrent(hash);
+    if (torrent == null) return false;
 
-    try {
-      var torrents = await getTorrents(hashes: [hash]);
-      if (torrents.isEmpty) return false;
-      var torrent = torrents.first;
-
-      if (resetPicker) {
-        if (torrent.sequentialDownload) {
-          await toggleSequentialDownload(hash);
-        }
-        await toggleSequentialDownload(hash);
-        _log('sequential download reset on for $hash');
-      } else if (!torrent.sequentialDownload) {
-        await toggleSequentialDownload(hash);
-        _log('sequential download enabled for $hash');
-      }
-
-      torrents = await getTorrents(hashes: [hash]);
-      if (torrents.isNotEmpty) torrent = torrents.first;
-
-      if (torrent.firstLastPiecePriority) {
-        await toggleFirstLastPiecePrio(hash);
-        _log('first/last piece prio disabled for $hash');
-        torrents = await getTorrents(hashes: [hash]);
-        if (torrents.isNotEmpty) torrent = torrents.first;
-      }
-
-      _log(
-        'in-order seq=${torrent.sequentialDownload} '
-        'fl_prio=${torrent.firstLastPiecePriority} for $hash',
-      );
-      return torrent.sequentialDownload;
-    } catch (e) {
-      _log('Ensure in-order download error: $e');
-      return false;
+    if (resetPicker) {
+      if (torrent.sequentialDownload) await _toggleSequentialDownload(hash);
+      await _toggleSequentialDownload(hash);
+      _log('sequential download reset on for $hash');
+    } else if (!torrent.sequentialDownload) {
+      await _toggleSequentialDownload(hash);
+      _log('sequential download enabled for $hash');
     }
-  }
 
-  /// Raise (or lower) piece priorities. Used to pull the start of the
-  /// selected file first so mpv can open before the rest of the torrent.
-  @override
-  Future<bool> setPiecePriority(
-    String hash,
-    List<int> pieceIds,
-    int priority,
-  ) async {
-    if (pieceIds.isEmpty) return true;
-    if (_piecePrioSupported == false) return false;
-    if (!await _ensureAuthenticated()) return false;
-
-    try {
-      final response = await _dio.post(
-        '/api/v2/torrents/piecePrio',
-        data: formEncode({
-          'hash': hash,
-          'id': pieceIds.join('|'),
-          'priority': '$priority',
-        }),
-        options: _formOptions,
-      );
-      if (response.statusCode == 404) {
-        _piecePrioSupported = false;
-        _log('piecePrio not supported by this qBittorrent — skipping');
-        return false;
-      }
-      _piecePrioSupported = true;
-      return isSuccessStatus(response.statusCode);
-    } catch (e) {
-      _log('Set piece priority error: $e');
-      return false;
+    torrent = await _torrent(hash) ?? torrent;
+    if (torrent.firstLastPiecePriority) {
+      await _toggleFirstLastPiecePrio(hash);
+      _log('first/last piece prio disabled for $hash');
+      torrent = await _torrent(hash) ?? torrent;
     }
+
+    _log(
+      'in-order seq=${torrent.sequentialDownload} '
+      'fl_prio=${torrent.firstLastPiecePriority} for $hash',
+    );
+    return torrent.sequentialDownload;
   }
 
   /// Get piece states for a torrent (0=not downloaded, 1=downloading, 2=downloaded)
   @override
   Future<List<int>?> getPieceStates(String hash) async {
-    if (!await _ensureAuthenticated()) return null;
-
-    try {
-      final response = await _dio.get(
-        '/api/v2/torrents/pieceStates',
-        queryParameters: {'hash': hash},
-      );
-
-      if (isSuccessStatus(response.statusCode) && response.data is List) {
-        return (response.data as List).map((e) => (e as num).toInt()).toList();
-      }
-      return null;
-    } catch (e) {
-      _log('Get piece states error: $e');
-      return null;
-    }
+    final response = await _get(
+      'get piece states',
+      '/api/v2/torrents/pieceStates',
+      query: {'hash': hash},
+    );
+    final data = response?.data;
+    if (!isSuccessStatus(response?.statusCode) || data is! List) return null;
+    return data.map((e) => (e as num).toInt()).toList();
   }
 
-  /// Check connection to qBittorrent
-  @override
-  Future<bool> testConnection() async {
-    try {
-      final response = await _dio.get('/api/v2/app/version');
-      return isSuccessStatus(response.statusCode);
-    } catch (e) {
-      return false;
-    }
-  }
+  /// Log a message, tagged once here.
+  void _log(String message) => AppLog.d('[QBittorrentAPI] $message');
 
-  /// Dispose resources
   @override
   void dispose() {
     _dio.close();

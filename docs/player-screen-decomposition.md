@@ -1,7 +1,9 @@
 # Decomposing `video_player_screen.dart`
 
-**Status:** done. Steps 1–4 landed as one commit each; step 5's tests came
-with step 4 and with the service-test pass.
+**Status:** done. Steps 1–4 landed as one commit each. Step 5's tests did
+*not* land with them, whatever an earlier version of this line said — no test
+imported anything under `lib/screens/` until the October 2026 audit fixes,
+which added them (see *Step 5, as it landed* at the end).
 **Result:** 1,727 → 611 lines, across four mixins and two widgets. Suite 491 →
 553. `flutter analyze` clean throughout.
 
@@ -228,3 +230,27 @@ Do **not**:
   *decisions* (planner, tested) and *side effects* (screen, untested) is
   deliberate and documented; step 1 moves the side effects to a new home, it
   does not move the boundary.
+
+---
+
+## Step 5, as it landed (October 2026)
+
+`releaseSessionOwnership()` was never needed (see above), so the three seams
+became:
+
+* **Session hand-off and lifetime** — `test/video_player_screen_test.dart`
+  (leaving while a file is still opening stops it; a route removed from under
+  the player stops it; a failed stream goes back for another source) and
+  `test/details_playback_controller_test.dart` (Hide and Cancel during and
+  after the add, no second overlay, the shared download helper).
+* **The next-episode lookup order** — the ladder now lives in
+  `NextEpisodePlanner.nextEpisodeCandidates` / `nextEpisodeFilesIn` (TMDB's
+  answer first; otherwise next in the season, then the next season; same show
+  only, never the playing file), covered in
+  `test/next_episode_planner_test.dart`. The mixin keeps only the I/O: the
+  TMDB call, which also no longer offers an episode that hasn't aired, and the
+  "is it finished on disk" check.
+* **Overlay visibility** — `test/player_overlay_stack_test.dart`,
+  `test/next_episode_overlay_test.dart`, `test/player_error_overlay_test.dart`
+  and `test/player_keyboard_test.dart`.
+

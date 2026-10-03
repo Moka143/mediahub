@@ -1,5 +1,8 @@
 import 'package:flutter/foundation.dart';
 
+import '../models/local_media_file.dart';
+import '../utils/media_names.dart';
+
 /// What the binge logic wants done at this playback position.
 enum NextEpisodeAction {
   /// Nothing to do on this tick.
@@ -49,6 +52,9 @@ class NextEpisodePlanner {
   bool _autoDownloadTriggered = false;
 
   /// The prompt has been offered this episode (expanded or minimized).
+  /// Only tests need to see the latch directly; the screen reads
+  /// [overlayActive].
+  @visibleForTesting
   bool get overlayOffered => _overlayOffered;
 
   bool get overlayMinimized => _overlayMinimized;
@@ -57,7 +63,56 @@ class NextEpisodePlanner {
   /// by Play / Stream.
   bool get overlayActive => _overlayOffered && !_overlayConsumed;
 
+  /// Whether [claimAutoDownloadAtThreshold] has fired this episode. For
+  /// tests; callers act on that method's return value.
+  @visibleForTesting
   bool get autoDownloadTriggered => _autoDownloadTriggered;
+
+  // ---------------------------------------------------------------------
+  // Which episode comes next, and where a finished copy of it is
+  // ---------------------------------------------------------------------
+
+  /// The episodes that could come after [season]×[episode], most likely
+  /// first.
+  ///
+  /// TMDB is authoritative: when it named the next episode ([fromTmdb]),
+  /// that is the only candidate. "Next in this season, then the first of the
+  /// next" is the fallback for when TMDB could not answer — a show whose
+  /// numbering does not follow that shape used to jump to the wrong episode
+  /// or to none at all.
+  static List<({int season, int episode})> nextEpisodeCandidates({
+    ({int season, int episode})? fromTmdb,
+    int? season,
+    int? episode,
+  }) {
+    if (fromTmdb != null) return [fromTmdb];
+    if (season == null || episode == null) return const [];
+    return [
+      (season: season, episode: episode + 1),
+      (season: season + 1, episode: 1),
+    ];
+  }
+
+  /// The library files that could be the next episode of [showName], in
+  /// [candidates] order — still to be checked for being *finished* on disk.
+  ///
+  /// The show must be the same show ([titlesMatch]: "You" is not "Young
+  /// Sheldon"), and the file playing now is never its own next episode.
+  static List<LocalMediaFile> nextEpisodeFilesIn(
+    List<LocalMediaFile> library, {
+    required String showName,
+    required String playingPath,
+    required List<({int season, int episode})> candidates,
+  }) => [
+    for (final candidate in candidates)
+      for (final file in library)
+        if (file.seasonNumber == candidate.season &&
+            file.episodeNumber == candidate.episode &&
+            file.path != playingPath &&
+            file.showName != null &&
+            titlesMatch(file.showName!, showName))
+          file,
+  ];
 
   // ---------------------------------------------------------------------
   // Pure decision logic — no player, no Ref, testable with plain numbers

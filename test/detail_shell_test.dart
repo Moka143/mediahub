@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mediahub/models/video.dart';
 import 'package:mediahub/widgets/details/detail_shell.dart';
@@ -136,6 +137,33 @@ void main() {
         find.byType(AnimatedOpacity).first,
       );
       expect(opacity.opacity, lessThan(1.0));
+    });
+
+    testWidgets('comes up to full strength while a card has keyboard focus', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: HoverScrollRow(
+              height: 100,
+              itemCount: 5,
+              itemBuilder: (_, i) => SizedBox(
+                width: 100,
+                child: TextButton(onPressed: () {}, child: Text('$i')),
+              ),
+            ),
+          ),
+        ),
+      );
+      double opacity() => tester
+          .widget<AnimatedOpacity>(find.byType(AnimatedOpacity).first)
+          .opacity;
+      expect(opacity(), lessThan(1.0));
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pumpAndSettle();
+      expect(opacity(), 1.0);
     });
 
     testWidgets('the arrows stay hidden while it is at rest', (tester) async {

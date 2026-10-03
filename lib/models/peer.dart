@@ -51,33 +51,8 @@ class Peer {
     );
   }
 
-  Map<String, dynamic> toJson() {
-    return {
-      'ip': ip,
-      'port': port,
-      'client': client,
-      'progress': progress,
-      'dl_speed': dlSpeed,
-      'up_speed': upSpeed,
-      'downloaded': downloaded,
-      'uploaded': uploaded,
-      'connection': connection,
-      'flags': flags,
-      'flags_desc': flagsDesc,
-      'relevance': relevance,
-      'country': country,
-      'country_code': countryCode,
-    };
-  }
-
   /// Get the full address (ip:port)
   String get address => '$ip:$port';
-
-  /// Check if peer is currently downloading from us
-  bool get isDownloading => upSpeed > 0;
-
-  /// Check if peer is currently uploading to us
-  bool get isUploading => dlSpeed > 0;
 
   @override
   bool operator ==(Object other) =>

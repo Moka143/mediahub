@@ -1,4 +1,6 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
+
 import 'http_client.dart';
 
 /// What TMDB lets a signed-in user mutate from the API.
@@ -17,16 +19,20 @@ class TmdbAccountService {
   final Dio _dio;
   final String accessToken;
 
-  TmdbAccountService({required this.accessToken})
-    : _dio = buildJsonDio(
-        baseUrl: _baseUrl,
-        connectTimeout: const Duration(seconds: 10),
-        receiveTimeout: const Duration(seconds: 15),
-        headers: {
-          'Authorization': 'Bearer $accessToken',
-          'Content-Type': 'application/json;charset=utf-8',
-        },
-      );
+  /// [dio] replaces the HTTP client — for tests that answer requests
+  /// themselves.
+  TmdbAccountService({required this.accessToken, @visibleForTesting Dio? dio})
+    : _dio =
+          dio ??
+          buildJsonDio(
+            baseUrl: _baseUrl,
+            connectTimeout: const Duration(seconds: 10),
+            receiveTimeout: const Duration(seconds: 15),
+            headers: {
+              'Authorization': 'Bearer $accessToken',
+              'Content-Type': 'application/json;charset=utf-8',
+            },
+          );
 
   // ============================================================================
   // Authentication (v4 access token flow)
@@ -233,70 +239,49 @@ class TmdbAccountService {
   Future<Set<int>> getRatedMovieIds({required int accountId}) =>
       _collectAllPages('/3/account/$accountId/rated/movies');
 
-  /// Returns every rated TV show id across all pages.
-  Future<Set<int>> getRatedShowIds({required int accountId}) =>
-      _collectAllPages('/3/account/$accountId/rated/tv');
-
   /// Returns every rated TV episode as (showId, season, episode) tuples across
   /// all pages. Used to mark local files watched from server state on refresh.
-  Future<List<TmdbRatedEpisode>> getRatedEpisodes({
-    required int accountId,
-  }) async {
-    final episodes = <TmdbRatedEpisode>[];
-    var page = 1;
-    while (true) {
-      final r = await _dio.get(
-        '/3/account/$accountId/rated/tv/episodes',
-        queryParameters: {'page': page},
-      );
-      final results = (r.data['results'] as List<dynamic>?) ?? const [];
-      for (final item in results) {
-        final m = item as Map<String, dynamic>;
+  Future<List<TmdbRatedEpisode>> getRatedEpisodes({required int accountId}) =>
+      _collectPages('/3/account/$accountId/rated/tv/episodes', (m) {
         final showId = m['show_id'];
         final season = m['season_number'];
         final episode = m['episode_number'];
         if (showId is int && season is int && episode is int) {
-          episodes.add(
-            TmdbRatedEpisode(
-              showId: showId,
-              seasonNumber: season,
-              episodeNumber: episode,
-            ),
+          return TmdbRatedEpisode(
+            showId: showId,
+            seasonNumber: season,
+            episodeNumber: episode,
           );
         }
-      }
-      final totalPages = r.data['total_pages'] as int? ?? page;
-      if (page >= totalPages) break;
-      page++;
-    }
-    return episodes;
-  }
+        return null;
+      });
 
-  /// Per-item check used when opening a details screen so the heart/bookmark
-  /// state reflects the *current* server truth, not a stale local cache.
-  Future<TmdbAccountStates> getAccountStates({
-    required TmdbMediaType mediaType,
-    required int mediaId,
-  }) async {
-    final r = await _dio.get('/3/${mediaType.api}/$mediaId/account_states');
-    return TmdbAccountStates.fromJson(r.data as Map<String, dynamic>);
-  }
+  Future<Set<int>> _collectAllPages(String path) async => (await _collectPages(
+    path,
+    (m) => m['id'] is int ? m['id'] as int : null,
+  )).toSet();
 
-  Future<Set<int>> _collectAllPages(String path) async {
-    final ids = <int>{};
-    int page = 1;
+  /// Walk every page of a TMDB account list, keeping what [pick] makes of
+  /// each result (null skips it).
+  Future<List<T>> _collectPages<T>(
+    String path,
+    T? Function(Map<String, dynamic> result) pick,
+  ) async {
+    final out = <T>[];
+    var page = 1;
     while (true) {
       final r = await _dio.get(path, queryParameters: {'page': page});
       final results = (r.data['results'] as List<dynamic>?) ?? const [];
       for (final item in results) {
-        final id = (item as Map<String, dynamic>)['id'];
-        if (id is int) ids.add(id);
+        if (item is! Map<String, dynamic>) continue;
+        final picked = pick(item);
+        if (picked != null) out.add(picked);
       }
       final totalPages = r.data['total_pages'] as int? ?? page;
       if (page >= totalPages) break;
       page++;
     }
-    return ids;
+    return out;
   }
 }
 
@@ -328,31 +313,6 @@ class TmdbAccount {
     'username': username,
     'name': name,
   };
-}
-
-class TmdbAccountStates {
-  TmdbAccountStates({
-    required this.favorite,
-    required this.watchlist,
-    this.rating,
-  });
-
-  final bool favorite;
-  final bool watchlist;
-  final double? rating;
-
-  factory TmdbAccountStates.fromJson(Map<String, dynamic> json) {
-    final rated = json['rated'];
-    double? rating;
-    if (rated is Map && rated['value'] is num) {
-      rating = (rated['value'] as num).toDouble();
-    }
-    return TmdbAccountStates(
-      favorite: json['favorite'] as bool? ?? false,
-      watchlist: json['watchlist'] as bool? ?? false,
-      rating: rating,
-    );
-  }
 }
 
 class TmdbRatedEpisode {

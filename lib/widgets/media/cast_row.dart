@@ -5,8 +5,6 @@ import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
 import '../../design/app_typography.dart';
 import '../../models/cast_member.dart';
-import '../editorial/mono_label.dart';
-import '../editorial/serif_title.dart';
 
 /// Horizontal scroller of cast cards.
 ///
@@ -14,67 +12,32 @@ import '../editorial/serif_title.dart';
 /// headshot + name + character. Limits to [maxItems] so the row
 /// doesn't stretch to 100+ entries from `aggregate_credits`.
 class CastRow extends StatelessWidget {
-  const CastRow({
-    super.key,
-    required this.cast,
-    this.maxItems = 12,
-    this.showHeader = true,
-  });
+  const CastRow({super.key, required this.cast, this.maxItems = 12});
 
   final List<CastMember> cast;
   final int maxItems;
-
-  /// False when a [FoldableSection] already renders the title and count, so
-  /// the row does not repeat them inside the fold.
-  final bool showHeader;
 
   @override
   Widget build(BuildContext context) {
     if (cast.isEmpty) return const SizedBox.shrink();
 
-    // Sort by TMDB `order` (lowest first = top billing) and clip.
+    // Sort by TMDB `order` (lowest first = top billing) and clip. The title
+    // and count live on the [FoldableSection] that hosts this row.
     final sorted = [...cast]..sort((a, b) => a.order.compareTo(b.order));
     final items = sorted.take(maxItems).toList();
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (showHeader)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.screenPadding,
-              0,
-              AppSpacing.screenPadding,
-              AppSpacing.md,
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
-              children: [
-                const SerifTitle('Cast', size: 22, height: 1.0),
-                const SizedBox(width: 12),
-                MonoLabel(
-                  '${cast.length > maxItems ? '$maxItems+' : '${cast.length}'} '
-                  'CREDITS',
-                  color: AppColors.fg3,
-                ),
-              ],
-            ),
-          ),
-        SizedBox(
-          height: 180,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            physics: const ClampingScrollPhysics(),
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.detailPadding,
-            ),
-            itemCount: items.length,
-            separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.md),
-            itemBuilder: (_, i) => _CastCard(member: items[i]),
-          ),
+    return SizedBox(
+      height: 180,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        physics: const ClampingScrollPhysics(),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.detailPadding,
         ),
-      ],
+        itemCount: items.length,
+        separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.md),
+        itemBuilder: (_, i) => _CastCard(member: items[i]),
+      ),
     );
   }
 }
@@ -102,6 +65,7 @@ class _CastCard extends StatelessWidget {
                   ? CachedNetworkImage(
                       imageUrl: profile,
                       fit: BoxFit.cover,
+                      memCacheWidth: 200,
                       errorWidget: (_, _, _) => _initialBubble(initial),
                       placeholder: (_, _) => _initialBubble(initial),
                     )
@@ -114,7 +78,7 @@ class _CastCard extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: AppType.ui(
-              size: 12,
+              size: AppType.sizeCaption,
               color: AppColors.fg,
               weight: FontWeight.w500,
               height: 1.2,
@@ -126,7 +90,11 @@ class _CastCard extends StatelessWidget {
               member.character,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: AppType.ui(size: 11, color: AppColors.fg2, height: 1.25),
+              style: AppType.ui(
+                size: AppType.sizeSmall,
+                color: AppColors.fg2,
+                height: 1.25,
+              ),
             ),
           ],
         ],
@@ -140,7 +108,11 @@ class _CastCard extends StatelessWidget {
       alignment: Alignment.center,
       child: Text(
         initial,
-        style: AppType.serif(size: 36, color: AppColors.fg2, height: 1.0),
+        style: AppType.serif(
+          size: AppType.sizeDisplay,
+          color: AppColors.fg2,
+          height: 1.0,
+        ),
       ),
     );
   }

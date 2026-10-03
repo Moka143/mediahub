@@ -179,12 +179,11 @@ void main() {
       });
     });
 
-    test('a synchronously-throwing tick is also contained', () {
+    test('a tick that returns a failed Future is contained', () {
       fakeAsync((async) {
         var ticks = 0;
         final loop = PollLoop(
-          name: 'sync-throws',
-          // Not `async` in body terms — throws before its first await.
+          name: 'future-error',
           onTick: () {
             ticks++;
             return Future<void>.error(StateError('boom'));
@@ -195,6 +194,29 @@ void main() {
         loop.dispose();
 
         expect(ticks, 2);
+      });
+    });
+
+    test('a tick that throws before returning a Future is contained', () {
+      // The case the test above used to claim to cover: a plain (non-async)
+      // callback that throws on its first line never hands back a Future at
+      // all. Without `Future.sync` the throw escaped the timer callback and
+      // left the in-flight flag set, so every later tick was skipped.
+      fakeAsync((async) {
+        var ticks = 0;
+        final loop = PollLoop(
+          name: 'sync-throws',
+          onTick: () {
+            ticks++;
+            throw StateError('boom');
+          },
+        )..start(const Duration(seconds: 5));
+
+        async.elapse(const Duration(seconds: 16));
+        loop.dispose();
+
+        expect(ticks, 3, reason: 'the loop keeps ticking after a sync throw');
+        expect(async.pendingTimers, isEmpty);
       });
     });
   });

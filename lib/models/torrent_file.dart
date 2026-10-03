@@ -1,4 +1,3 @@
-import '../utils/constants.dart';
 import '../utils/platform_utils.dart';
 
 /// Represents a file within a torrent
@@ -38,18 +37,23 @@ class TorrentFile {
     );
   }
 
-  Map<String, dynamic> toJson() {
-    return {
-      'index': index,
-      'name': name,
-      'size': size,
-      'progress': progress,
-      'priority': priority,
-      'is_seed': isSeed,
-      'piece_range': pieceRange,
-      'availability': availability,
-    };
-  }
+  /// Progress at or above which a file is treated as finished *for
+  /// prioritisation*: not worth deselecting, not worth fetching again.
+  ///
+  /// Deliberately looser than [isComplete]. Re-prioritising a file that is a
+  /// rounding error away from done can kick qBittorrent into a recheck, and
+  /// gains nothing.
+  static const double nearlyCompleteFraction = 0.999;
+
+  /// Whether every byte of the file is on disk.
+  ///
+  /// The only test fit for *reading the file directly*. 99.9% of a 4 GB
+  /// episode is still four megabytes short, and those are usually the last
+  /// ones — the MKV seek index, which is exactly what a player reads first.
+  bool get isComplete => progress >= 1.0;
+
+  /// See [nearlyCompleteFraction].
+  bool get isNearlyComplete => progress >= nearlyCompleteFraction;
 
   /// Get the file name without path
   /// qBittorrent reports these with the host's separator, so a Windows
@@ -61,37 +65,6 @@ class TorrentFile {
   String get extension {
     final dotIndex = fileName.lastIndexOf('.');
     return dotIndex != -1 ? fileName.substring(dotIndex + 1).toLowerCase() : '';
-  }
-
-  /// Get the priority as enum
-  FilePriority get priorityEnum => FilePriority.fromValue(priority);
-
-  /// Check if file will be downloaded
-  bool get willDownload => priority > 0;
-
-  /// Check if file is complete
-  bool get isComplete => progress >= 1.0;
-
-  TorrentFile copyWith({
-    int? index,
-    String? name,
-    int? size,
-    double? progress,
-    int? priority,
-    bool? isSeed,
-    List<int>? pieceRange,
-    int? availability,
-  }) {
-    return TorrentFile(
-      index: index ?? this.index,
-      name: name ?? this.name,
-      size: size ?? this.size,
-      progress: progress ?? this.progress,
-      priority: priority ?? this.priority,
-      isSeed: isSeed ?? this.isSeed,
-      pieceRange: pieceRange ?? this.pieceRange,
-      availability: availability ?? this.availability,
-    );
   }
 
   @override

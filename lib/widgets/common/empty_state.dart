@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../../design/app_colors.dart';
 import '../../design/app_theme.dart';
 import '../../design/app_tokens.dart';
+import '../../design/app_typography.dart';
 
 /// Types of empty states for different contexts
 enum EmptyStateType {
@@ -25,9 +25,10 @@ class EmptyState extends StatelessWidget {
     this.subtitle,
     this.action,
     this.type = EmptyStateType.noData,
-    this.iconSize = 72.0,
     this.compact = false,
   });
+
+  static const double _iconSize = 72.0;
 
   /// Create an empty state for no data
   factory EmptyState.noData({
@@ -71,20 +72,38 @@ class EmptyState extends StatelessWidget {
     String? title,
     String? helpText,
     VoidCallback? onRetry,
+    String? secondaryLabel,
+    VoidCallback? onSecondary,
   }) {
+    final retry = onRetry == null
+        ? null
+        : FilledButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh_rounded, size: 18),
+            label: const Text('Try again'),
+          );
+    // A second way out — "Open Settings" for a rejected token, "Back" on a
+    // pushed page — so an error is never a dead end.
+    final secondary = onSecondary == null
+        ? null
+        : OutlinedButton(
+            onPressed: onSecondary,
+            child: Text(secondaryLabel ?? 'Back'),
+          );
     return EmptyState(
       key: key,
       icon: Icons.error_outline_rounded,
       title: title ?? 'Something went wrong',
       subtitle: helpText != null ? '$message\n\n$helpText' : message,
       type: EmptyStateType.error,
-      action: onRetry != null
-          ? FilledButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh_rounded, size: 18),
-              label: const Text('Try Again'),
+      action: retry != null && secondary != null
+          ? Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              alignment: WrapAlignment.center,
+              children: [retry, secondary],
             )
-          : null,
+          : retry ?? secondary,
     );
   }
 
@@ -93,7 +112,6 @@ class EmptyState extends StatelessWidget {
   final String? subtitle;
   final Widget? action;
   final EmptyStateType type;
-  final double iconSize;
   final bool compact;
 
   @override
@@ -102,22 +120,11 @@ class EmptyState extends StatelessWidget {
     final appColors = context.appColors;
     final colorScheme = theme.colorScheme;
 
-    // Determine colors based on type
-    Color iconColor;
-    Color bgColor;
-    List<Color>? gradientColors;
-
-    switch (type) {
-      case EmptyStateType.error:
-        iconColor = appColors.errorState;
-        bgColor = appColors.errorStateBackground;
-        gradientColors = AppColors.gradientError;
-        break;
-      default:
-        iconColor = appColors.mutedText;
-        bgColor = colorScheme.surfaceContainerHigh;
-        gradientColors = null;
-    }
+    final isError = type == EmptyStateType.error;
+    final iconColor = isError ? appColors.errorState : appColors.mutedText;
+    final bgColor = isError
+        ? appColors.errorStateBackground
+        : colorScheme.surfaceContainerHigh;
 
     if (compact) {
       return Padding(
@@ -130,7 +137,7 @@ class EmptyState extends StatelessWidget {
                 color: bgColor,
                 borderRadius: BorderRadius.circular(AppRadius.md),
               ),
-              child: Icon(icon, size: iconSize * 0.4, color: iconColor),
+              child: Icon(icon, size: _iconSize * 0.4, color: iconColor),
             ),
             const SizedBox(width: AppSpacing.lg),
             Expanded(
@@ -138,19 +145,12 @@ class EmptyState extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    title,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+                  Text(title, style: AppType.bodyStrong()),
                   if (subtitle != null) ...[
                     const SizedBox(height: AppSpacing.xxs),
                     Text(
                       subtitle!,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: appColors.mutedText,
-                      ),
+                      style: AppType.caption(color: appColors.mutedText),
                     ),
                   ],
                 ],
@@ -178,44 +178,30 @@ class EmptyState extends StatelessWidget {
                 return Transform.scale(
                   scale: value,
                   child: Container(
-                    width: iconSize * 1.6,
-                    height: iconSize * 1.6,
+                    width: _iconSize * 1.6,
+                    height: _iconSize * 1.6,
                     decoration: BoxDecoration(
-                      gradient: gradientColors != null
-                          ? LinearGradient(
-                              colors: gradientColors
-                                  .map((c) => c.withAlpha(AppOpacity.light))
-                                  .toList(),
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            )
-                          : null,
-                      color: gradientColors == null ? bgColor : null,
+                      color: bgColor,
                       shape: BoxShape.circle,
                     ),
-                    child: Icon(icon, size: iconSize, color: iconColor),
+                    child: Icon(icon, size: _iconSize, color: iconColor),
                   ),
                 );
               },
             ),
             const SizedBox(height: AppSpacing.xxl),
-            Text(
-              title,
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.5,
-              ),
-              textAlign: TextAlign.center,
-            ),
+            Text(title, style: AppType.title(), textAlign: TextAlign.center),
             if (subtitle != null) ...[
               const SizedBox(height: AppSpacing.sm),
-              Text(
-                subtitle!,
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  color: appColors.mutedText,
-                  height: 1.4,
+              ConstrainedBox(
+                // A long explanation reads as a paragraph, not a banner
+                // spanning a wide window.
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Text(
+                  subtitle!,
+                  style: AppType.body(color: appColors.mutedText),
+                  textAlign: TextAlign.center,
                 ),
-                textAlign: TextAlign.center,
               ),
             ],
             if (action != null) ...[

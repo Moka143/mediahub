@@ -33,53 +33,6 @@ class Tracker {
     );
   }
 
-  Map<String, dynamic> toJson() {
-    return {
-      'url': url,
-      'status': status,
-      'tier': tier,
-      'num_peers': numPeers,
-      'num_seeds': numSeeds,
-      'num_leeches': numLeeches,
-      'num_downloaded': numDownloaded,
-      'msg': msg,
-    };
-  }
-
-  /// Get status as human-readable string
-  String get statusText {
-    switch (status) {
-      case 0:
-        return 'Disabled';
-      case 1:
-        return 'Not contacted';
-      case 2:
-        return 'Working';
-      case 3:
-        return 'Updating';
-      case 4:
-        return 'Not working';
-      default:
-        return 'Unknown';
-    }
-  }
-
-  /// Check if tracker is working
-  bool get isWorking => status == 2;
-
-  /// Check if tracker has an error
-  bool get hasError => status == 4;
-
-  /// Get the tracker host
-  String get host {
-    try {
-      final uri = Uri.parse(url);
-      return uri.host;
-    } catch (e) {
-      return url;
-    }
-  }
-
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||

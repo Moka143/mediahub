@@ -1,7 +1,7 @@
 /// Modern design tokens for consistent spacing, radius, opacity, and elevation.
 library;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/painting.dart';
 
 /// Spacing scale based on 4px base unit — consistent rhythm.
 abstract final class AppSpacing {
@@ -70,23 +70,38 @@ abstract final class AppElevation {
   static const double lg = 8.0;
 }
 
+/// Shadows for surfaces that float over content.
+abstract final class AppShadow {
+  /// A panel floating over the player: the buffering ring, the streaming
+  /// status card.
+  static const List<BoxShadow> floating = [
+    BoxShadow(
+      color: Color(0x66000000), // AppColors.shadow at AppOpacity.semi
+      blurRadius: AppElevation.lg,
+      offset: Offset(0, 4),
+    ),
+  ];
+}
+
 /// Animation durations — smooth modern feel.
 abstract final class AppDuration {
   static const Duration fast = Duration(milliseconds: 150);
   static const Duration normal = Duration(milliseconds: 250);
   static const Duration slow = Duration(milliseconds: 400);
+
+  /// One cycle of a looping pulse or shimmer: live-status dots, loading
+  /// skeletons, a downloading row.
+  static const Duration pulse = Duration(milliseconds: 1500);
 }
 
 /// Icon sizes — refined scale.
 abstract final class AppIconSize {
-  static const double xxs = 12.0;
   static const double xs = 14.0;
   static const double sm = 16.0;
   static const double md = 20.0;
   static const double lg = 24.0;
   static const double xl = 28.0;
   static const double xxl = 32.0;
-  static const double xxxl = 48.0;
 }
 
 /// Common border widths.
@@ -95,39 +110,17 @@ abstract final class AppBorderWidth {
   static const double thin = 1.0;
 }
 
-/// Responsive breakpoints for adaptive layouts.
+/// Responsive breakpoints for adaptive layouts, in logical pixels.
+///
+/// Compare them with `MediaQuery.sizeOf(context)`. `UiScale` keeps that at
+/// 800x600 or more on a desktop window, scaling the UI down rather than
+/// handing the layout less, so the phone layout below [mobile] is a
+/// fallback, not a state a desktop user reaches.
 abstract final class AppBreakpoints {
-  /// Mobile breakpoint (small phones).
+  /// Below this the shell swaps the sidebar for a bottom navigation bar.
   static const double mobile = 600.0;
 
-  /// Tablet breakpoint (tablets, large phones in landscape).
+  /// Below this the sidebar starts collapsed to its icon rail, so the
+  /// content keeps most of a narrow window.
   static const double tablet = 900.0;
-
-  /// Desktop breakpoint (small laptops, tablets in landscape).
-  static const double desktop = 1200.0;
-
-  /// Wide breakpoint (large monitors).
-  static const double wide = 1600.0;
-}
-
-/// Screen size categories for responsive design.
-enum ScreenSize { mobile, mobileLarge, tablet, desktop, wide }
-
-/// Extension on BuildContext for easy screen size detection.
-extension ScreenSizeExtension on BuildContext {
-  /// Get the current screen size category.
-  ScreenSize get screenSize {
-    final width = MediaQuery.of(this).size.width;
-    if (width >= AppBreakpoints.wide) return ScreenSize.wide;
-    if (width >= AppBreakpoints.desktop) return ScreenSize.desktop;
-    if (width >= AppBreakpoints.tablet) return ScreenSize.tablet;
-    if (width >= AppBreakpoints.mobile) return ScreenSize.mobileLarge;
-    return ScreenSize.mobile;
-  }
-
-  /// Whether the screen is tablet or larger (>= 900px).
-  bool get isTabletOrLarger =>
-      screenSize == ScreenSize.tablet ||
-      screenSize == ScreenSize.desktop ||
-      screenSize == ScreenSize.wide;
 }

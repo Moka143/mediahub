@@ -1,153 +1,185 @@
 import 'package:flutter/material.dart';
 
+import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
+import '../../design/app_typography.dart';
+import '../editorial/editorial_led.dart';
 
-/// A badge overlay for navigation icons showing counts
+/// Mono count pill for a navigation entry — active transfers, errors.
+///
+/// The one count badge: the sidebar draws it inline after the label, and
+/// [NavBadge] pins it to an icon in the collapsed sidebar and the bottom
+/// bar. There used to be two implementations that had drifted apart.
+class NavCountTag extends StatelessWidget {
+  const NavCountTag({
+    super.key,
+    required this.count,
+    this.isError = false,
+    this.filled = false,
+  });
+
+  final int count;
+
+  /// Draw it in the error colour.
+  final bool isError;
+
+  /// A solid pill, for sitting on top of an icon where a translucent one
+  /// would be unreadable. Inline after a label it stays translucent.
+  final bool filled;
+
+  /// 5, off the 4/8 steps: the sidebar's inline tag used 6 and the icon
+  /// badge 4 before they were merged into this one pill.
+  static const double _padH = 5;
+
+  @override
+  Widget build(BuildContext context) {
+    final tone = isError ? AppColors.err : AppColors.accent;
+    final (bg, fg) = filled
+        ? (tone, AppColors.onAccent)
+        : (AppColors.line, isError ? AppColors.err : AppColors.fg2);
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: _padH,
+        vertical: AppSpacing.xxs,
+      ),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(AppRadius.xxs),
+      ),
+      constraints: const BoxConstraints(minWidth: 18),
+      child: Text(
+        count > 99 ? '99+' : '$count',
+        textAlign: TextAlign.center,
+        style: AppType.mono(
+          size: AppType.minSize,
+          color: fg,
+          weight: filled ? FontWeight.w700 : FontWeight.w500,
+          height: 1.1,
+          letterSpacing: 0.04,
+        ),
+      ),
+    );
+  }
+}
+
+/// Small accent LED for a navigation entry — something airing today, an
+/// auto-download running. [pulse] breathes it while work is in progress.
+///
+/// Respects `TickerMode`, so a pulsing dot on a hidden tab or a covered
+/// route stops asking for frames.
+class NavStatusDot extends StatefulWidget {
+  const NavStatusDot({
+    super.key,
+    this.pulse = false,
+    this.color = AppColors.accent,
+  });
+
+  final bool pulse;
+  final Color color;
+
+  @override
+  State<NavStatusDot> createState() => _NavStatusDotState();
+}
+
+class _NavStatusDotState extends State<NavStatusDot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: AppDuration.pulse,
+    value: 1,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.pulse) _ctrl.repeat(reverse: true);
+  }
+
+  @override
+  void didUpdateWidget(covariant NavStatusDot oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.pulse && !_ctrl.isAnimating) {
+      _ctrl.repeat(reverse: true);
+    } else if (!widget.pulse && _ctrl.isAnimating) {
+      _ctrl.stop();
+      _ctrl.value = 1;
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (context, _) => EditorialLed(
+        color: widget.color.withValues(alpha: 0.55 + 0.45 * _ctrl.value),
+        size: 6,
+      ),
+    );
+  }
+}
+
+/// [NavCountTag] pinned to the top-right corner of a navigation icon.
+/// Shows nothing extra while [count] is 0.
 class NavBadge extends StatelessWidget {
   const NavBadge({
     super.key,
     required this.child,
     required this.count,
-    this.showZero = false,
-    this.maxCount = 99,
-    this.backgroundColor,
-    this.textColor,
     this.isError = false,
   });
 
-  /// The icon widget to wrap
+  /// The icon to badge.
   final Widget child;
-
-  /// The count to display
   final int count;
-
-  /// Whether to show the badge when count is zero
-  final bool showZero;
-
-  /// Maximum count to display (shows "99+" if exceeded)
-  final int maxCount;
-
-  /// Background color of the badge
-  final Color? backgroundColor;
-
-  /// Text color of the badge
-  final Color? textColor;
-
-  /// Whether this is an error indicator (uses error color)
   final bool isError;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final shouldShow = showZero || count > 0;
-
-    if (!shouldShow) {
-      return child;
-    }
-
-    final bgColor =
-        backgroundColor ??
-        (isError ? theme.colorScheme.error : theme.colorScheme.primary);
-    final fgColor =
-        textColor ??
-        (isError ? theme.colorScheme.onError : theme.colorScheme.onPrimary);
-
-    final displayText = count > maxCount ? '$maxCount+' : count.toString();
-
+    if (count <= 0) return child;
     return Stack(
       clipBehavior: Clip.none,
       children: [
         child,
         Positioned(
-          right: -6,
-          top: -4,
-          child: AnimatedSwitcher(
-            duration: AppDuration.fast,
-            transitionBuilder: (child, animation) {
-              return ScaleTransition(scale: animation, child: child);
-            },
-            child: Container(
-              key: ValueKey(count),
-              padding: EdgeInsets.symmetric(horizontal: count > 9 ? 4 : 0),
-              constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
-              decoration: BoxDecoration(
-                color: bgColor,
-                borderRadius: BorderRadius.circular(AppRadius.full),
-                boxShadow: [
-                  BoxShadow(
-                    color: bgColor.withAlpha(AppOpacity.semi),
-                    blurRadius: 4,
-                    offset: const Offset(0, 1),
-                  ),
-                ],
-              ),
-              child: Center(
-                child: Text(
-                  displayText,
-                  style: TextStyle(
-                    color: fgColor,
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    height: 1.2,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ),
-          ),
+          right: -10,
+          top: -6,
+          child: NavCountTag(count: count, isError: isError, filled: true),
         ),
       ],
     );
   }
 }
 
-/// A dot indicator for navigation (no count, just presence)
+/// [NavStatusDot] pinned to the top-right corner of a navigation icon.
 class NavDot extends StatelessWidget {
   const NavDot({
     super.key,
     required this.child,
     required this.isVisible,
-    this.color,
-    this.pulseAnimation = false,
+    this.pulse = false,
   });
 
   final Widget child;
   final bool isVisible;
-  final Color? color;
-  final bool pulseAnimation;
+
+  /// Breathe the dot. It used to be accepted and ignored, so the calendar
+  /// dot never pulsed in the bottom bar.
+  final bool pulse;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    if (!isVisible) {
-      return child;
-    }
-
-    final dotColor = color ?? theme.colorScheme.primary;
-
+    if (!isVisible) return child;
     return Stack(
       clipBehavior: Clip.none,
       children: [
         child,
-        Positioned(
-          right: 0,
-          top: 0,
-          child: Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(
-              color: dotColor,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: dotColor.withAlpha(AppOpacity.semi),
-                  blurRadius: 4,
-                ),
-              ],
-            ),
-          ),
-        ),
+        Positioned(right: -3, top: -2, child: NavStatusDot(pulse: pulse)),
       ],
     );
   }

@@ -28,7 +28,10 @@ Widget mediaHubMenuLabel({
     children: [
       Icon(icon, size: 14, color: color),
       const SizedBox(width: AppSpacing.sm),
-      Text(label, style: AppType.ui(size: 12, color: color)),
+      Text(
+        label,
+        style: AppType.ui(size: AppType.sizeCaption, color: color),
+      ),
     ],
   );
 }

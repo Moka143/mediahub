@@ -12,10 +12,14 @@ import '../providers/favorites_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/tmdb_account_provider.dart';
 import '../providers/watchlist_provider.dart';
+import '../services/app_logger.dart';
 import '../utils/constants.dart';
+import '../utils/error_messages.dart';
 import '../utils/feedback_utils.dart';
 import '../widgets/editorial/editorial.dart';
 import 'main_navigation_screen.dart';
+import 'settings/settings_validation.dart';
+import 'settings/tmdb_token_check.dart';
 
 /// First-run screen.
 ///
@@ -38,6 +42,12 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   String? _pendingApprovalToken;
   String? _error;
 
+  /// A well-formed token TMDB could not be asked about (offline, TMDB down).
+  /// Offered with "Continue without checking" — the problem is the network,
+  /// not the token, and a person without internet should not be locked out
+  /// of their local library by it.
+  String? _uncheckedToken;
+
   static final Uri _tmdbSignupUrl = Uri.parse(
     'https://www.themoviedb.org/signup',
   );
@@ -54,55 +64,91 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   Future<void> _openUrl(Uri url) async {
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
       if (!mounted) return;
-      AppSnackBar.showError(context, message: 'Could not open $url');
+      AppSnackBar.showError(
+        context,
+        message: 'Couldn\'t open your browser. The page is $url',
+      );
     }
   }
 
   Future<void> _navigateToHome() async {
-    await ref.read(hasCompletedOnboardingProvider.notifier).markCompleted();
+    final onboarding = ref.read(hasCompletedOnboardingProvider.notifier);
+    await onboarding.markCompleted();
     if (!mounted) return;
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const MainNavigationScreen()),
+    unawaited(
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(builder: (_) => const MainNavigationScreen()),
+      ),
     );
   }
 
+  /// Check the pasted token with TMDB before saving it.
+  ///
+  /// It used to be saved unchecked, so a bad paste went straight through to
+  /// a Home screen whose rows quietly failed to load, with nothing saying
+  /// why. Now a token TMDB refuses never gets past this step.
   Future<void> _saveTokenAndAdvance() async {
     final value = _tokenController.text.trim();
-    if (value.isEmpty) {
-      setState(() => _error = 'Please paste your token first');
+    final formatError = tmdbTokenFormatError(value);
+    if (formatError != null) {
+      setState(() {
+        _error = formatError;
+        _uncheckedToken = null;
+      });
       return;
     }
-    if (!value.startsWith('eyJ')) {
-      setState(
-        () => _error =
-            'That doesn\'t look right. Copy the "API Read Access Token" '
-            '(starts with "eyJ…") from your TMDB settings page.',
-      );
-      return;
-    }
+    final settings = ref.read(settingsProvider.notifier);
+    final client = ref.read(tmdbTokenCheckServiceProvider);
     setState(() {
       _busy = true;
       _error = null;
+      _uncheckedToken = null;
     });
     try {
-      await ref.read(settingsProvider.notifier).setTmdbApiKey(value);
-      // Don't navigate yet — let the screen rebuild and show Step 2.
+      final check = await checkTmdbToken(client, value);
+      if (!mounted) return;
+      switch (check.verdict) {
+        case TmdbTokenVerdict.accepted:
+          // Saving flips the screen to step 2.
+          await settings.setTmdbApiKey(value);
+        case TmdbTokenVerdict.rejected:
+          setState(() => _error = check.message);
+        case TmdbTokenVerdict.unchecked:
+          setState(() {
+            _error = check.message;
+            _uncheckedToken = value;
+          });
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
+  Future<void> _saveUncheckedToken() async {
+    final token = _uncheckedToken;
+    if (token == null) return;
+    final settings = ref.read(settingsProvider.notifier);
+    setState(() {
+      _error = null;
+      _uncheckedToken = null;
+    });
+    await settings.setTmdbApiKey(token);
+  }
+
   Future<void> _startSignIn() async {
+    final session = ref.read(tmdbSessionProvider.notifier);
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      final token = await ref.read(tmdbSessionProvider.notifier).beginSignIn();
+      final token = await session.beginSignIn();
       if (!mounted) return;
       setState(() => _pendingApprovalToken = token);
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      if (mounted) {
+        setState(() => _error = friendlyErrorMessage(e, subject: 'TMDB'));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -111,28 +157,45 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   Future<void> _completeSignIn() async {
     final token = _pendingApprovalToken;
     if (token == null) return;
+    final session = ref.read(tmdbSessionProvider.notifier);
+    final favorites = ref.read(favoritesProvider.notifier);
+    final watchlist = ref.read(watchlistProvider.notifier);
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      await ref.read(tmdbSessionProvider.notifier).completeSignIn(token);
-      await ref
-          .read(favoritesProvider.notifier)
-          .syncFromTmdb(pushLocalFirst: true);
-      await ref
-          .read(watchlistProvider.notifier)
-          .syncFromTmdb(pushLocalFirst: true);
-      if (!mounted) return;
-      unawaited(_navigateToHome());
+      await session.completeSignIn(token);
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
-    } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        final kind = classifyFailure(e);
+        setState(() {
+          _busy = false;
+          _error = kind == FailureKind.offline || kind == FailureKind.timeout
+              ? friendlyErrorMessage(e)
+              : 'TMDB didn\'t confirm the sign-in. Approve MediaHub in the '
+                    'browser page, then try again — or start over if that '
+                    'page has expired.';
+        });
+      }
+      return;
     }
+    // Signed in. A list that fails to sync now syncs on the next launch, so
+    // it is no reason to keep someone on the welcome screen.
+    for (final sync in [
+      () => favorites.syncFromTmdb(pushLocalFirst: true),
+      () => watchlist.syncFromTmdb(pushLocalFirst: true),
+    ]) {
+      try {
+        await sync();
+      } catch (e) {
+        AppLog.w('[Onboarding] first sync after sign-in failed: $e');
+      }
+    }
+    if (!mounted) return;
+    setState(() => _busy = false);
+    await _navigateToHome();
   }
-
-  void _skipSignIn() => _navigateToHome();
 
   @override
   Widget build(BuildContext context) {
@@ -148,16 +211,18 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _Header(theme: theme),
+                const _Header(),
                 const SizedBox(height: AppSpacing.xl),
 
                 if (_pendingApprovalToken != null)
                   _ApprovalPendingCard(
-                    theme: theme,
                     busy: _busy,
-                    onFinish: _completeSignIn,
-                    onCancel: () =>
-                        setState(() => _pendingApprovalToken = null),
+                    onFinish: () => unawaited(_completeSignIn()),
+                    onStartOver: () => unawaited(_startSignIn()),
+                    onCancel: () => setState(() {
+                      _pendingApprovalToken = null;
+                      _error = null;
+                    }),
                   )
                 else if (!hasToken)
                   _Step1PasteToken(
@@ -166,47 +231,54 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                     onToggleObscure: () =>
                         setState(() => _obscureToken = !_obscureToken),
                     busy: _busy,
-                    onSave: _saveTokenAndAdvance,
-                    onOpenSignup: () => _openUrl(_tmdbSignupUrl),
-                    onOpenApiPage: () => _openUrl(_tmdbApiUrl),
+                    onSave: () => unawaited(_saveTokenAndAdvance()),
+                    onOpenSignup: () => unawaited(_openUrl(_tmdbSignupUrl)),
+                    onOpenApiPage: () => unawaited(_openUrl(_tmdbApiUrl)),
                   )
                 else
                   _Step2SignInOrSkip(
                     busy: _busy,
-                    onSignIn: _startSignIn,
-                    onSkip: _skipSignIn,
+                    onSignIn: () => unawaited(_startSignIn()),
+                    onSkip: () => unawaited(_navigateToHome()),
                   ),
 
                 if (_error != null) ...[
                   const SizedBox(height: AppSpacing.md),
-                  Container(
-                    padding: const EdgeInsets.all(AppSpacing.sm),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.errorContainer.withValues(
-                        alpha: 0.6,
+                  Semantics(
+                    liveRegion: true,
+                    child: Container(
+                      padding: const EdgeInsets.all(AppSpacing.md),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.errorContainer,
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
                       ),
-                      borderRadius: BorderRadius.circular(AppRadius.sm),
-                    ),
-                    child: Text(
-                      _error!,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: theme.colorScheme.onErrorContainer,
+                      child: Text(
+                        _error!,
+                        textAlign: TextAlign.center,
+                        style: AppType.body(
+                          color: theme.colorScheme.onErrorContainer,
+                        ),
                       ),
                     ),
                   ),
+                  if (_uncheckedToken != null && !_busy)
+                    Padding(
+                      padding: const EdgeInsets.only(top: AppSpacing.sm),
+                      child: TextButton(
+                        onPressed: () => unawaited(_saveUncheckedToken()),
+                        child: const Text('Continue without checking'),
+                      ),
+                    ),
                 ],
 
                 const SizedBox(height: AppSpacing.lg),
                 Text(
                   hasToken
-                      ? 'You can sign in (or out) later from Settings → '
-                            'TMDB Account.'
-                      : 'Your token is stored only on this device.',
+                      ? 'You can sign in or out later in Settings → '
+                            'Connection.'
+                      : 'Your token is stored only on this computer.',
                   textAlign: TextAlign.center,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
+                  style: AppType.caption(),
                 ),
               ],
             ),
@@ -218,23 +290,26 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 }
 
 class _Header extends StatelessWidget {
-  final ThemeData theme;
-  const _Header({required this.theme});
+  const _Header();
+
+  /// The first-run wordmark, as large as the Home hero's title — above the
+  /// type ramp's top step, [AppType.sizeDisplay].
+  static const double _wordmarkSize = 64;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
         const MonoLabel(
-          'WELCOME TO',
+          'Welcome to',
           color: AppColors.accent,
           letterSpacing: 0.18,
-          size: 11,
+          size: AppType.sizeSmall,
         ),
         const SizedBox(height: 10),
-        SerifTitle(
+        const SerifTitle(
           AppConstants.appName,
-          size: 64,
+          size: _wordmarkSize,
           height: 1.0,
           letterSpacing: -0.02,
           textAlign: TextAlign.center,
@@ -243,7 +318,11 @@ class _Header extends StatelessWidget {
         Text(
           'A free TMDB account powers the catalog.',
           textAlign: TextAlign.center,
-          style: AppType.ui(size: 14, color: AppColors.fg1, height: 1.5),
+          style: AppType.ui(
+            size: AppType.sizeLead,
+            color: AppColors.fg1,
+            height: 1.5,
+          ),
         ),
       ],
     );
@@ -275,7 +354,6 @@ class _Step1PasteToken extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return _StepCard(
       stepNumber: 1,
       title: 'Paste your TMDB token',
@@ -283,28 +361,27 @@ class _Step1PasteToken extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            'On TMDB\'s API settings page, copy the field labelled '
-            '"API Read Access Token" (the long one starting with "eyJ…") '
-            'and paste it below.',
-            style: theme.textTheme.bodyMedium,
+            'On TMDB\'s API settings page, copy the field labelled "API Read '
+            'Access Token" — the long one that starts with eyJ… — and paste '
+            'it below.',
+            style: AppType.body(),
           ),
           const SizedBox(height: AppSpacing.md),
 
           // Quick links
-          Row(
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
             children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: busy ? null : onOpenApiPage,
-                  icon: const Icon(Icons.open_in_new_rounded, size: 18),
-                  label: const Text('Open TMDB API page'),
-                ),
+              OutlinedButton.icon(
+                onPressed: busy ? null : onOpenApiPage,
+                icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                label: const Text('Open TMDB API settings'),
               ),
-              const SizedBox(width: AppSpacing.sm),
               TextButton.icon(
                 onPressed: busy ? null : onOpenSignup,
                 icon: const Icon(Icons.person_add_alt_rounded, size: 18),
-                label: const Text('No account?'),
+                label: const Text('No TMDB account? Create one'),
               ),
             ],
           ),
@@ -314,6 +391,7 @@ class _Step1PasteToken extends StatelessWidget {
           TextField(
             controller: controller,
             autofocus: true,
+            enabled: !busy,
             obscureText: obscure,
             enableSuggestions: false,
             autocorrect: false,
@@ -321,28 +399,27 @@ class _Step1PasteToken extends StatelessWidget {
             inputFormatters: [FilteringTextInputFormatter.deny(RegExp(r'\s'))],
             onSubmitted: (_) => onSave(),
             decoration: InputDecoration(
-              labelText: 'Read Access Token',
-              hintText: 'eyJhbGciOiJIUzI1NiJ9…',
+              labelText: 'TMDB token',
+              hintText: 'Starts with eyJ…',
               prefixIcon: const Icon(Icons.key_rounded),
-              border: const OutlineInputBorder(),
               suffixIcon: IconButton(
                 icon: Icon(
                   obscure
                       ? Icons.visibility_rounded
                       : Icons.visibility_off_rounded,
                 ),
-                tooltip: obscure ? 'Show' : 'Hide',
+                tooltip: obscure ? 'Show token' : 'Hide token',
                 onPressed: onToggleObscure,
               ),
             ),
           ),
           const SizedBox(height: AppSpacing.md),
 
-          // Save & continue
+          // Check & continue
           FilledButton.icon(
             onPressed: busy ? null : onSave,
             style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 14),
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
             ),
             icon: busy
                 ? const SizedBox(
@@ -351,7 +428,7 @@ class _Step1PasteToken extends StatelessWidget {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.arrow_forward_rounded),
-            label: const Text('Continue'),
+            label: Text(busy ? 'Checking with TMDB…' : 'Continue'),
           ),
         ],
       ),
@@ -376,7 +453,6 @@ class _Step2SignInOrSkip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return _StepCard(
       stepNumber: 2,
       title: 'Sign in to sync (optional)',
@@ -385,33 +461,28 @@ class _Step2SignInOrSkip extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(
+              const Icon(
                 Icons.check_circle_rounded,
-                color: theme.colorScheme.primary,
+                color: AppColors.ok,
                 size: 18,
               ),
               const SizedBox(width: AppSpacing.xs),
-              Text(
-                'Token saved.',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+              Text('Token saved.', style: AppType.bodyStrong()),
             ],
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
             'Sign in with TMDB in your browser to sync your favorites and '
-            'watchlist across devices. You can skip this and just browse '
-            'locally — your favorites will stay on this machine only.',
-            style: theme.textTheme.bodyMedium,
+            'watchlist across devices. You can skip this and just browse — '
+            'your favorites then stay on this computer only.',
+            style: AppType.body(),
           ),
           const SizedBox(height: AppSpacing.md),
 
           FilledButton.icon(
             onPressed: busy ? null : onSignIn,
             style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 14),
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
             ),
             icon: busy
                 ? const SizedBox(
@@ -425,7 +496,7 @@ class _Step2SignInOrSkip extends StatelessWidget {
           const SizedBox(height: AppSpacing.xs),
           TextButton(
             onPressed: busy ? null : onSkip,
-            child: const Text('Skip — use locally only'),
+            child: const Text('Skip — use MediaHub without an account'),
           ),
         ],
       ),
@@ -438,15 +509,15 @@ class _Step2SignInOrSkip extends StatelessWidget {
 // ============================================================================
 
 class _ApprovalPendingCard extends StatelessWidget {
-  final ThemeData theme;
   final bool busy;
   final VoidCallback onFinish;
+  final VoidCallback onStartOver;
   final VoidCallback onCancel;
 
   const _ApprovalPendingCard({
-    required this.theme,
     required this.busy,
     required this.onFinish,
+    required this.onStartOver,
     required this.onCancel,
   });
 
@@ -454,20 +525,20 @@ class _ApprovalPendingCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return _StepCard(
       stepNumber: 2,
-      title: 'Waiting for browser approval',
+      title: 'Waiting for you to approve',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            'A TMDB authorization page should have opened in your browser. '
-            'Log in if needed, click Approve, then come back here.',
-            style: theme.textTheme.bodyMedium,
+            'A TMDB page opened in your browser. Log in if needed, click '
+            'Approve, then come back here.',
+            style: AppType.body(),
           ),
           const SizedBox(height: AppSpacing.md),
           FilledButton.icon(
             onPressed: busy ? null : onFinish,
             style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 14),
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
             ),
             icon: busy
                 ? const SizedBox(
@@ -476,12 +547,24 @@ class _ApprovalPendingCard extends StatelessWidget {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.check_rounded),
-            label: const Text("I've approved it"),
+            label: const Text('I\'ve approved it'),
           ),
           const SizedBox(height: AppSpacing.xs),
-          TextButton(
-            onPressed: busy ? null : onCancel,
-            child: const Text('Cancel'),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: AppSpacing.sm,
+            children: [
+              // The approval page expires, and a denied request fails the
+              // same way every time; asking again needs a new request.
+              TextButton(
+                onPressed: busy ? null : onStartOver,
+                child: const Text('Start over'),
+              ),
+              TextButton(
+                onPressed: busy ? null : onCancel,
+                child: const Text('Cancel'),
+              ),
+            ],
           ),
         ],
       ),
@@ -506,47 +589,48 @@ class _StepCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.all(AppSpacing.lg),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        color: AppColors.bgSurface,
         borderRadius: BorderRadius.circular(AppRadius.lg),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6),
-        ),
+        border: Border.all(color: AppColors.lineStrong),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 28,
-                height: 28,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primary,
-                  shape: BoxShape.circle,
-                ),
-                child: Text(
-                  '$stepNumber',
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: theme.colorScheme.onPrimary,
-                    fontWeight: FontWeight.bold,
+          Semantics(
+            header: true,
+            label: 'Step $stepNumber, $title',
+            excludeSemantics: true,
+            child: Row(
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  alignment: Alignment.center,
+                  decoration: const BoxDecoration(
+                    color: AppColors.accent,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Text(
+                    '$stepNumber',
+                    style: AppType.bodyStrong(color: AppColors.onAccent),
                   ),
                 ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: Text(
-                  title,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: AppType.ui(
+                      size: AppType.sizeSubhead,
+                      color: AppColors.fg,
+                      weight: FontWeight.w600,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           const SizedBox(height: AppSpacing.md),
           child,

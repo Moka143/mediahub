@@ -1,9 +1,17 @@
 import 'package:flutter/material.dart';
 
+import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
+import '../../design/app_typography.dart';
 import '../../utils/formatters.dart';
+import '../common/editorial_dialog_shell.dart';
+import '../editorial/editorial.dart';
 
 /// Full-screen prompt asking whether to resume from the last position.
+///
+/// Drawn with the app's editorial dialog chrome rather than Material's
+/// `Card` and filled buttons, which made it the one dialog in the app that
+/// looked like a different product.
 class ResumePrompt extends StatelessWidget {
   final Duration resumePosition;
   final VoidCallback onStartOver;
@@ -16,80 +24,56 @@ class ResumePrompt extends StatelessWidget {
     required this.onResume,
   });
 
+  static const double _maxWidth = 380;
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      color: Colors.black87,
-      child: Center(
-        child: Card(
-          elevation: 8,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppRadius.lg),
-          ),
-          child: Padding(
-            padding: EdgeInsets.all(AppSpacing.xl),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+    return ColoredBox(
+      color: AppColors.mediaBlack.withValues(alpha: 0.87),
+      child: EditorialDialogShell(
+        maxWidth: _maxWidth,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SerifTitle('Resume playback?', size: AppType.sizeTitle),
+            const SizedBox(height: AppSpacing.sm),
+            Text.rich(
+              TextSpan(
+                children: [
+                  const TextSpan(text: 'You stopped at '),
+                  TextSpan(
+                    text: Formatters.formatPlaybackDuration(resumePosition),
+                    style: AppType.mono(
+                      size: AppType.sizeBody,
+                      color: AppColors.fg,
+                    ),
+                  ),
+                  const TextSpan(text: '.'),
+                ],
+              ),
+              style: AppType.ui(size: AppType.sizeLead, color: AppColors.fg1),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                Container(
-                  width: 72,
-                  height: 72,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primaryContainer,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.play_circle_rounded,
-                    size: 40,
-                    color: theme.colorScheme.onPrimaryContainer,
-                  ),
+                EditorialButton(
+                  label: 'Start over',
+                  icon: Icons.replay_rounded,
+                  kind: EditorialButtonKind.ghost,
+                  onPressed: onStartOver,
                 ),
-                SizedBox(height: AppSpacing.lg),
-                Text(
-                  'Resume playback?',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                SizedBox(height: AppSpacing.xs),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.sm,
-                    vertical: AppSpacing.xs,
-                  ),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(AppRadius.full),
-                  ),
-                  child: Text(
-                    'Last position: ${Formatters.formatPlaybackDuration(resumePosition)}',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-                SizedBox(height: AppSpacing.xl),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.replay_rounded),
-                      label: const Text('Start Over'),
-                      onPressed: onStartOver,
-                    ),
-                    SizedBox(width: AppSpacing.md),
-                    FilledButton.icon(
-                      icon: const Icon(Icons.play_arrow_rounded),
-                      label: const Text('Resume'),
-                      onPressed: onResume,
-                    ),
-                  ],
+                const SizedBox(width: AppSpacing.sm),
+                EditorialButton(
+                  label: 'Resume',
+                  icon: Icons.play_arrow_rounded,
+                  kind: EditorialButtonKind.accent,
+                  onPressed: onResume,
                 ),
               ],
             ),
-          ),
+          ],
         ),
       ),
     );

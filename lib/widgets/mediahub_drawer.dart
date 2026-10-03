@@ -111,7 +111,9 @@ class _MediaHubDrawerScaffoldState extends State<_MediaHubDrawerScaffold> {
                     sigmaY: 10 * shown,
                   ),
                   child: Container(
-                    color: Colors.black.withValues(alpha: 0.45 * shown),
+                    color: AppColors.barrier.withValues(
+                      alpha: AppColors.barrier.a * shown,
+                    ),
                   ),
                 );
               },
@@ -120,10 +122,17 @@ class _MediaHubDrawerScaffoldState extends State<_MediaHubDrawerScaffold> {
           // 2) Tap-outside layer. Sits below the panel, above the blur, so
           //    a tap on the empty area dismisses without competing with the
           //    panel's own gestures.
+          //    Announced like a modal barrier, so a screen reader can
+          //    dismiss the drawer too (Esc covers the keyboard).
           Positioned.fill(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
+            child: Semantics(
+              label: 'Close',
+              button: true,
               onTap: () => Navigator.of(context).pop(),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => Navigator.of(context).pop(),
+              ),
             ),
           ),
           // 3) The panel itself, slid in from the right.
@@ -162,11 +171,11 @@ class _MediaHubDrawerScaffoldState extends State<_MediaHubDrawerScaffold> {
                     child: Stack(
                       children: [
                         // Panel chrome (border + shadow + body).
-                        const Positioned.fill(
+                        Positioned.fill(
                           child: DecoratedBox(
                             decoration: BoxDecoration(
                               color: AppColors.bgPageAlt,
-                              border: Border(
+                              border: const Border(
                                 left: BorderSide(
                                   color: AppColors.lineStrong,
                                   width: 1,
@@ -174,9 +183,11 @@ class _MediaHubDrawerScaffoldState extends State<_MediaHubDrawerScaffold> {
                               ),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Color(0x80000000),
+                                  color: AppColors.shadow.withValues(
+                                    alpha: 0.5,
+                                  ),
                                   blurRadius: 64,
-                                  offset: Offset(-24, 0),
+                                  offset: const Offset(-24, 0),
                                 ),
                               ],
                             ),
@@ -246,7 +257,7 @@ class _DrawerGrip extends StatelessWidget {
         width: 4,
         height: 56,
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: AppOpacity.light / 255.0),
+          color: AppColors.lineStrong,
           borderRadius: BorderRadius.circular(AppRadius.full),
         ),
       ),

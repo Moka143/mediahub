@@ -4,7 +4,10 @@ import 'package:intl/intl.dart';
 import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
 import '../../design/app_typography.dart';
+import '../../models/episode.dart';
 import '../../models/show.dart';
+import '../../utils/formatters.dart';
+import '../editorial/editorial_badge.dart';
 
 /// Pill rendered in the show details hero summarising upcoming or
 /// recent episode activity.
@@ -17,13 +20,15 @@ import '../../models/show.dart';
 ///   3. Returning series with neither → "Returning soon".
 ///   4. Anything else (finished show, no data) → `SizedBox.shrink`.
 ///
-/// Visual: amber accent strip + mono label + name. Color choice
-/// matches the calendar's "live in Nh" pill so the design language
-/// is consistent across screens.
+/// Visual: amber accent strip + mono label + name, matching the
+/// calendar's "airs today" pill.
 class NextEpisodeChip extends StatelessWidget {
-  const NextEpisodeChip({super.key, required this.show});
+  const NextEpisodeChip({super.key, required this.show, this.now});
 
   final Show show;
+
+  /// The current time, for tests. Defaults to the clock.
+  final DateTime? now;
 
   @override
   Widget build(BuildContext context) {
@@ -31,13 +36,13 @@ class NextEpisodeChip extends StatelessWidget {
     if (spec == null) return const SizedBox.shrink();
 
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.sm - 2,
-      ),
+      padding: EditorialBadge.prominentPadding,
       decoration: BoxDecoration(
-        color: spec.tint.withAlpha(36),
-        border: Border.all(color: spec.tint.withAlpha(0x66), width: 1),
+        color: spec.tint.withAlpha(AppOpacity.light),
+        border: Border.all(
+          color: spec.tint.withAlpha(AppOpacity.semi),
+          width: 1,
+        ),
         borderRadius: BorderRadius.circular(AppRadius.xs),
       ),
       child: Row(
@@ -48,21 +53,25 @@ class NextEpisodeChip extends StatelessWidget {
           Text(
             spec.kicker,
             style: AppType.mono(
-              size: 10,
+              size: AppType.sizeLabel,
               color: spec.tint,
               weight: FontWeight.w700,
               letterSpacing: 0.06,
             ),
           ),
           const SizedBox(width: 6),
-          Container(width: 1, height: 12, color: spec.tint.withAlpha(0x55)),
+          Container(
+            width: 1,
+            height: 12,
+            color: spec.tint.withValues(alpha: 0.33),
+          ),
           const SizedBox(width: 6),
           Flexible(
             child: Text(
               spec.label,
               overflow: TextOverflow.ellipsis,
               style: AppType.ui(
-                size: 12,
+                size: AppType.sizeCaption,
                 color: AppColors.fg,
                 weight: FontWeight.w500,
               ),
@@ -74,8 +83,7 @@ class NextEpisodeChip extends StatelessWidget {
   }
 
   _NextChipSpec? _resolve(Show s) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
+    final today = now ?? DateTime.now();
 
     // 1. Upcoming next episode.
     //
@@ -87,10 +95,12 @@ class NextEpisodeChip extends StatelessWidget {
     // recently-aired branch below, which describes it correctly.
     final next = s.nextEpisode;
     if (next != null) {
-      final airDate = _parse(next.airDate);
+      final airDate = parseAirDate(next.airDate);
       if (airDate != null) {
-        final airDay = DateTime(airDate.year, airDate.month, airDate.day);
-        final delta = airDay.difference(today).inDays;
+        // Calendar days, not `difference().inDays` between local midnights:
+        // across the spring DST change those come up a day short, and the
+        // chip said "airs today" about tomorrow.
+        final delta = Formatters.calendarDaysBetween(today, airDate);
         if (delta < 0) return _resolveAired(s, today);
         String when;
         if (delta == 0) {
@@ -106,7 +116,7 @@ class NextEpisodeChip extends StatelessWidget {
           icon: Icons.schedule_rounded,
           kicker: next.episodeCode,
           label: '${next.name} · $when',
-          tint: AppColors.accentAmber,
+          tint: AppColors.warn,
         );
       }
     }
@@ -121,10 +131,9 @@ class NextEpisodeChip extends StatelessWidget {
     // 2. Recently aired last episode (within last 14 days)
     final last = s.lastEpisode;
     if (last != null) {
-      final airDate = _parse(last.airDate);
+      final airDate = parseAirDate(last.airDate);
       if (airDate != null) {
-        final airDay = DateTime(airDate.year, airDate.month, airDate.day);
-        final delta = today.difference(airDay).inDays;
+        final delta = Formatters.calendarDaysBetween(airDate, today);
         if (delta >= 0 && delta <= 14) {
           String when;
           if (delta == 0) {
@@ -150,16 +159,11 @@ class NextEpisodeChip extends StatelessWidget {
         icon: Icons.autorenew_rounded,
         kicker: 'NEXT EP',
         label: 'Returning soon',
-        tint: AppColors.accentAmber,
+        tint: AppColors.warn,
       );
     }
 
     return null;
-  }
-
-  DateTime? _parse(String? raw) {
-    if (raw == null || raw.isEmpty) return null;
-    return DateTime.tryParse(raw);
   }
 }
 

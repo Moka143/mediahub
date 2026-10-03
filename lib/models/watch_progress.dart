@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
-import '../utils/formatters.dart';
 import '../utils/platform_utils.dart';
 
 /// Represents watch progress for a video file
@@ -21,6 +20,15 @@ class WatchProgress {
   final DateTime lastWatched; // Last watch timestamp
   final bool isCompleted; // True if > 90% watched
 
+  /// The watched state here has not reached TMDB yet — the rating write (or
+  /// its removal) failed, or there was no network to send it on.
+  ///
+  /// Until it does, this device's mark is the newer truth, and the TMDB
+  /// reconcile must not "follow" a remote state that simply has not heard
+  /// about it yet: an episode marked watched offline used to be un-marked at
+  /// the next launch because TMDB had no rating for it.
+  final bool tmdbPushPending;
+
   WatchProgress({
     required this.fileHash,
     required this.filePath,
@@ -36,6 +44,7 @@ class WatchProgress {
     required this.duration,
     required this.lastWatched,
     this.isCompleted = false,
+    this.tmdbPushPending = false,
   });
 
   /// Generate hash from file path
@@ -61,18 +70,11 @@ class WatchProgress {
   static bool isSyntheticPath(String filePath) =>
       syntheticPathPrefixes.any(filePath.startsWith);
 
-  /// Whether this entry refers to a real file rather than a watched-only
-  /// placeholder.
-  bool get isRealFile => !isSyntheticPath(filePath);
-
   /// Get progress as a value between 0.0 and 1.0
   double get progress {
     if (duration.inMilliseconds == 0) return 0.0;
     return (position.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0);
   }
-
-  /// Get progress as percentage string
-  String get progressPercent => '${(progress * 100).toInt()}%';
 
   /// Get remaining time
   Duration get remaining => duration - position;
@@ -86,14 +88,11 @@ class WatchProgress {
     return '${hours}h ${remainingMins}m left';
   }
 
-  /// Get position formatted (HH:MM:SS or MM:SS)
-  String get positionFormatted => Formatters.formatPlaybackDuration(position);
+  /// How far in a title counts as finished: the credits.
+  static const double completedFraction = 0.90;
 
-  /// Get duration formatted
-  String get durationFormatted => Formatters.formatPlaybackDuration(duration);
-
-  /// Check if should mark as completed (> 90% watched)
-  bool get shouldMarkCompleted => progress >= 0.90;
+  /// Check if should mark as completed ([completedFraction] watched)
+  bool get shouldMarkCompleted => progress >= completedFraction;
 
   /// Finished this title — the persisted flag **or** playback reached
   /// the credits threshold. Library / season-browser watched marks use
@@ -105,8 +104,14 @@ class WatchProgress {
   /// we actually played — the rating often never reached TMDB (missing
   /// show id). Zeroing position after a delete used to make a finished
   /// episode look like an explicit mark and get wiped on the next sync.
+  ///
+  /// Nor a mark TMDB has not been told about yet ([tmdbPushPending]): "not
+  /// rated" is then just the old state, not a later decision.
   bool get followsRemoteUnwatch =>
-      isCompleted && duration.inMilliseconds == 0 && !shouldMarkCompleted;
+      isCompleted &&
+      duration.inMilliseconds == 0 &&
+      !shouldMarkCompleted &&
+      !tmdbPushPending;
 
   /// Get display title
   String get displayTitle {
@@ -138,6 +143,7 @@ class WatchProgress {
           DateTime.tryParse(json['last_watched'] as String? ?? '') ??
           DateTime.now(),
       isCompleted: json['is_completed'] as bool? ?? false,
+      tmdbPushPending: json['tmdb_push_pending'] as bool? ?? false,
     );
   }
 
@@ -157,6 +163,8 @@ class WatchProgress {
       'duration_ms': duration.inMilliseconds,
       'last_watched': lastWatched.toIso8601String(),
       'is_completed': isCompleted,
+      // Only when set, so the common row stays the shape older builds wrote.
+      if (tmdbPushPending) 'tmdb_push_pending': true,
     };
   }
 
@@ -175,6 +183,7 @@ class WatchProgress {
     Duration? duration,
     DateTime? lastWatched,
     bool? isCompleted,
+    bool? tmdbPushPending,
   }) {
     return WatchProgress(
       fileHash: fileHash ?? this.fileHash,
@@ -191,6 +200,7 @@ class WatchProgress {
       duration: duration ?? this.duration,
       lastWatched: lastWatched ?? this.lastWatched,
       isCompleted: isCompleted ?? this.isCompleted,
+      tmdbPushPending: tmdbPushPending ?? this.tmdbPushPending,
     );
   }
 

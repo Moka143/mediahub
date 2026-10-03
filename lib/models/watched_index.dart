@@ -1,4 +1,4 @@
-import '../utils/formatters.dart';
+import '../utils/media_names.dart';
 import 'watch_progress.dart';
 
 /// Precomputed answer to "has this been watched?".
@@ -12,16 +12,21 @@ import 'watch_progress.dart';
 /// entry that was missing ids.
 ///
 /// This builds the answer once per change to the progress map and hands out
-/// O(1) lookups. It is a plain value class with no Riverpod dependency so
-/// the matching rules can be unit-tested directly.
+/// O(1) lookups — including the name fallback, which is indexed by title key
+/// rather than scanned. It is a plain value class with no Riverpod dependency
+/// so the matching rules can be unit-tested directly.
 ///
 /// **Watched is deliberately decoupled from "the file still exists."** A
 /// watched mark has to survive deleting the file and re-downloading it
 /// later, so this index is built from the raw progress map rather than from
-/// `watchedItemsProvider` (which filters on file existence) or
 /// `continueWatchingProvider` (which excludes completed items).
 class WatchedIndex {
-  WatchedIndex._(this._episodeKeys, this._movieIds, this._unkeyedEpisodes);
+  WatchedIndex._(
+    this._episodeKeys,
+    this._movieIds,
+    this._unkeyedByTitle,
+    this.episodeCount,
+  );
 
   /// `showId/season/episode` for every completed entry that carries a TMDB
   /// show id. This is the fast path and covers everything written since
@@ -31,15 +36,23 @@ class WatchedIndex {
   /// TMDB movie ids for every completed movie entry.
   final Set<int> _movieIds;
 
-  /// Episode entries kept for fuzzy name matching. Includes keyed
-  /// entries too — a stale/wrong TMDB id on the progress row would
-  /// otherwise hide a watched episode in the season browser.
-  final List<WatchProgress> _unkeyedEpisodes;
+  /// Completed episode entries that have **no** show id, bucketed by
+  /// [titleMatchKey] of their show name.
+  ///
+  /// Only those: an entry that has an id is identified by it. Falling back
+  /// to the name for keyed entries too is what let watching "You" S01E01
+  /// mark "Young Sheldon" S01E01 — every miss on the id went looking for a
+  /// name that merely contained the other.
+  final Map<String, List<WatchProgress>> _unkeyedByTitle;
 
-  static final WatchedIndex empty = WatchedIndex._({}, {}, const []);
+  /// Watched episode entries, keyed or not. For diagnostics and tests.
+  final int episodeCount;
 
-  /// Key format shared with `library_actions.dart`'s reconcile pass so the
-  /// two agree on identity.
+  static final WatchedIndex empty = WatchedIndex._({}, {}, const {}, 0);
+
+  /// The one key format for "this episode of this show". The TMDB watched
+  /// reconcile keys its rating sets with this too, so the two agree on
+  /// identity by construction rather than by keeping two copies in step.
   static String episodeKey(int showId, int season, int episode) =>
       '$showId/$season/$episode';
 
@@ -52,7 +65,8 @@ class WatchedIndex {
   factory WatchedIndex.fromProgress(Iterable<WatchProgress> entries) {
     final episodeKeys = <String>{};
     final movieIds = <int>{};
-    final unkeyed = <WatchProgress>[];
+    final unkeyed = <String, List<WatchProgress>>{};
+    var episodes = 0;
 
     for (final p in entries) {
       if (!p.isEffectivelyWatched) continue;
@@ -60,15 +74,17 @@ class WatchedIndex {
       final season = p.seasonNumber;
       final episode = p.episodeNumber;
       if (season != null && episode != null) {
+        episodes++;
         final showId = p.showId;
         if (showId != null) {
           episodeKeys.add(episodeKey(showId, season, episode));
+          continue;
         }
-        // Always keep a name fallback. A stale/wrong TMDB id on the
-        // progress entry would otherwise hide a watched episode in the
-        // season browser (Lioness is 113962; some saves still carry
-        // another id).
-        unkeyed.add(p);
+        final name = p.showName;
+        if (name == null) continue;
+        final key = titleMatchKey(name);
+        if (key.isEmpty) continue;
+        (unkeyed[key] ??= []).add(p);
         continue;
       }
 
@@ -76,16 +92,17 @@ class WatchedIndex {
       if (movieId != null) movieIds.add(movieId);
     }
 
-    return WatchedIndex._(episodeKeys, movieIds, unkeyed);
+    return WatchedIndex._(episodeKeys, movieIds, unkeyed, episodes);
   }
 
   /// Whether a specific episode is marked watched.
   ///
-  /// [showName] is only consulted for the unkeyed fallback. The match there
-  /// is intentionally loose in one direction — the stored name must
-  /// *contain* the queried name — because unkeyed entries get their name
-  /// parsed out of a torrent filename, so "Severance" needs to match an
-  /// entry stored as "Severance 2022".
+  /// [showName] is only consulted for entries saved without a show id —
+  /// older rows, and files whose show never resolved. Those are matched on
+  /// the same title rules as everywhere else ([titlesMatch]): equality after
+  /// normalising, never containment, with a release year allowed on one side
+  /// only — so "Severance" finds a row stored as "Severance 2022", but "You"
+  /// never finds "Young Sheldon".
   bool isEpisodeWatched({
     required int showId,
     required int season,
@@ -95,20 +112,16 @@ class WatchedIndex {
     if (_episodeKeys.contains(episodeKey(showId, season, episode))) {
       return true;
     }
-    if (_unkeyedEpisodes.isEmpty) return false;
+    if (showName == null || _unkeyedByTitle.isEmpty) return false;
 
-    final code = Formatters.episodeCode(season, episode).toLowerCase();
-    final target = showName?.toLowerCase();
-    if (target == null || target.isEmpty) return false;
-    return _unkeyedEpisodes.any((p) {
-      final sameEp =
-          (p.seasonNumber == season && p.episodeNumber == episode) ||
-          p.episodeCode?.toLowerCase() == code;
-      if (!sameEp) return false;
-      final stored = p.showName?.toLowerCase();
-      if (stored == null || stored.isEmpty) return false;
-      return stored.contains(target) || target.contains(stored);
-    });
+    final bucket = _unkeyedByTitle[titleMatchKey(showName)];
+    if (bucket == null) return false;
+    return bucket.any(
+      (p) =>
+          p.seasonNumber == season &&
+          p.episodeNumber == episode &&
+          titlesMatch(p.showName!, showName),
+    );
   }
 
   bool isMovieWatched(int movieId) => _movieIds.contains(movieId);
@@ -117,8 +130,5 @@ class WatchedIndex {
   /// rather than asking per card.
   Set<int> get watchedMovieIds => Set.unmodifiable(_movieIds);
 
-  /// Counts, for diagnostics and tests.
-  int get episodeCount => _unkeyedEpisodes.length;
-  int get movieCount => _movieIds.length;
-  bool get isEmpty => episodeCount == 0 && movieCount == 0;
+  bool get isEmpty => episodeCount == 0 && _movieIds.isEmpty;
 }

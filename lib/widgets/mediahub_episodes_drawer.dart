@@ -1,30 +1,34 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../design/app_tokens.dart';
 import '../models/episode.dart';
+import '../models/local_media_file.dart';
 import '../models/season.dart';
 import '../models/show.dart';
-import '../providers/shows_provider.dart' show tmdbApiServiceProvider;
-import '../providers/torrent_provider.dart';
+import '../models/watched_index.dart';
+import '../providers/local_media_provider.dart';
+import '../providers/shows_provider.dart';
 import '../providers/watch_progress_provider.dart';
-import '../utils/formatters.dart';
+import '../utils/error_messages.dart';
+import '../utils/media_names.dart';
 import 'common/mediahub_drawer_header.dart';
 import 'episodes/episode_picker.dart';
 import 'episodes/episode_row.dart';
 import 'episodes/episode_states.dart';
+import 'episodes/episode_status.dart';
 import 'episodes/season_tabs.dart';
 import 'mediahub_drawer.dart';
 
-/// Right-side drawer presenting a show's seasons + episodes — replaces
-/// the inline "Seasons & Episodes" section that previously occupied
-/// the show details main page.
+/// Right-side drawer presenting a show's seasons + episodes.
 ///
 /// Layout:
 ///   * Header — "BROWSE EPISODES" kicker + show title + ✕ close
-///   * Season tab strip (`01 02 03 …`)
-///   * Scrollable episode list — each row shows episode #, name,
-///     air date, runtime + a GET button that fires `onEpisodeTap`
+///   * Season strip (`01 02 03 …`)
+///   * Episode quick-jump strip
+///   * Episode list — each row opens the episode through [onEpisodeTap]
 class MediaHubEpisodesDrawer extends ConsumerStatefulWidget {
   const MediaHubEpisodesDrawer({
     super.key,
@@ -60,6 +64,18 @@ class MediaHubEpisodesDrawer extends ConsumerStatefulWidget {
     );
   }
 
+  /// The seasons to offer as tabs: specials (season 0) are left out — the
+  /// drawer is for episodes people want to watch — unless a show has
+  /// nothing else, which used to open on a season no tab was selected for.
+  static List<int> tabSeasons(List<Season> seasons) {
+    final regular = [
+      for (final s in seasons)
+        if (s.seasonNumber > 0) s.seasonNumber,
+    ];
+    if (regular.isNotEmpty) return regular;
+    return [for (final s in seasons) s.seasonNumber];
+  }
+
   @override
   ConsumerState<MediaHubEpisodesDrawer> createState() =>
       _MediaHubEpisodesDrawerState();
@@ -67,18 +83,13 @@ class MediaHubEpisodesDrawer extends ConsumerStatefulWidget {
 
 class _MediaHubEpisodesDrawerState
     extends ConsumerState<MediaHubEpisodesDrawer> {
-  late int _season = widget.initialSeason;
-  final Map<int, List<Episode>> _episodes = {};
-  final Map<int, GlobalKey> _episodeKeys = {};
   final ScrollController _listController = ScrollController();
-  bool _loading = false;
-  Object? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadSeason(_season);
-  }
+  late final List<int> _seasonNumbers = MediaHubEpisodesDrawer.tabSeasons(
+    widget.seasons,
+  );
+  late int _season = _seasonNumbers.contains(widget.initialSeason)
+      ? widget.initialSeason
+      : (_seasonNumbers.isEmpty ? widget.initialSeason : _seasonNumbers.first);
 
   @override
   void dispose() {
@@ -86,91 +97,141 @@ class _MediaHubEpisodesDrawerState
     super.dispose();
   }
 
-  void _scrollToEpisode(int episodeNumber) {
-    final key = _episodeKeys[episodeNumber];
-    final ctx = key?.currentContext;
-    if (ctx != null) {
-      Scrollable.ensureVisible(
-        ctx,
-        duration: AppDuration.normal,
-        curve: Curves.easeOutCubic,
-        alignment: 0.0,
-      );
-    }
+  ({int showId, int seasonNumber}) get _seasonKey =>
+      (showId: widget.show.id, seasonNumber: _season);
+
+  void _selectSeason(int season) {
+    if (season == _season) return;
+    setState(() => _season = season);
+    if (_listController.hasClients) _listController.jumpTo(0);
   }
 
-  /// Determine an episode's lifecycle state by joining torrent list
-  /// + watch progress. Returns a single status — `watched` wins over
-  /// `downloaded` wins over `downloading` wins over `none`.
-  EpisodeStatus _statusFor(Episode ep) {
-    final code = Formatters.episodeCode(ep.seasonNumber, ep.episodeNumber);
-    final showName = widget.show.name.toLowerCase();
+  /// Scroll episode [index] to the top of the list.
+  ///
+  /// By arithmetic over the fixed row height, through the list's own
+  /// controller. It used to look the row up by a GlobalKey, which only
+  /// exists once the row is built — and a lazy list builds only the ten or
+  /// so rows on screen, so jumping to episode 15 of 22 did nothing at all.
+  void _scrollToIndex(int index, double extent) {
+    if (!_listController.hasClients) return;
+    final max = _listController.position.maxScrollExtent;
+    unawaited(
+      _listController.animateTo(
+        (index * extent).clamp(0.0, max),
+        duration: AppDuration.normal,
+        curve: Curves.easeOutCubic,
+      ),
+    );
+  }
 
-    // `watchedIndexProvider` is the single source of truth — deliberately
-    // not `continueWatchingProvider` (which strips out `isCompleted`
-    // items) and not `watchedItemsProvider` (which requires the file to
-    // still exist), because a watched mark has to survive deleting the
-    // file and re-downloading it later.
-    //
-    // `watch`, not `read`: this used to read the map once, so marking an
-    // episode watched while the drawer was open left the row stale until
-    // it was rebuilt for some unrelated reason.
-    final watched = ref.watch(watchedIndexProvider);
+  /// One status per episode — watched wins over Transfers, which wins over
+  /// a file in the library.
+  ///
+  /// Every source is watched, not read once: marking an episode watched, or
+  /// a download started from this very drawer, shows on its row at once —
+  /// the row used to keep saying "Stream", inviting a duplicate download.
+  EpisodeStatus _statusFor(
+    Episode ep, {
+    required WatchedIndex watched,
+    required TransfersEpisodeIndex transfers,
+    required List<LocalMediaFile> library,
+  }) {
+    final show = widget.show;
     if (watched.isEpisodeWatched(
-      showId: widget.show.id,
+      showId: show.id,
       season: ep.seasonNumber,
       episode: ep.episodeNumber,
-      showName: showName,
+      showName: show.name,
     )) {
       return EpisodeStatus.watched;
     }
-
-    final torrents = ref.read(torrentListProvider).torrents;
-    for (final t in torrents) {
-      final n = t.name.toLowerCase();
-      if (!n.contains(code.toLowerCase())) continue;
-      // Match the show roughly: at least the first significant token.
-      final showFirst = showName.split(' ').first;
-      if (showFirst.length < 3 || n.contains(showFirst)) {
-        if (t.isDownloading) return EpisodeStatus.downloading;
-        return EpisodeStatus.downloaded;
-      }
+    final inTransfers = transfers.statusOf(
+      show.name,
+      ep.seasonNumber,
+      ep.episodeNumber,
+    );
+    if (inTransfers != EpisodeStatus.none) return inTransfers;
+    if (libraryHasEpisode(
+      library,
+      show.name,
+      ep.seasonNumber,
+      ep.episodeNumber,
+    )) {
+      return EpisodeStatus.downloaded;
     }
     return EpisodeStatus.none;
   }
 
-  Future<void> _loadSeason(int season) async {
-    if (_episodes.containsKey(season)) return;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final svc = ref.read(tmdbApiServiceProvider);
-      final eps = await svc.getSeasonEpisodes(widget.show.id, season);
-      if (!mounted) return;
-      setState(() {
-        _episodes[season] = eps;
-        _loading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = e;
-        _loading = false;
-      });
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final eps = _episodes[_season] ?? const <Episode>[];
-    // Filter out specials (season 0) — drawer focuses on aired
-    // episodes the user actually wants to grab.
-    final seasonNumbers = widget.seasons
-        .where((s) => s.seasonNumber > 0)
-        .map((s) => s.seasonNumber)
-        .toList();
+    final show = widget.show;
+    final seasonCount = show.numberOfSeasons ?? _seasonNumbers.length;
+    final episodeCount = show.numberOfEpisodes;
+    final extent = EpisodeRow.extentFor(MediaQuery.textScalerOf(context));
+
+    final episodesAsync = ref.watch(seasonEpisodesProvider(_seasonKey));
+    final watched = ref.watch(watchedIndexProvider);
+    final transfers = ref.watch(transfersEpisodeIndexProvider);
+    final library = ref.watch(localMediaFilesProvider).value ?? const [];
+    final inProgress = ref.watch(continueWatchingProvider);
+
+    EpisodeStatus statusFor(Episode ep) => _statusFor(
+      ep,
+      watched: watched,
+      transfers: transfers,
+      library: library,
+    );
+
+    double? watchedRatioFor(Episode ep) {
+      for (final p in inProgress) {
+        if (p.seasonNumber != ep.seasonNumber ||
+            p.episodeNumber != ep.episodeNumber) {
+          continue;
+        }
+        final sameShow =
+            p.showId == show.id ||
+            (p.showName != null && titlesMatch(p.showName!, show.name));
+        if (!sameShow) continue;
+        return p.progress;
+      }
+      return null;
+    }
+
+    // Data first, then error, then loading: while Riverpod retries a failed
+    // request in the background the value is "loading" with an error
+    // attached, and showing the skeleton for the ~40 s of retries left the
+    // drawer blank when offline.
+    final List<Episode>? episodes = episodesAsync.value;
+    final Widget body;
+    if (episodes != null) {
+      body = episodes.isEmpty
+          ? const EpisodesEmptyState()
+          : ListView.builder(
+              controller: _listController,
+              padding: const EdgeInsets.all(AppSpacing.md),
+              itemExtent: extent,
+              itemCount: episodes.length,
+              itemBuilder: (_, i) {
+                final ep = episodes[i];
+                return EpisodeRow(
+                  episode: ep,
+                  status: statusFor(ep),
+                  onTap: () => widget.onEpisodeTap(ep),
+                  watchedRatio: watchedRatioFor(ep),
+                );
+              },
+            );
+    } else if (episodesAsync.hasError) {
+      body = EpisodesErrorState(
+        message: friendlyErrorMessage(
+          episodesAsync.error!,
+          subject: 'this season',
+        ),
+        onRetry: () => ref.invalidate(seasonEpisodesProvider(_seasonKey)),
+      );
+    } else {
+      body = const EpisodesSkeleton();
+    }
 
     return Padding(
       padding: const EdgeInsets.only(left: MediaHubDrawer.dragGripWidth),
@@ -178,72 +239,30 @@ class _MediaHubEpisodesDrawerState
         children: [
           MediaHubDrawerHeader(
             kicker: 'BROWSE EPISODES',
-            title: widget.show.name,
-            subtitle:
-                '${widget.show.numberOfSeasons ?? 0} '
-                '${(widget.show.numberOfSeasons ?? 0) == 1 ? 'SEASON' : 'SEASONS'}'
-                ' · ${widget.show.numberOfEpisodes ?? 0} EPISODES',
+            title: show.name,
+            subtitle: [
+              seasonCount == 1 ? '1 season' : '$seasonCount seasons',
+              if (episodeCount != null)
+                episodeCount == 1 ? '1 episode' : '$episodeCount episodes',
+            ].join(' · '),
             subtitleUppercase: true,
             onClose: () => Navigator.of(context).pop(),
           ),
-          SeasonTabs(
-            seasonNumbers: seasonNumbers,
-            selected: _season,
-            onSelect: (n) {
-              setState(() => _season = n);
-              _loadSeason(n);
-            },
-          ),
-          if (eps.isNotEmpty)
-            EpisodePicker(
-              episodes: eps,
-              onSelect: _scrollToEpisode,
-              statusFor: _statusFor,
+          if (_seasonNumbers.isNotEmpty)
+            SeasonTabs(
+              seasonNumbers: _seasonNumbers,
+              selected: _season,
+              onSelect: _selectSeason,
             ),
-          Expanded(
-            child: _loading && eps.isEmpty
-                ? const EpisodesSkeleton()
-                : _error != null && eps.isEmpty
-                ? EpisodesErrorState(onRetry: () => _loadSeason(_season))
-                : ListView.builder(
-                    controller: _listController,
-                    padding: const EdgeInsets.all(AppSpacing.md),
-                    itemCount: eps.length,
-                    itemBuilder: (_, i) {
-                      final ep = eps[i];
-                      final key = _episodeKeys.putIfAbsent(
-                        ep.episodeNumber,
-                        () => GlobalKey(),
-                      );
-                      return EpisodeRow(
-                        key: key,
-                        episode: ep,
-                        status: _statusFor(ep),
-                        onTap: () => widget.onEpisodeTap(ep),
-                        watchedRatio: _watchedRatioFor(ep),
-                      );
-                    },
-                  ),
-          ),
+          if (episodes != null && episodes.isNotEmpty)
+            EpisodePicker(
+              episodes: episodes,
+              onSelect: (index) => _scrollToIndex(index, extent),
+              statusFor: statusFor,
+            ),
+          Expanded(child: body),
         ],
       ),
     );
-  }
-
-  /// Returns 0.0–1.0 of how much of the episode the user has watched, or
-  /// `null` when nothing is recorded. Drives the watched-progress overlay
-  /// at the bottom of each episode still.
-  double? _watchedRatioFor(Episode ep) {
-    final code = Formatters.episodeCode(ep.seasonNumber, ep.episodeNumber);
-    final showName = widget.show.name.toLowerCase();
-    final progress = ref.read(continueWatchingProvider);
-    for (final p in progress) {
-      if (p.episodeCode?.toLowerCase() != code.toLowerCase()) continue;
-      if (!(p.showName?.toLowerCase().contains(showName) ?? false)) continue;
-      final dur = p.duration.inMilliseconds;
-      if (dur <= 0) return null;
-      return (p.position.inMilliseconds / dur).clamp(0.0, 1.0);
-    }
-    return null;
   }
 }

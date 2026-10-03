@@ -19,7 +19,7 @@ import 'package:flutter/material.dart';
 /// alternative is a window that does not fit its own screen.
 ///
 /// Critically, [scaleFor] returns exactly 1.0 for any viewport at or above the
-/// floor, and this widget then returns [child] untouched — no `Transform`, no
+/// floor, and this widget then returns [child] untouched — no `FittedBox`, no
 /// `MediaQuery` override, no extra layer in the tree at all. At 100% and 150%
 /// display scale the widget tree is identical to what it was before this
 /// existed, which is the whole point: nothing gets smaller on a normal screen.
@@ -85,19 +85,21 @@ class UiScale extends StatelessWidget {
         viewInsets: mq.viewInsets * inverse,
         textScaler: mq.textScaler.clamp(maxScaleFactor: crampedMaxTextScale),
       ),
-      child: Transform.scale(
-        scale: scale,
-        // topLeft, not the default centre: the child is exactly the size of
-        // the scaled-up viewport, so scaling about the centre would offset it
-        // by half the difference and push the top-left corner off-window.
+      // FittedBox, not Transform.scale. A Transform hands its child the
+      // window's own tight constraints, and a SizedBox(logicalSize) under
+      // tight constraints is clamped straight back to the window — so the
+      // app was laid out at 853x432, then painted at 0.72 into the top-left
+      // 72% of the window, while every breakpoint read the 1185x600 above.
+      // FittedBox lays its child out unconstrained, so the SizedBox gets
+      // exactly the logical size, and then scales the result to fill the
+      // window: the aspect ratios match by construction, so `contain` and
+      // `fill` agree. Pointer events are mapped back through the same
+      // transform, so clicks land where they look — including in the
+      // bottom-right corner, which an OverflowBox-in-Transform would miss.
+      child: FittedBox(
+        fit: BoxFit.contain,
         alignment: Alignment.topLeft,
-        // `transformHitTests` defaults to true — pointer events are inverse-
-        // mapped through the same matrix, so clicks land where they look.
-        child: SizedBox(
-          width: logicalSize.width,
-          height: logicalSize.height,
-          child: child,
-        ),
+        child: SizedBox.fromSize(size: logicalSize, child: child),
       ),
     );
   }

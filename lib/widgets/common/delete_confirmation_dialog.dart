@@ -1,42 +1,20 @@
 import 'package:flutter/material.dart';
 
 import '../../design/app_colors.dart';
-import '../../design/app_tokens.dart';
 import '../../design/app_typography.dart';
 import 'mediahub_confirm_dialog.dart';
 
-/// Reusable delete-confirmation entry points. Renders the editorial
-/// [MediaHubConfirmDialog] with a destructive accent and an optional
-/// "Also delete files" checkbox.
-///
-/// This is API-compatible with the previous `AlertDialog`-based
-/// implementation — the static `show*` helpers still return the same
-/// shape so call sites don't change.
+/// Confirmation for removing torrents from Transfers, with the "Also delete
+/// files" choice. Built on [MediaHubConfirmDialog], the one confirm shell;
+/// any other destructive prompt should use that directly.
 class DeleteConfirmationDialog {
   DeleteConfirmationDialog._();
 
-  /// Show a generic confirm prompt and return true if the user
-  /// confirms deletion. The optional `withFiles` checkbox is only
-  /// rendered when [showDeleteFilesOption] is true — its value is
-  /// returned via [showForTorrent] / [showForTorrents].
-  static Future<bool?> show({
-    required BuildContext context,
-    required String title,
-    required String message,
-    String deleteButtonText = 'Delete',
-    String cancelButtonText = 'Cancel',
-    IconData icon = Icons.delete_outline,
-  }) {
-    return MediaHubConfirmDialog.show(
-      context: context,
-      title: title,
-      message: message,
-      confirmLabel: deleteButtonText,
-      cancelLabel: cancelButtonText,
-      destructive: true,
-      icon: icon,
-    );
-  }
+  /// The sentence every variant ends with. Deleting files is opt-in, and the
+  /// dialog used to leave that unsaid — "Delete torrent?" reads as if the
+  /// download goes too.
+  static const String filesKeptNote =
+      'Files on disk are kept unless you tick "Also delete files".';
 
   /// Confirm deletion of a single torrent. Returns null on cancel.
   static Future<({bool confirmed, bool deleteFiles})?> showForTorrent({
@@ -45,20 +23,23 @@ class DeleteConfirmationDialog {
   }) {
     return _showWithDeleteFiles(
       context: context,
-      title: 'Delete Torrent',
-      message: 'Are you sure you want to delete "$torrentName"?',
+      title: 'Delete torrent?',
+      message: '"$torrentName" will be removed from Transfers. $filesKeptNote',
     );
   }
 
-  /// Confirm deletion of a batch of torrents.
+  /// Confirm deletion of a batch of torrents. Returns null on cancel.
   static Future<({bool confirmed, bool deleteFiles})?> showForTorrents({
     required BuildContext context,
     required int torrentCount,
   }) {
+    final one = torrentCount == 1;
     return _showWithDeleteFiles(
       context: context,
-      title: 'Delete Torrents',
-      message: 'Are you sure you want to delete $torrentCount torrents?',
+      title: one ? 'Delete 1 torrent?' : 'Delete $torrentCount torrents?',
+      message:
+          '${one ? 'It' : 'They'} will be removed from Transfers. '
+          '$filesKeptNote',
     );
   }
 
@@ -67,7 +48,7 @@ class DeleteConfirmationDialog {
     required String title,
     required String message,
   }) async {
-    final notifier = ValueNotifier<bool>(false);
+    final deleteFiles = ValueNotifier<bool>(false);
 
     final confirmed = await MediaHubConfirmDialog.show(
       context: context,
@@ -76,64 +57,45 @@ class DeleteConfirmationDialog {
       confirmLabel: 'Delete',
       destructive: true,
       icon: Icons.delete_outline,
-      extraContent: _DeleteFilesCheckbox(value: notifier),
+      extraContent: _DeleteFilesCheckbox(value: deleteFiles),
     );
 
     final result = confirmed == true
-        ? (confirmed: true, deleteFiles: notifier.value)
+        ? (confirmed: true, deleteFiles: deleteFiles.value)
         : null;
-    notifier.dispose();
+    deleteFiles.dispose();
     return result;
   }
 }
 
-class _DeleteFilesCheckbox extends StatefulWidget {
+class _DeleteFilesCheckbox extends StatelessWidget {
   const _DeleteFilesCheckbox({required this.value});
   final ValueNotifier<bool> value;
 
   @override
-  State<_DeleteFilesCheckbox> createState() => _DeleteFilesCheckboxState();
-}
-
-class _DeleteFilesCheckboxState extends State<_DeleteFilesCheckbox> {
-  @override
   Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(AppRadius.xs),
-      onTap: () => setState(() => widget.value.value = !widget.value.value),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Checkbox(
-              value: widget.value.value,
-              onChanged: (v) => setState(() => widget.value.value = v ?? false),
-              activeColor: AppColors.err,
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Also delete files',
-                    style: AppType.ui(
-                      size: 14,
-                      color: AppColors.fg,
-                      weight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    'Permanently remove downloaded files',
-                    style: AppType.ui(size: 12, color: AppColors.fg2),
-                  ),
-                ],
-              ),
-            ),
-          ],
+    // One control, not an InkWell wrapped around a Checkbox: the old pair
+    // put two stops in the focus order for one choice.
+    return ValueListenableBuilder<bool>(
+      valueListenable: value,
+      builder: (context, checked, _) => CheckboxListTile(
+        value: checked,
+        onChanged: (v) => value.value = v ?? false,
+        controlAffinity: ListTileControlAffinity.leading,
+        contentPadding: EdgeInsets.zero,
+        dense: true,
+        activeColor: AppColors.err,
+        title: Text(
+          'Also delete files',
+          style: AppType.ui(
+            size: AppType.sizeLead,
+            color: AppColors.fg,
+            weight: FontWeight.w500,
+          ),
+        ),
+        subtitle: Text(
+          'Permanently remove the downloaded files from disk',
+          style: AppType.caption(),
         ),
       ),
     );

@@ -7,10 +7,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/peer.dart';
 import '../models/torrent.dart';
+import '../models/torrent_action_result.dart';
 import '../models/torrent_file.dart';
 import '../models/tracker.dart';
 import '../services/app_logger.dart';
-import '../services/qbittorrent_api_service.dart';
 import '../services/torrent_engine.dart';
 import '../utils/constants.dart';
 import '../utils/debouncer.dart';
@@ -21,64 +21,53 @@ import 'local_media_provider.dart';
 import 'settings_provider.dart';
 import 'watch_progress_provider.dart';
 
-/// Outcome of a torrent mutation (pause / resume / delete / add / …).
-///
-/// These used to return a bare `bool` produced by `catch (e) { return false; }`,
-/// so the cause never left the provider and every failure surfaced to the user
-/// as the same generic "Failed to pause torrent" — identical whether
-/// qBittorrent was unreachable, the credentials were wrong, or the torrent
-/// hash was stale.
-class TorrentActionResult {
-  const TorrentActionResult.success() : error = null;
-  const TorrentActionResult.failure(this.error);
-
-  /// Human-readable cause, or null when the action succeeded.
-  final String? error;
-
-  bool get success => error == null;
-
-  /// Message to show the user: the caller's generic description, with the
-  /// underlying cause appended when we have one.
-  String messageOr(String fallback) =>
-      error == null ? fallback : '$fallback — $error';
-}
-
-/// Turn a thrown qBittorrent/Dio error into something worth showing a user.
+/// Turn an error thrown by the torrent engine into a plain sentence for the
+/// screen. Never the raw exception text, and never a particular engine's
+/// name: the built-in engine's users have no qBittorrent to blame.
 @visibleForTesting
-String describeQbError(Object error) {
-  if (error is QBittorrentApiException) return error.message;
+String describeEngineError(Object error) {
   if (error is DioException) {
     switch (error.type) {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.sendTimeout:
       case DioExceptionType.receiveTimeout:
-        return 'qBittorrent timed out';
+        return "The torrent engine didn't answer in time";
       case DioExceptionType.connectionError:
-        return 'Cannot reach qBittorrent';
+        return "Can't reach the torrent engine";
       case DioExceptionType.badResponse:
         final code = error.response?.statusCode;
         return code == null
-            ? 'qBittorrent returned an error'
-            : 'qBittorrent returned HTTP $code';
-      default:
-        return error.message ?? 'Request failed';
+            ? 'The torrent engine reported an error'
+            : 'The torrent engine reported an error (HTTP $code)';
+      case DioExceptionType.cancel:
+        return 'The request was cancelled';
+      case DioExceptionType.badCertificate:
+      case DioExceptionType.transformTimeout:
+      case DioExceptionType.unknown:
+        return 'Something went wrong talking to the torrent engine';
     }
   }
-  return error.toString();
+  return 'Something went wrong talking to the torrent engine';
 }
+
+/// How long after a torrent finishes, or is deleted, before the library is
+/// rescanned — long enough for the engine to finish moving and closing files.
+const Duration _libraryRefreshDelay = Duration(seconds: 2);
+
+/// How often an open Torrent Details tab re-reads its files, peers or
+/// trackers.
+const Duration kTorrentDetailRefreshInterval = Duration(seconds: 3);
 
 /// State for torrent list
 class TorrentListState {
   final List<Torrent> torrents;
   final bool isLoading;
   final String? error;
-  final DateTime? lastUpdated;
 
   const TorrentListState({
     this.torrents = const [],
     this.isLoading = false,
     this.error,
-    this.lastUpdated,
   });
 
   /// Deliberately NOT `??`-merged: an error belongs to one update, so every
@@ -89,13 +78,11 @@ class TorrentListState {
     List<Torrent>? torrents,
     bool? isLoading,
     String? error,
-    DateTime? lastUpdated,
   }) {
     return TorrentListState(
       torrents: torrents ?? this.torrents,
       isLoading: isLoading ?? this.isLoading,
       error: error,
-      lastUpdated: lastUpdated ?? this.lastUpdated,
     );
   }
 }
@@ -157,7 +144,7 @@ class TorrentListNotifier extends Notifier<TorrentListState> {
 
     // Start or stop polling based on connection state
     if (connectionState.isConnected) {
-      Future.microtask(() => startPolling());
+      unawaited(Future.microtask(startPolling));
     } else {
       _poll.stop();
       _isFirstFetch = true;
@@ -208,15 +195,14 @@ class TorrentListNotifier extends Notifier<TorrentListState> {
     await refresh();
   }
 
-  /// Stop polling
-  void stopPolling() {
-    _poll.stop();
-  }
-
   /// Refresh torrent list using sync endpoint for efficiency
   Future<void> refresh({bool fullUpdate = false}) async {
     if (state.isLoading) return;
 
+    // This build's Ref, not the notifier's current one: if the connection
+    // changes mid-fetch the notifier rebuilds against another engine, and
+    // this fetch's answer belongs to the old one.
+    final buildRef = ref;
     final apiService = ref.read(torrentEngineProvider);
     final previousTorrents = state.torrents;
 
@@ -286,24 +272,29 @@ class TorrentListNotifier extends Notifier<TorrentListState> {
           }
           nextTorrents = currentTorrents.values.toList();
         }
-        state = TorrentListState(
-          torrents: nextTorrents,
-          isLoading: false,
-          lastUpdated: DateTime.now(),
-        );
+        if (!buildRef.mounted) return;
+        state = TorrentListState(torrents: nextTorrents);
         _reconcileCompletedTorrents(previousTorrents, nextTorrents, apiService);
       } else {
-        // Fallback to full fetch if sync endpoint fails
-        final torrents = await apiService.getTorrents();
-        state = TorrentListState(
-          torrents: torrents,
-          isLoading: false,
-          lastUpdated: DateTime.now(),
-        );
+        // No delta endpoint, or it failed: a full fetch.
+        final torrents = await apiService.tryGetTorrents();
+        if (!buildRef.mounted) return;
+        if (torrents == null) {
+          // The engine did not answer. Keep showing what we had, with the
+          // reason, rather than an empty list that reads as "no torrents".
+          state = state.copyWith(
+            isLoading: false,
+            error: "Can't reach the torrent engine",
+          );
+          return;
+        }
+        state = TorrentListState(torrents: torrents);
         _reconcileCompletedTorrents(previousTorrents, torrents, apiService);
       }
     } catch (e) {
-      state = state.copyWith(isLoading: false, error: e.toString());
+      AppLog.w('[Torrents] refresh failed: $e');
+      if (!buildRef.mounted) return;
+      state = state.copyWith(isLoading: false, error: describeEngineError(e));
     }
   }
 
@@ -339,15 +330,13 @@ class TorrentListNotifier extends Notifier<TorrentListState> {
     if (newlyCompleted.isNotEmpty) {
       final autoDownload = ref.read(autoDownloadProvider.notifier);
       for (final hash in newlyCompleted) {
-        autoDownload.markDownloadCompleted(hash);
+        unawaited(autoDownload.markDownloadCompleted(hash));
       }
-      // Refresh the library once the files have been finalised. Tied to the
+      // Rescan the library once the files have been finalised. Tied to the
       // edge rather than to "any completed torrent is still seeding", which
-      // re-scheduled an invalidate on every 2 s poll until qBit got round to
+      // re-scheduled a refresh on every 2 s poll until the engine got round to
       // pausing.
-      Future.delayed(const Duration(seconds: 2), () {
-        ref.invalidate(localMediaFilesProvider);
-      });
+      _rescanLibrarySoon();
     }
 
     // ── 2. Auto-stop seeding ──────────────────────────────────────────────
@@ -357,11 +346,12 @@ class TorrentListNotifier extends Notifier<TorrentListState> {
     // Intentionally idempotent rather than edge-triggered:
     //   1. `apiService.pauseTorrents` is fired with `unawaited`, so a failed
     //      request used to leave the torrent seeding forever (no retry).
-    //      Re-checking every poll auto-retries until qBit reports pausedUP.
+    //      Re-checking every poll auto-retries until the engine reports it
+    //      paused.
     //   2. Re-streamed / manually-resumed completed torrents transition
     //      pausedUP → uploading, which an edge check would miss because both
     //      states count as `isCompleted`.
-    // Once qBit transitions the torrent to pausedUP/stoppedUP, `isPaused`
+    // Once the engine reports the torrent paused (pausedUP/stoppedUP), `isPaused`
     // becomes true and the next poll naturally skips it — so the steady-state
     // cost is zero API calls.
     final toStop = [
@@ -373,14 +363,32 @@ class TorrentListNotifier extends Notifier<TorrentListState> {
     unawaited(apiService.pauseTorrents(toStop));
   }
 
+  /// Rescan the library after [_libraryRefreshDelay], the one way every
+  /// caller does it ([refreshLocalMediaFromRef]). Invalidating only the file
+  /// list, as this used to, re-joined the cached scan and found nothing new.
+  void _rescanLibrarySoon({bool cleanUpWatchProgress = false}) {
+    unawaited(
+      Future<void>.delayed(_libraryRefreshDelay, () {
+        if (!ref.mounted) return;
+        refreshLocalMediaFromRef(ref);
+        if (cleanUpWatchProgress) {
+          // Drop watch-progress entries for files that no longer exist.
+          unawaited(
+            ref.read(watchProgressProvider.notifier).cleanupStaleEntries(),
+          );
+        }
+      }),
+    );
+  }
+
   /// Debounced refresh - used after user actions
   void _debouncedRefresh() {
     _refreshDebouncer.run(() => refresh());
   }
 
-  /// Run a qBittorrent mutation, turning both failure modes — a thrown
-  /// exception and a plain `false` from the API — into a [TorrentActionResult]
-  /// that carries a cause the UI can show.
+  /// Run an engine mutation, turning both failure modes — a thrown exception
+  /// and a plain `false` from the API — into a [TorrentActionResult] that
+  /// carries a cause the UI can show.
   ///
   /// [onSuccess] runs only when the call succeeded, before the result is
   /// returned, so callers can't forget the follow-up refresh.
@@ -393,16 +401,16 @@ class TorrentListNotifier extends Notifier<TorrentListState> {
     try {
       final ok = await call(apiService);
       if (!ok) {
-        AppLog.w('[Torrents] $action rejected by qBittorrent');
+        AppLog.w('[Torrents] $action rejected by the engine');
         return const TorrentActionResult.failure(
-          'qBittorrent rejected the request',
+          "The torrent engine didn't accept the request",
         );
       }
-      if (onSuccess != null) await onSuccess();
+      if (onSuccess != null && ref.mounted) await onSuccess();
       return const TorrentActionResult.success();
     } catch (e) {
       AppLog.e('[Torrents] $action failed: $e');
-      return TorrentActionResult.failure(describeQbError(e));
+      return TorrentActionResult.failure(describeEngineError(e));
     }
   }
 
@@ -501,14 +509,7 @@ class TorrentListNotifier extends Notifier<TorrentListState> {
         // so this is a full snapshot.
         await refresh(fullUpdate: true);
 
-        // Refresh media files after a short delay to allow file system to update
-        Future.delayed(const Duration(seconds: 2), () {
-          ref.invalidate(localMediaStreamProvider);
-          ref.invalidate(localMediaScannerProvider);
-          ref.invalidate(localMediaFilesProvider);
-          // Clean up watch progress entries for files that no longer exist
-          ref.read(watchProgressProvider.notifier).cleanupStaleEntries();
-        });
+        _rescanLibrarySoon(cleanUpWatchProgress: true);
       },
     );
   }
@@ -628,7 +629,6 @@ class SelectionModeNotifier extends Notifier<bool> {
 
   void enable() => state = true;
   void disable() => state = false;
-  void set(bool value) => state = value;
 }
 
 final selectionModeProvider = NotifierProvider<SelectionModeNotifier, bool>(
@@ -656,73 +656,57 @@ class SelectedTorrentHashNotifier extends Notifier<String?> {
   void clear() => state = null;
 }
 
-/// Provider for selected torrent
-final selectedTorrentProvider = Provider<Torrent?>((ref) {
-  final hash = ref.watch(selectedTorrentHashProvider);
-  if (hash == null) return null;
+/// Re-run the provider holding [ref] every [kTorrentDetailRefreshInterval]
+/// for as long as something watches it.
+///
+/// The detail tabs used to read their data once and keep it forever. These
+/// providers are auto-dispose, so the timer — re-armed by each rebuild — dies
+/// with the last tab that watches them.
+void _refreshWhileWatched(Ref ref) {
+  final timer = Timer(kTorrentDetailRefreshInterval, ref.invalidateSelf);
+  ref.onDispose(timer.cancel);
+}
 
-  final torrents = ref.watch(torrentListProvider).torrents;
-  return torrents.where((t) => t.hash == hash).firstOrNull;
-});
+/// Files of one torrent, refreshed while a tab shows them.
+final torrentFilesProvider = FutureProvider.autoDispose
+    .family<List<TorrentFile>, String>((ref, hash) async {
+      final engine = ref.watch(torrentEngineProvider);
+      final connected = ref.watch(
+        connectionProvider.select((c) => c.isConnected),
+      );
+      if (!connected) return const [];
+      _refreshWhileWatched(ref);
+      return engine.getTorrentFiles(hash);
+    });
 
-/// Provider for torrent files
-final torrentFilesProvider = FutureProvider.family<List<TorrentFile>, String>((
-  ref,
-  hash,
-) async {
-  final apiService = ref.watch(torrentEngineProvider);
-  final connectionState = ref.watch(connectionProvider);
+/// Peers of one torrent, refreshed while a tab shows them.
+final torrentPeersProvider = FutureProvider.autoDispose
+    .family<List<Peer>, String>((ref, hash) async {
+      final engine = ref.watch(torrentEngineProvider);
+      final connected = ref.watch(
+        connectionProvider.select((c) => c.isConnected),
+      );
+      if (!connected) return const [];
+      _refreshWhileWatched(ref);
+      return engine.getTorrentPeers(hash);
+    });
 
-  if (!connectionState.isConnected) return [];
-
-  return apiService.getTorrentFiles(hash);
-});
-
-/// Provider for torrent peers
-final torrentPeersProvider = FutureProvider.family<List<Peer>, String>((
-  ref,
-  hash,
-) async {
-  final apiService = ref.watch(torrentEngineProvider);
-  final connectionState = ref.watch(connectionProvider);
-
-  if (!connectionState.isConnected) return [];
-
-  return apiService.getTorrentPeers(hash);
-});
-
-/// Provider for torrent trackers
-final torrentTrackersProvider = FutureProvider.family<List<Tracker>, String>((
-  ref,
-  hash,
-) async {
-  final apiService = ref.watch(torrentEngineProvider);
-  final connectionState = ref.watch(connectionProvider);
-
-  if (!connectionState.isConnected) return [];
-
-  return apiService.getTorrentTrackers(hash);
-});
-
-/// Provider for global transfer info
-final transferInfoProvider = FutureProvider<Map<String, dynamic>?>((ref) async {
-  final apiService = ref.watch(torrentEngineProvider);
-  final connectionState = ref.watch(connectionProvider);
-
-  if (!connectionState.isConnected) return null;
-
-  return apiService.getTransferInfo();
-});
+/// Trackers of one torrent, refreshed while a tab shows them.
+final torrentTrackersProvider = FutureProvider.autoDispose
+    .family<List<Tracker>, String>((ref, hash) async {
+      final engine = ref.watch(torrentEngineProvider);
+      final connected = ref.watch(
+        connectionProvider.select((c) => c.isConnected),
+      );
+      if (!connected) return const [];
+      _refreshWhileWatched(ref);
+      return engine.getTorrentTrackers(hash);
+    });
 
 /// Provider for active downloads count (for navigation badge)
 final activeDownloadsCountProvider = Provider<int>((ref) {
   final torrents = ref.watch(torrentListProvider).torrents;
   return torrents.where((t) => t.isDownloading).length;
-});
-
-/// Provider for total torrents count
-final totalTorrentsCountProvider = Provider<int>((ref) {
-  return ref.watch(torrentListProvider).torrents.length;
 });
 
 /// Provider for errored torrents count

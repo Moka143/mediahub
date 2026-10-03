@@ -2,19 +2,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/watch_progress.dart';
-import '../../providers/local_media_provider.dart';
-import '../../utils/media_names.dart';
 import 'media_poster_card.dart';
+import 'poster_lookup.dart';
 
-/// Continue-watching card — thin wrapper over [MediaPosterCard] so the
-/// library tab can render Continue Watching alongside Movies / Shows / Recent
-/// with one consistent visual.
+/// Continue-watching card — a [MediaPosterCard] for a [WatchProgress].
+///
+/// The one card for a resume item: Home's Continue Watching row and the
+/// Library's both use it, so both get the same poster lookup and the same
+/// menu (Home's own copy had neither "Mark as watched" nor "Remove").
 class ContinueWatchingCard extends ConsumerWidget {
   final WatchProgress progress;
   final VoidCallback onTap;
   final VoidCallback? onRemove;
   final VoidCallback? onMarkWatched;
   final VoidCallback? onDelete;
+  final double width;
 
   const ContinueWatchingCard({
     super.key,
@@ -23,65 +25,45 @@ class ContinueWatchingCard extends ConsumerWidget {
     this.onRemove,
     this.onMarkWatched,
     this.onDelete,
+    this.width = 152,
   });
-
-  AsyncValue<String?>? _resolvePoster(WidgetRef ref) {
-    if (progress.showName != null &&
-        progress.showName!.isNotEmpty &&
-        (progress.seasonNumber != null || progress.episodeNumber != null)) {
-      return ref.watch(showPosterProvider(progress.showName!));
-    }
-    final searchName =
-        progress.showName ?? cleanMediaTitle(progress.displayTitle);
-    if (searchName.isNotEmpty) {
-      return ref.watch(moviePosterProvider(searchName));
-    }
-    return null;
-  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final actions = <MediaCardAction>[];
-    if (onMarkWatched != null) {
-      actions.add(
+    final actions = <MediaCardAction>[
+      if (onMarkWatched != null)
         MediaCardAction(
           icon: Icons.check_circle_outline_rounded,
           label: 'Mark as watched',
           onSelected: onMarkWatched!,
         ),
-      );
-    }
-    if (onRemove != null) {
-      actions.add(
+      if (onRemove != null)
         MediaCardAction(
           icon: Icons.remove_circle_outline_rounded,
           label: 'Remove from Continue Watching',
           onSelected: onRemove!,
         ),
-      );
-    }
-    if (onDelete != null) {
-      actions.add(
+      if (onDelete != null)
         MediaCardAction(
           icon: Icons.delete_outline_rounded,
           label: 'Delete file',
           onSelected: onDelete!,
           destructive: true,
         ),
-      );
-    }
+    ];
 
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: MediaPosterCard(
-        posterAsync: _resolvePoster(ref),
-        title: progress.showName ?? progress.displayTitle,
-        subtitle: progress.remainingFormatted,
-        badge: progress.episodeCode,
-        progress: progress.progress,
-        onTap: onTap,
-        actions: actions,
-      ),
+    return MediaPosterCard(
+      posterAsync: watchProgressPoster(ref, progress),
+      title: watchProgressTitle(progress),
+      subtitle: progress.remainingFormatted,
+      badge: progress.episodeCode,
+      progress: progress.progress,
+      width: width,
+      placeholderIcon: isEpisodeProgress(progress)
+          ? Icons.live_tv_rounded
+          : Icons.movie_rounded,
+      onTap: onTap,
+      actions: actions,
     );
   }
 }

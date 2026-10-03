@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../utils/formatters.dart';
+import '../utils/media_names.dart';
 import '../utils/media_quality.dart';
 import '../utils/platform_utils.dart';
 import 'watch_progress.dart';
@@ -18,6 +19,7 @@ const videoExtensions = [
   'mpg',
   'mpeg',
   'ts',
+  'm2ts',
   '3gp',
 ];
 
@@ -43,10 +45,22 @@ class LocalMediaFile {
   final int? episodeNumber; // Parsed from filename
   final String? quality; // canonical MediaQuality label, e.g. "1080p"
   final String extension; // "mkv", "mp4", etc.
-  final int? showId; // Matched TMDB show ID (nullable)
-  final String? posterPath; // Show poster path
+
+  /// TMDB show id, when something has already resolved it — copied from the
+  /// file's watch-progress row (see [fromProgress] and the library's
+  /// progress join). Null for a file nobody has played or marked yet; the
+  /// scanner itself never knows it.
+  final int? showId;
+
+  /// TMDB poster path, from the same place as [showId].
+  final String? posterPath;
+
   final WatchProgress? progress; // Watch progress (nullable)
-  final String? torrentHash; // qBittorrent torrent hash if originating from one
+
+  /// Info hash of the torrent that wrote this file, when the code that built
+  /// it knew (a finished streaming session does). A hint only: the library
+  /// delete still checks the torrent's own file list before acting on it.
+  final String? torrentHash;
 
   LocalMediaFile({
     required this.path,
@@ -92,18 +106,50 @@ class LocalMediaFile {
   /// Get watch progress value (0.0 - 1.0)
   double get watchProgress => progress?.progress ?? 0.0;
 
+  /// A library entry for a watch-progress row, for when the file is not (or
+  /// not yet) in the scanned library — a download the scanner has not caught
+  /// up with, or a path outside the library folder.
+  ///
+  /// Carries everything the row knows — show, episode, TMDB ids, poster —
+  /// so the player and the watched-sync see the same metadata either way.
+  /// Size is unknown (0) and the modified date stands in as the last time it
+  /// was watched.
+  factory LocalMediaFile.fromProgress(WatchProgress progress) {
+    final name = basenameOf(progress.filePath);
+    final quality = MediaQuality.fromText(name);
+    return LocalMediaFile(
+      path: progress.filePath,
+      fileName: name,
+      sizeBytes: 0,
+      modifiedDate: progress.lastWatched,
+      showName: progress.showName,
+      seasonNumber: progress.seasonNumber,
+      episodeNumber: progress.episodeNumber,
+      quality: quality == MediaQuality.unknown ? null : quality.label,
+      extension: _extensionOf(name),
+      showId: progress.showId,
+      posterPath: progress.posterPath,
+      progress: progress,
+    );
+  }
+
+  static String _extensionOf(String fileName) =>
+      fileName.contains('.') ? fileName.split('.').last.toLowerCase() : '';
+
   /// Create from file system entity
   static Future<LocalMediaFile?> fromFile(File file) async {
     try {
-      final stat = await file.stat();
       final fileName = basenameOf(file.path);
-      final ext = fileName.contains('.')
-          ? fileName.split('.').last.toLowerCase()
-          : '';
+      final ext = _extensionOf(fileName);
 
+      // Extension before stat: the download folder is full of `.part`
+      // files, subtitles and artwork, and stat'ing each one on every rescan
+      // was most of the cost of a scan for nothing.
       if (!videoExtensions.contains(ext)) {
         return null;
       }
+
+      final stat = await file.stat();
 
       // Reject stubs. Torrents routinely carry zero-byte placeholder files
       // and tiny sample clips alongside the real episodes, and qBittorrent
@@ -146,43 +192,15 @@ class LocalMediaFile {
         ? fileName.substring(0, fileName.lastIndexOf('.'))
         : fileName;
 
-    // Try S##E## pattern first (most common)
-    final s01e01Pattern = RegExp(
-      r'^(.+?)[.\s_-]+[Ss](\d{1,2})[Ee](\d{1,2})',
-      caseSensitive: false,
-    );
-
-    // Try #x## pattern (alternative)
-    final altPattern = RegExp(
-      r'^(.+?)[.\s_-]+(\d{1,2})x(\d{1,2})',
-      caseSensitive: false,
-    );
-
-    // Try Season # Episode # pattern
-    final seasonEpPattern = RegExp(
-      r'^(.+?)[.\s_-]+Season[.\s_-]*(\d{1,2})[.\s_-]*Episode[.\s_-]*(\d{1,2})',
-      caseSensitive: false,
-    );
-
-    Match? match = s01e01Pattern.firstMatch(nameWithoutExt);
-    if (match != null) {
-      showName = _cleanShowName(match.group(1)!);
-      season = int.tryParse(match.group(2)!);
-      episode = int.tryParse(match.group(3)!);
-    } else {
-      match = altPattern.firstMatch(nameWithoutExt);
-      if (match != null) {
-        showName = _cleanShowName(match.group(1)!);
-        season = int.tryParse(match.group(2)!);
-        episode = int.tryParse(match.group(3)!);
-      } else {
-        match = seasonEpPattern.firstMatch(nameWithoutExt);
-        if (match != null) {
-          showName = _cleanShowName(match.group(1)!);
-          season = int.tryParse(match.group(2)!);
-          episode = int.tryParse(match.group(3)!);
-        }
-      }
+    // The shared parser, not a private regex. This one used to stop at two
+    // digits with no trailing boundary, so `S01E105` was episode 10 here and
+    // episode 105 to the rest of the app.
+    final split = splitEpisodeName(nameWithoutExt);
+    if (split != null) {
+      final name = _cleanShowName(split.showPart);
+      showName = name.isEmpty ? null : name;
+      season = split.season;
+      episode = split.episode;
     }
 
     // Extract quality. Canonical labels via [MediaQuality] — this used to

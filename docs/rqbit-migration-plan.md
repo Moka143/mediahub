@@ -1,5 +1,10 @@
 # Swapping qBittorrent for rqbit — migration plan
 
+> **Status: done.** The plan below landed in 0.6.0 (built-in engine as the
+> default, qBittorrent kept as an option) and was followed by the shutdown
+> fixes in 0.6.1/0.7.0. Kept as the record of why the engine is built the way
+> it is; the README describes current behaviour.
+
 Companion to `embedded-torrent-engine.md`. Written against `main` @ `15e70af`.
 
 ---

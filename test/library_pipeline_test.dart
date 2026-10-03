@@ -321,7 +321,7 @@ void main() {
 
         // Gone from anything offering playback...
         expect(container.read(continueWatchingProvider), isEmpty);
-        expect(container.read(watchedItemsProvider), isEmpty);
+        expect(container.read(libraryPathsProvider), isEmpty);
         // ...but still watched, which is what the episodes drawer reads.
         expect(
           container

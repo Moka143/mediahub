@@ -1,12 +1,13 @@
-import 'dart:async';
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/local_media_file.dart';
+import '../models/show_with_seasons.dart';
 import '../models/watch_progress.dart';
 import '../services/app_logger.dart';
 import '../services/local_media_scanner.dart';
 import '../services/tmdb_api_service.dart';
+import '../utils/media_names.dart';
 import 'settings_provider.dart';
 import 'shows_provider.dart';
 import 'watch_progress_provider.dart';
@@ -16,87 +17,84 @@ final downloadPathProvider = Provider<String>((ref) {
   return ref.watch(settingsProvider).defaultSavePath;
 });
 
-/// In-flight and resolved poster lookups, keyed by the search name.
+/// Provider to lookup show poster from TMDB.
 ///
-/// The **Future** is cached, not the resolved value, and that distinction is
-/// the whole point. Riverpod 3 auto-disposes a family provider the moment
-/// nothing watches it, and the library list churns constantly — the torrent
-/// poll rebuilds it every 2 s while a download runs, and every watch-progress
-/// write rebuilds it during playback. A lookup still in flight when its
-/// provider was torn down was simply discarded, and the next build started
-/// over. While the churn outpaced the TMDB round trip the poster never
-/// resolved at all, which is why a freshly-added episode or movie would
-/// sometimes sit on a blank gradient until things settled down.
-///
-/// Sharing the Future also collapses the duplicate requests two cards for the
-/// same show would otherwise both fire.
-///
-/// A confirmed miss — TMDB answered and had nothing — resolves to null and
-/// stays cached. A *failure* (network down, rate limited) removes its own
-/// entry so the next rebuild retries; caching that would leave the card on a
-/// flat gradient for the rest of the session with no way back.
-final _showPosterRequests = <String, Future<String?>>{};
-
-/// Same contract as [_showPosterRequests], for `/search/movie`.
-final _moviePosterRequests = <String, Future<String?>>{};
-
-/// Provider to lookup show poster from TMDB
-final showPosterProvider = FutureProvider.family<String?, String>((
+/// Kept alive from the first request, not just while a card watches it: the
+/// library list churns constantly — the torrent poll rebuilds it every 2 s
+/// while a download runs — and a lookup cancelled every time its card was
+/// rebuilt never finished at all. A *failure* is let go instead: it is
+/// rethrown (Riverpod retries it while watched) and released once nothing
+/// watches it, so the next card to ask tries again. It used to resolve to
+/// null and stay cached for the session, leaving the card on a flat
+/// gradient with no way back.
+final showPosterProvider = FutureProvider.autoDispose.family<String?, String>((
   ref,
   showName,
-) {
-  // Outlive the card that asked. Without this the request is cancelled the
-  // moment the list rebuilds — see [_showPosterRequests].
-  ref.keepAlive();
-  return _showPosterRequests[showName] ??= _lookupShowPoster(ref, showName);
-});
-
-Future<String?> _lookupShowPoster(Ref ref, String showName) async {
-  // Read before the first await, while the provider is certainly alive.
-  final tmdb = ref.read(tmdbApiServiceProvider);
+) async {
+  final tmdb = ref.watch(tmdbApiServiceProvider);
+  final keepAlive = ref.keepAlive();
   try {
     final shows = await tmdb.searchShows(showName);
-    final posterPath = shows.isNotEmpty ? shows.first.posterPath : null;
+    if (shows.isEmpty) return null;
+    // The same show by name when the results have it — a poster is only
+    // cosmetic, but the first hit for "You" is not necessarily "You".
+    final show = shows.firstWhere(
+      (s) => titlesMatch(s.name, showName),
+      orElse: () => shows.first,
+    );
+    final posterPath = show.posterPath;
     return posterPath != null
         ? TmdbApiService.getPosterUrl(posterPath, size: 'w185')
         : null;
   } catch (e) {
     AppLog.w('[LocalMedia] show poster lookup failed for "$showName": $e');
-    // The map holds Futures, so `remove` hands this very future back. We
-    // want the eviction, not the value — a later rebuild retries the lookup.
-    unawaited(_showPosterRequests.remove(showName));
-    return null;
+    keepAlive.close();
+    rethrow;
   }
-}
-
-/// Provider to lookup movie poster from TMDB based on filename
-final moviePosterProvider = FutureProvider.family<String?, String>((
-  ref,
-  movieName,
-) {
-  ref.keepAlive();
-  return _moviePosterRequests[movieName] ??= _lookupMoviePoster(ref, movieName);
 });
 
-Future<String?> _lookupMoviePoster(Ref ref, String movieName) async {
-  final tmdb = ref.read(tmdbApiServiceProvider);
+/// Provider to lookup movie poster from TMDB based on filename. Same
+/// caching rules as [showPosterProvider].
+final moviePosterProvider = FutureProvider.autoDispose.family<String?, String>((
+  ref,
+  movieName,
+) async {
+  final tmdb = ref.watch(tmdbApiServiceProvider);
+  final keepAlive = ref.keepAlive();
   try {
     final movies = await tmdb.searchMovies(movieName);
-    return movies.isNotEmpty ? movies.first.posterUrl : null;
+    if (movies.isEmpty) return null;
+    final movie = movies.firstWhere(
+      (m) => titlesMatch(m.title, movieName),
+      orElse: () => movies.first,
+    );
+    return movie.posterUrl;
   } catch (e) {
     AppLog.w('[LocalMedia] movie poster lookup failed for "$movieName": $e');
-    unawaited(_moviePosterRequests.remove(movieName));
-    return null;
+    keepAlive.close();
+    rethrow;
   }
-}
+});
 
 /// Provider for LocalMediaScanner instance
 final localMediaScannerProvider = Provider<LocalMediaScanner>((ref) {
   final downloadPath = ref.watch(downloadPathProvider);
-  final scanner = LocalMediaScanner(downloadPath);
-  ref.onDispose(() => scanner.dispose());
-  return scanner;
+  return LocalMediaScanner(downloadPath);
 });
+
+/// Rescan the library — **the** way to do it.
+///
+/// Invalidating the scanner is enough: the file stream and the file list are
+/// built on it, and everything derived rebuilds from those. Invalidating
+/// only the file list — what several call sites did — re-joined the stream's
+/// cached value without scanning anything.
+void refreshLocalMedia(WidgetRef ref) =>
+    ref.invalidate(localMediaScannerProvider);
+
+/// [refreshLocalMedia] for code that holds a provider [Ref] — a notifier —
+/// rather than a [WidgetRef].
+void refreshLocalMediaFromRef(Ref ref) =>
+    ref.invalidate(localMediaScannerProvider);
 
 /// Snapshot of all local media files.
 ///
@@ -105,12 +103,6 @@ final localMediaScannerProvider = Provider<LocalMediaScanner>((ref) {
 /// which re-runs this provider, which then propagates to all derived
 /// providers (recentDownloadsProvider, localMoviesProvider,
 /// localMediaByShowAndSeasonProvider, etc.).
-///
-/// Previously this was an independent one-shot `FutureProvider` doing its
-/// own scan. Result: the stream-driven UI saw new files (the "All" count
-/// updated) but the derived sub-section lists stayed frozen at the
-/// initial scan. Bridging it to the stream gives everything one source
-/// of truth.
 final localMediaFilesProvider = FutureProvider<List<LocalMediaFile>>((
   ref,
 ) async {
@@ -131,7 +123,10 @@ final localMediaFilesProvider = FutureProvider<List<LocalMediaFile>>((
   return _joinProgress(files, progressMap);
 });
 
-/// Attach each file's persisted [WatchProgress], when it has one.
+/// Attach each file's persisted [WatchProgress], when it has one — and with
+/// it the TMDB show id and poster the row learned, which the scanner cannot
+/// know. Those two fields were declared on every library file and set on
+/// none, so everything that read them got null.
 List<LocalMediaFile> _joinProgress(
   List<LocalMediaFile> files,
   Map<String, WatchProgress> progressMap,
@@ -140,7 +135,15 @@ List<LocalMediaFile> _joinProgress(
   final joined = <LocalMediaFile>[];
   for (final file in files) {
     final progress = progressMap[WatchProgress.generateHash(file.path)];
-    joined.add(progress == null ? file : file.copyWith(progress: progress));
+    joined.add(
+      progress == null
+          ? file
+          : file.copyWith(
+              progress: progress,
+              showId: file.showId ?? progress.showId,
+              posterPath: file.posterPath ?? progress.posterPath,
+            ),
+    );
   }
   return joined;
 }
@@ -153,86 +156,11 @@ List<LocalMediaFile> _joinProgress(
 ///
 /// No existence filter either: every emission from watchDirectory() is a
 /// fresh `directory.list(recursive: true)`, so these files were enumerated
-/// from the filesystem microseconds ago. Re-stat'ing each one was an O(n)
-/// syscall pass over the whole library on every watcher event, guarding a
-/// race window that the next watcher event corrects anyway.
+/// from the filesystem moments ago.
 final localMediaStreamProvider = StreamProvider<List<LocalMediaFile>>((ref) {
   final scanner = ref.watch(localMediaScannerProvider);
   return scanner.watchDirectory();
 });
-
-/// Provider for refreshing local media files
-final refreshLocalMediaProvider = Provider<Future<void> Function()>((ref) {
-  return () async {
-    // Invalidate all media providers to force a fresh scan with current path
-    ref.invalidate(localMediaStreamProvider);
-    ref.invalidate(localMediaScannerProvider);
-    ref.invalidate(localMediaFilesProvider);
-  };
-});
-
-/// Provider for local media grouped by show (case-insensitive)
-/// Only includes TV show episodes (files with season OR episode numbers)
-final localMediaByShowProvider = Provider<Map<String, List<LocalMediaFile>>>((
-  ref,
-) {
-  final filesAsync = ref.watch(localMediaFilesProvider);
-  final files = filesAsync.value ?? [];
-
-  // Filter to only include TV show episodes (files with season OR episode numbers)
-  final showFiles = files
-      .where((f) => f.seasonNumber != null || f.episodeNumber != null)
-      .toList();
-
-  final groupedLower = <String, List<LocalMediaFile>>{};
-  final showNameMap =
-      <String, String>{}; // lowercase -> original (first seen) name
-
-  for (final file in showFiles) {
-    final showName = file.showName ?? 'Unknown Show';
-    final showNameLower = showName.toLowerCase();
-
-    // Keep the first encountered name (usually more properly formatted)
-    if (!showNameMap.containsKey(showNameLower)) {
-      showNameMap[showNameLower] = showName;
-    }
-
-    groupedLower.putIfAbsent(showNameLower, () => []);
-    groupedLower[showNameLower]!.add(file);
-  }
-
-  // Sort shows alphabetically and episodes within each show
-  final sortedKeysLower = groupedLower.keys.toList()..sort();
-  final sortedGrouped = <String, List<LocalMediaFile>>{};
-
-  for (final keyLower in sortedKeysLower) {
-    final displayName = showNameMap[keyLower]!;
-    final showFiles = groupedLower[keyLower]!;
-    showFiles.sort((a, b) {
-      final seasonCompare = (a.seasonNumber ?? 0).compareTo(
-        b.seasonNumber ?? 0,
-      );
-      if (seasonCompare != 0) return seasonCompare;
-      return (a.episodeNumber ?? 0).compareTo(b.episodeNumber ?? 0);
-    });
-    sortedGrouped[displayName] = showFiles;
-  }
-
-  return sortedGrouped;
-});
-
-/// Model for grouped show with seasons
-class ShowWithSeasons {
-  final String showName;
-  final Map<int, List<LocalMediaFile>> seasons;
-  final int totalEpisodes;
-
-  ShowWithSeasons({
-    required this.showName,
-    required this.seasons,
-    required this.totalEpisodes,
-  });
-}
 
 /// Provider for local media grouped by show AND season
 final localMediaByShowAndSeasonProvider = Provider<List<ShowWithSeasons>>((
@@ -343,119 +271,48 @@ final episodeLocalFileProvider =
       );
     });
 
-/// Provider to check if a specific movie is available locally (by title match)
-final movieLocalFileProvider = Provider.family<LocalMediaFile?, String>((
-  ref,
-  movieTitle,
-) {
-  final filesAsync = ref.watch(localMediaFilesProvider);
-  final files = filesAsync.value ?? [];
-
-  final normalizedTitle = movieTitle.toLowerCase().replaceAll(
-    RegExp(r'[^a-z0-9]'),
-    '',
-  );
-
-  // Only check movies (files without season/episode numbers)
+/// The library movie file for [title] (released in [year], when known), or
+/// null.
+///
+/// Same title, never containment: matching either name *inside* the other
+/// made the "Up" page play `Upgrade.2018.mkv` and `Pickup…`, and a non-Latin
+/// title — which the old normaliser erased to an empty string — matched the
+/// first movie in the library. Each way the file name can be read is tried
+/// ([movieQueriesFromFileName]), so `Wonder.Woman.1984.2020.mkv` is found for
+/// "Wonder Woman 1984" (2020) and not for "Wonder Woman" (2017).
+///
+/// Without a [year], two files of the same title from different years are
+/// not guessed between.
+@visibleForTesting
+LocalMediaFile? findMovieFile(
+  List<LocalMediaFile> files, {
+  required String title,
+  int? year,
+}) {
+  if (titleMatchKey(title).isEmpty) return null;
+  final matches = <({LocalMediaFile file, int? year})>[];
   for (final file in files) {
     if (file.seasonNumber != null || file.episodeNumber != null) continue;
-    final fileName = (file.showName ?? file.fileName).toLowerCase().replaceAll(
-      RegExp(r'[^a-z0-9]'),
-      '',
-    );
-    if (fileName.contains(normalizedTitle) ||
-        normalizedTitle.contains(fileName)) {
-      return file;
+    for (final reading in movieQueriesFromFileName(file.fileName)) {
+      if (!titlesMatch(reading.title, title)) continue;
+      if (year != null && reading.year != null && reading.year != year) {
+        continue;
+      }
+      matches.add((file: file, year: reading.year));
+      break;
     }
   }
-  return null;
-});
-
-/// Provider for counting total local files
-final localFilesCountProvider = Provider<int>((ref) {
-  final filesAsync = ref.watch(localMediaFilesProvider);
-  return filesAsync.value?.length ?? 0;
-});
-
-/// Provider for counting shows with local files
-final localShowsCountProvider = Provider<int>((ref) {
-  final grouped = ref.watch(localMediaByShowProvider);
-  return grouped.length;
-});
-
-/// Provider to find the next episode **already on disk** after a given file.
-/// Returns the next episode ONLY if it's the immediate next episode (e.g., E04 after E03)
-/// Does NOT skip to later episodes (e.g., won't return E05 if E04 is missing)
-///
-/// Named for the local library deliberately: [nextTmdbEpisodeProvider] in
-/// `auto_download_provider.dart` answers the same question against TMDB and
-/// returns a different type. The two were both called `nextEpisodeProvider`
-/// and only stayed apart because `video_player_screen.dart` imported one of
-/// them with a `hide` clause — the next file to import both would have
-/// silently bound the wrong one.
-final nextLocalEpisodeProvider = Provider.family<LocalMediaFile?, LocalMediaFile>((
-  ref,
-  currentFile,
-) {
-  final filesAsync = ref.watch(localMediaFilesProvider);
-  final files = filesAsync.value ?? [];
-
-  if (currentFile.showName == null ||
-      currentFile.seasonNumber == null ||
-      currentFile.episodeNumber == null) {
+  if (matches.isEmpty) return null;
+  if (year == null && matches.map((m) => m.year).toSet().length > 1) {
     return null;
   }
+  return matches.first.file;
+}
 
-  final showNameLower = currentFile.showName!.toLowerCase();
-  final currentSeason = currentFile.seasonNumber!;
-  final currentEpisode = currentFile.episodeNumber!;
-
-  // First, look for the immediate next episode in the same season (e.g., E04 after E03)
-  final nextInSeason = files
-      .where(
-        (f) =>
-            f.showName?.toLowerCase() == showNameLower &&
-            f.seasonNumber == currentSeason &&
-            f.episodeNumber == currentEpisode + 1,
-      )
-      .firstOrNull;
-
-  if (nextInSeason != null) {
-    return nextInSeason;
-  }
-
-  // If current episode might be the last of the season, check for S+1 E01
-  // But only if we're at the end of the season (we'll check TMDB for this in player)
-  // For now, just check if episode 1 of next season exists
-  final firstOfNextSeason = files
-      .where(
-        (f) =>
-            f.showName?.toLowerCase() == showNameLower &&
-            f.seasonNumber == currentSeason + 1 &&
-            f.episodeNumber == 1,
-      )
-      .firstOrNull;
-
-  // Only return first of next season if we don't have any more episodes in current season
-  // This is a simple heuristic - the video player will do the proper TMDB check
-  if (firstOfNextSeason != null) {
-    // Check if there are any episodes after current in same season
-    final hasMoreInSeason = files.any(
-      (f) =>
-          f.showName?.toLowerCase() == showNameLower &&
-          f.seasonNumber == currentSeason &&
-          f.episodeNumber != null &&
-          f.episodeNumber! > currentEpisode,
-    );
-
-    // Only skip to next season if no more episodes exist in current season
-    // (This could mean current episode is last, or we're missing some)
-    // The video player will verify with TMDB if this is correct
-    if (!hasMoreInSeason) {
-      return firstOfNextSeason;
-    }
-  }
-
-  // No immediate next episode found
-  return null;
-});
+/// Provider to check if a specific movie is available locally, by title and
+/// release year. See [findMovieFile].
+final localMovieFileProvider =
+    Provider.family<LocalMediaFile?, ({String title, int? year})>((ref, movie) {
+      final files = ref.watch(localMediaFilesProvider).value ?? const [];
+      return findMovieFile(files, title: movie.title, year: movie.year);
+    });

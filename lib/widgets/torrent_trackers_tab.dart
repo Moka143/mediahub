@@ -1,160 +1,200 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../design/app_theme.dart';
+import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
+import '../design/app_typography.dart';
 import '../models/tracker.dart';
 import '../providers/torrent_provider.dart';
 import 'common/empty_state.dart';
 import 'common/loading_state.dart';
 
-/// Tab widget for displaying torrent trackers
-class TorrentTrackersTab extends ConsumerWidget {
-  final String torrentHash;
+/// Label, icon and colour for a qBittorrent tracker status code.
+///
+/// 0–4 are the long-standing codes; newer qBittorrent versions add 5
+/// (tracker error) and 6 (unreachable), which used to fall through to a grey
+/// "Disabled" icon with an "Unknown" label. And every status chip carried a
+/// check mark, so a broken tracker read "✓ Not working". Each status now has
+/// its own icon, used on both the row and the chip.
+({String label, IconData icon, Color tone}) trackerStatusStyle(int status) =>
+    switch (status) {
+      0 => (label: 'Disabled', icon: Icons.block_rounded, tone: AppColors.fg2),
+      1 => (
+        label: 'Not contacted yet',
+        icon: Icons.schedule_rounded,
+        tone: AppColors.warn,
+      ),
+      2 => (
+        label: 'Working',
+        icon: Icons.check_circle_outline_rounded,
+        tone: AppColors.ok,
+      ),
+      3 => (
+        label: 'Updating',
+        icon: Icons.sync_rounded,
+        tone: AppColors.accent,
+      ),
+      4 => (
+        label: 'Not working',
+        icon: Icons.error_outline_rounded,
+        tone: AppColors.err,
+      ),
+      5 => (
+        label: 'Tracker error',
+        icon: Icons.report_outlined,
+        tone: AppColors.err,
+      ),
+      6 => (
+        label: 'Unreachable',
+        icon: Icons.cloud_off_rounded,
+        tone: AppColors.err,
+      ),
+      _ => (
+        label: 'Unknown',
+        icon: Icons.help_outline_rounded,
+        tone: AppColors.fg2,
+      ),
+    };
 
+/// A torrent's trackers and how each is doing.
+class TorrentTrackersTab extends ConsumerWidget {
   const TorrentTrackersTab({super.key, required this.torrentHash});
+
+  final String torrentHash;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final trackersAsync = ref.watch(torrentTrackersProvider(torrentHash));
 
     return trackersAsync.when(
-      data: (trackers) => _buildTrackersList(context, ref, trackers),
-      loading: () => const LoadingIndicator(message: 'Loading trackers...'),
-      error: (error, stack) => EmptyState.error(
-        message: error.toString(),
+      data: (trackers) => trackers.isEmpty
+          ? EmptyState.noData(icon: Icons.dns_outlined, title: 'No trackers')
+          : ListView.builder(
+              itemCount: trackers.length,
+              itemBuilder: (context, index) =>
+                  _TrackerRow(tracker: trackers[index]),
+            ),
+      loading: () => const LoadingIndicator(message: 'Loading trackers…'),
+      error: (_, _) => EmptyState.error(
+        title: "Couldn't load the trackers",
+        message: "The torrent engine didn't answer.",
         onRetry: () => ref.invalidate(torrentTrackersProvider(torrentHash)),
       ),
     );
   }
+}
 
-  Widget _buildTrackersList(
-    BuildContext context,
-    WidgetRef ref,
-    List<Tracker> trackers,
-  ) {
-    if (trackers.isEmpty) {
-      return EmptyState.noData(icon: Icons.dns_outlined, title: 'No trackers');
-    }
+class _TrackerRow extends StatelessWidget {
+  const _TrackerRow({required this.tracker});
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(AppSpacing.sm),
-      itemCount: trackers.length,
-      itemBuilder: (context, index) {
-        final tracker = trackers[index];
-        return _TrackerListItem(tracker: tracker);
-      },
+  final Tracker tracker;
+
+  @override
+  Widget build(BuildContext context) {
+    final status = trackerStatusStyle(tracker.status);
+    final counts = [
+      // qBittorrent reports -1 where a tracker has not said.
+      if (tracker.numSeeds >= 0)
+        '${tracker.numSeeds} ${tracker.numSeeds == 1 ? 'seed' : 'seeds'}',
+      if (tracker.numLeeches >= 0)
+        '${tracker.numLeeches} ${tracker.numLeeches == 1 ? 'peer' : 'peers'}',
+    ].join(' · ');
+
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.lg,
+        vertical: AppSpacing.md,
+      ),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: AppColors.line)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(status.icon, size: AppIconSize.md, color: status.tone),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SelectableText(
+                  tracker.url,
+                  maxLines: 1,
+                  style: AppType.mono(
+                    size: AppType.sizeCaption,
+                    color: AppColors.fg,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                Wrap(
+                  spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.xs,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    _StatusChip(
+                      label: status.label,
+                      icon: status.icon,
+                      tone: status.tone,
+                    ),
+                    if (counts.isNotEmpty)
+                      Text(
+                        counts,
+                        style: AppType.mono(
+                          size: AppType.sizeSmall,
+                          color: AppColors.fg1,
+                        ),
+                      ),
+                  ],
+                ),
+                if (tracker.msg.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    tracker.msg,
+                    style: AppType.caption(color: AppColors.fg2),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
-class _TrackerListItem extends StatelessWidget {
-  final Tracker tracker;
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({
+    required this.label,
+    required this.icon,
+    required this.tone,
+  });
 
-  const _TrackerListItem({required this.tracker});
+  final String label;
+  final IconData icon;
+  final Color tone;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final appColors = context.appColors;
-
-    Color statusColor;
-    IconData statusIcon;
-
-    switch (tracker.status) {
-      case 2: // Working
-        statusColor = appColors.success;
-        statusIcon = Icons.check_circle_outline;
-        break;
-      case 3: // Updating
-        statusColor = appColors.downloading;
-        statusIcon = Icons.sync;
-        break;
-      case 4: // Not working
-        statusColor = appColors.errorState;
-        statusIcon = Icons.error_outline;
-        break;
-      case 1: // Not contacted
-        statusColor = appColors.queued;
-        statusIcon = Icons.schedule;
-        break;
-      default: // Disabled
-        statusColor = appColors.paused;
-        statusIcon = Icons.block;
-    }
-
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: statusColor.withAlpha(51),
-          child: Icon(statusIcon, color: statusColor, size: 20),
-        ),
-        title: Text(
-          tracker.url,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.bodyMedium,
-        ),
-        subtitle: Row(
-          children: [
-            _buildStatChip(
-              context,
-              Icons.check_circle_outline,
-              tracker.statusText,
-              statusColor,
-            ),
-            const SizedBox(width: 8),
-            if (tracker.numSeeds >= 0)
-              _buildStatChip(
-                context,
-                Icons.upload_outlined,
-                '${tracker.numSeeds} seeds',
-                Colors.green,
-              ),
-            const SizedBox(width: 8),
-            if (tracker.numLeeches >= 0)
-              _buildStatChip(
-                context,
-                Icons.download_outlined,
-                '${tracker.numLeeches} peers',
-                Colors.blue,
-              ),
-          ],
-        ),
-        trailing: tracker.msg.isNotEmpty
-            ? Tooltip(
-                message: tracker.msg,
-                child: const Icon(Icons.info_outline, size: 18),
-              )
-            : null,
-      ),
-    );
-  }
-
-  Widget _buildStatChip(
-    BuildContext context,
-    IconData icon,
-    String label,
-    Color color,
-  ) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.xs,
+        vertical: AppSpacing.xxs,
+      ),
       decoration: BoxDecoration(
-        color: color.withAlpha(25),
-        borderRadius: BorderRadius.circular(4),
+        color: tone.withAlpha(AppOpacity.subtle),
+        borderRadius: BorderRadius.circular(AppRadius.xxs),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 12, color: color),
-          const SizedBox(width: 4),
+          Icon(icon, size: 12, color: tone),
+          const SizedBox(width: AppSpacing.xs),
           Text(
             label,
-            style: TextStyle(
-              fontSize: 11,
-              color: color,
-              fontWeight: FontWeight.w500,
+            style: AppType.ui(
+              size: AppType.sizeSmall,
+              color: tone,
+              weight: FontWeight.w500,
             ),
           ),
         ],

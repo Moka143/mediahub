@@ -1,11 +1,18 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mediahub/models/movie.dart';
 import 'package:mediahub/models/watch_progress.dart';
 import 'package:mediahub/providers/settings_provider.dart';
+import 'package:mediahub/providers/shows_provider.dart';
+import 'package:mediahub/providers/tmdb_account_provider.dart';
 import 'package:mediahub/providers/watch_progress_provider.dart';
+import 'package:mediahub/services/tmdb_account_service.dart';
+import 'package:mediahub/services/tmdb_api_service.dart';
+import 'package:mediahub/services/tmdb_watched_sync.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Behavioural tests for [WatchProgressNotifier].
@@ -79,7 +86,8 @@ void main() {
   /// same thing". Seeded prefs are non-empty, so an `isEmpty` check cannot.
   const probe = '__probe__';
   void arm(ProviderContainer c) {
-    c.read(sharedPreferencesProvider).setString(key, probe);
+    // In memory at once; the disk write is irrelevant to the probe.
+    unawaited(c.read(sharedPreferencesProvider).setString(key, probe));
   }
 
   bool wroteSinceProbe(ProviderContainer c) =>
@@ -403,16 +411,175 @@ void main() {
     });
   });
 
-  group('clearAll', () {
-    test('empties both memory and disk', () async {
-      final c = await containerWith([
-        entry(path: '/x/a.mkv'),
-        entry(path: '/x/b.mkv'),
+  group('one bad row', () {
+    test('costs only itself, and is kept aside', () async {
+      // Any decode error used to load the whole history as empty — and the
+      // next playback tick, within ten seconds, saved that over it.
+      final good = entry(path: '/x/a.mkv', isCompleted: true).toJson();
+      final raw = jsonEncode([
+        good,
+        {'file_path': 42}, // unreadable
       ]);
-      await notifierOf(c).clearAll();
+      SharedPreferences.setMockInitialValues({key: raw});
+      final prefs = await SharedPreferences.getInstance();
+      final c = ProviderContainer(
+        overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
+      );
+      addTearDown(c.dispose);
 
-      expect(c.read(watchProgressProvider), isEmpty);
-      expect(persisted(c), isEmpty);
+      expect(c.read(watchProgressProvider), hasLength(1));
+      expect(prefs.getString('$key.corrupt'), raw);
+    });
+  });
+
+  group('TMDB push bookkeeping', () {
+    test('the pending flag survives a round trip', () async {
+      final c = await containerWith([]);
+      await notifierOf(c).markCompleted('/x/a.mkv', tmdbPushPending: true);
+
+      expect(persisted(c).single['tmdb_push_pending'], isTrue);
+      final row = c.read(watchProgressProvider).values.single;
+      expect(row.tmdbPushPending, isTrue);
+      expect(row.followsRemoteUnwatch, isFalse);
+    });
+
+    test('a push settles only the state that was pushed', () async {
+      final c = await containerWith([]);
+      final n = notifierOf(c);
+      await n.markCompleted('/x/a.mkv', tmdbPushPending: true);
+      await n.markCompleted('/x/b.mkv', tmdbPushPending: true);
+      // b was un-marked again while its "watched" push was in flight.
+      await n.markNotCompleted('/x/b.mkv');
+
+      await n.settleTmdbPush({'/x/a.mkv': true, '/x/b.mkv': true});
+
+      final rows = {
+        for (final r in c.read(watchProgressProvider).values) r.filePath: r,
+      };
+      expect(rows['/x/a.mkv']!.tmdbPushPending, isFalse);
+      expect(
+        rows['/x/b.mkv']!.tmdbPushPending,
+        isTrue,
+        reason: 'its newer state still has to reach TMDB',
+      );
+    });
+
+    test('a reconcile plan is applied in one write, or none', () async {
+      final c = await containerWith([
+        entry(path: '/x/a.mkv', isCompleted: true),
+      ]);
+      final n = notifierOf(c);
+      arm(c);
+      await n.applyWatchedSync(
+        const WatchedReconcilePlan(upserts: {}, unwatch: {}),
+      );
+      expect(wroteSinceProbe(c), isFalse);
+
+      await n.applyWatchedSync(
+        const WatchedReconcilePlan(upserts: {}, unwatch: {'/x/a.mkv'}),
+      );
+      expect(c.read(watchProgressProvider).values.single.isCompleted, isFalse);
+      expect(wroteSinceProbe(c), isTrue);
+    });
+  });
+
+  group('migrateManualWatchedMarks', () {
+    test('folds every legacy mark in with one write', () async {
+      SharedPreferences.setMockInitialValues({
+        'manual_watched_episodes': jsonEncode({
+          'watched_episodes': {
+            '95396': ['S01E01', 'S01E02'],
+          },
+        }),
+      });
+      final prefs = await SharedPreferences.getInstance();
+      final c = ProviderContainer(
+        overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
+      );
+      addTearDown(c.dispose);
+
+      final n = notifierOf(c);
+      expect(await n.migrateManualWatchedMarks(), 2);
+      expect(await n.migrateManualWatchedMarks(), 0, reason: 'once only');
+
+      final index = c.read(watchedIndexProvider);
+      expect(
+        index.isEpisodeWatched(showId: 95396, season: 1, episode: 2),
+        isTrue,
+      );
+      expect(prefs.getString('manual_watched_episodes'), isNull);
+      expect(prefs.getString('manual_watched_episodes_archived_v1'), isNotNull);
+    });
+  });
+
+  group('finishing a title, signed in', () {
+    Future<(ProviderContainer, _Account)> signedIn({
+      List<Movie> movies = const [],
+      bool failWrites = false,
+    }) async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final account = _Account(failWrites: failWrites);
+      final c = ProviderContainer(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(prefs),
+          tmdbSessionProvider.overrideWith(_SignedIn.new),
+          tmdbAccountServiceProvider.overrideWithValue(account),
+          tmdbApiServiceProvider.overrideWithValue(_Catalogue(movies)),
+        ],
+      );
+      addTearDown(c.dispose);
+      return (c, account);
+    }
+
+    Future<void> finish(ProviderContainer c, String path) async {
+      await notifierOf(c).updateProgress(
+        entry(
+          path: path,
+          position: const Duration(minutes: 128),
+          duration: const Duration(minutes: 130),
+        ),
+      );
+      // The push is fire-and-forget; let it land.
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+
+    test('rates the film of that year, not the first "Dune"', () async {
+      final (c, account) = await signedIn(
+        movies: [
+          Movie(id: 438631, title: 'Dune', releaseDate: '2021-09-15'),
+          Movie(id: 841, title: 'Dune', releaseDate: '1984-12-14'),
+        ],
+      );
+      await finish(c, '/x/Dune.1984.1080p.BluRay.mkv');
+
+      expect(account.calls, ['rateMovie 841', 'watchlist 841']);
+      expect(c.read(watchProgressProvider).values.single.movieId, 841);
+    });
+
+    test('rates nothing when the title is ambiguous', () async {
+      final (c, account) = await signedIn(
+        movies: [
+          Movie(id: 438631, title: 'Dune', releaseDate: '2021-09-15'),
+          Movie(id: 841, title: 'Dune', releaseDate: '1984-12-14'),
+        ],
+      );
+      await finish(c, '/x/Dune.mkv');
+
+      expect(account.calls, isEmpty);
+    });
+
+    test('a failed push is flagged for the next reconcile', () async {
+      final (c, _) = await signedIn(
+        movies: [Movie(id: 841, title: 'Dune', releaseDate: '1984-12-14')],
+        failWrites: true,
+      );
+      await finish(c, '/x/Dune.1984.mkv');
+
+      expect(
+        c.read(watchProgressProvider).values.single.tmdbPushPending,
+        isTrue,
+      );
     });
   });
 
@@ -444,4 +611,53 @@ void main() {
       expect(row.isCompleted, isTrue);
     });
   });
+}
+
+class _SignedIn extends TmdbSessionNotifier {
+  @override
+  TmdbSession? build() => TmdbSession(
+    accessToken: 'user-token',
+    accountId: 7,
+    account: TmdbAccount(id: 7, username: 'tester'),
+  );
+}
+
+class _Catalogue extends TmdbApiService {
+  _Catalogue(this.movies) : super(accessToken: 'test');
+
+  final List<Movie> movies;
+
+  @override
+  Future<List<Movie>> searchMovies(
+    String query, {
+    int page = 1,
+    int? year,
+  }) async => [
+    for (final m in movies)
+      if (year == null || m.year == '$year') m,
+  ];
+}
+
+class _Account extends TmdbAccountService {
+  _Account({this.failWrites = false}) : super(accessToken: 'test');
+
+  final bool failWrites;
+  final List<String> calls = [];
+
+  @override
+  Future<void> rateMovie({required int movieId, required double value}) async {
+    if (failWrites) throw const SocketException('offline');
+    calls.add('rateMovie $movieId');
+  }
+
+  @override
+  Future<void> setWatchlist({
+    required int accountId,
+    required TmdbMediaType mediaType,
+    required int mediaId,
+    required bool watchlist,
+  }) async {
+    if (failWrites) throw const SocketException('offline');
+    calls.add('watchlist $mediaId');
+  }
 }

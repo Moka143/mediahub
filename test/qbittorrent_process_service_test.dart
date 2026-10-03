@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mediahub/services/qbittorrent_process_service.dart';
+import 'package:mediahub/services/torrent_engine_process.dart';
 import 'package:mediahub/utils/platform_utils.dart';
 
 /// Tests for the one decision this service makes without touching the
@@ -90,6 +91,41 @@ void main() {
       );
       addTearDown(service.dispose);
       expect(await service.start(), isFalse);
+    });
+  });
+
+  group('closing', () {
+    tearDown(QBittorrentProcessService.resetForTest);
+
+    test(
+      'a qBittorrent this app did not launch is never asked to quit',
+      () async {
+        var asked = false;
+        final service = QBittorrentProcessService(
+          host: 'localhost',
+          qbittorrentPath: '/nonexistent',
+          requestQuit: () async => asked = true,
+        );
+        addTearDown(service.dispose);
+
+        expect(QBittorrentProcessService.launchedThisSession, isFalse);
+        await QBittorrentProcessService.quitIfLaunched(closing: true);
+        expect(asked, isFalse);
+      },
+    );
+
+    test('once the app is closing, nothing may launch it again', () async {
+      // A health check already in flight when the shutdown ran used to
+      // relaunch the GUI app moments after it was told to go.
+      await QBittorrentProcessService.quitIfLaunched(closing: true);
+      final service = QBittorrentProcessService(
+        host: 'localhost',
+        qbittorrentPath: '/nonexistent',
+      );
+      addTearDown(service.dispose);
+
+      expect(await service.start(), isFalse);
+      expect(service.lastStartFailure, EngineStartFailure.closing);
     });
   });
 }

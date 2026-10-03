@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
+import '../../design/app_typography.dart';
 import '../../models/video.dart';
 import '../../utils/feedback_utils.dart';
 import '../editorial/mono_label.dart';
@@ -100,8 +103,7 @@ class FoldableSection extends StatefulWidget {
   State<FoldableSection> createState() => _FoldableSectionState();
 }
 
-class _FoldableSectionState extends State<FoldableSection>
-    with SingleTickerProviderStateMixin {
+class _FoldableSectionState extends State<FoldableSection> {
   late bool _expanded = widget.initiallyExpanded;
 
   @override
@@ -131,10 +133,14 @@ class _FoldableSectionState extends State<FoldableSection>
                     ),
                   ),
                   const SizedBox(width: 6),
-                  SerifTitle(widget.title, size: 22, height: 1.0),
+                  SerifTitle(
+                    widget.title,
+                    size: AppType.sizeTitle,
+                    height: 1.0,
+                  ),
                   if (widget.count != null) ...[
                     const SizedBox(width: 12),
-                    MonoLabel(widget.count!, color: AppColors.fg3),
+                    MonoLabel(widget.count!, color: AppColors.fg2),
                   ],
                 ],
               ),
@@ -196,6 +202,10 @@ class HoverScrollRow extends StatefulWidget {
 class _HoverScrollRowState extends State<HoverScrollRow> {
   final _controller = ScrollController();
   bool _hovered = false;
+
+  /// A card in the row has keyboard focus: the row comes up to full
+  /// strength for it, as it does for the pointer.
+  bool _focused = false;
   bool _canScrollLeft = false;
   bool _canScrollRight = false;
 
@@ -229,13 +239,15 @@ class _HoverScrollRowState extends State<HoverScrollRow> {
 
   void _scrollBy(double delta) {
     if (!_controller.hasClients) return;
-    _controller.animateTo(
-      (_controller.offset + delta).clamp(
-        0.0,
-        _controller.position.maxScrollExtent,
+    unawaited(
+      _controller.animateTo(
+        (_controller.offset + delta).clamp(
+          0.0,
+          _controller.position.maxScrollExtent,
+        ),
+        duration: AppDuration.normal,
+        curve: Curves.easeOutCubic,
       ),
-      duration: AppDuration.normal,
-      curve: Curves.easeOutCubic,
     );
   }
 
@@ -244,25 +256,30 @@ class _HoverScrollRowState extends State<HoverScrollRow> {
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
-      child: AnimatedOpacity(
-        duration: AppDuration.normal,
-        opacity: _hovered ? 1.0 : widget.restingOpacity,
-        child: SizedBox(
-          height: widget.height,
-          child: Stack(
-            children: [
-              ListView.separated(
-                controller: _controller,
-                scrollDirection: Axis.horizontal,
-                padding: widget.padding,
-                itemCount: widget.itemCount,
-                separatorBuilder: (_, _) =>
-                    const SizedBox(width: AppSpacing.md),
-                itemBuilder: widget.itemBuilder,
-              ),
-              _arrow(left: true, visible: _hovered && _canScrollLeft),
-              _arrow(left: false, visible: _hovered && _canScrollRight),
-            ],
+      child: Focus(
+        canRequestFocus: false,
+        skipTraversal: true,
+        onFocusChange: (f) => setState(() => _focused = f),
+        child: AnimatedOpacity(
+          duration: AppDuration.normal,
+          opacity: _hovered || _focused ? 1.0 : widget.restingOpacity,
+          child: SizedBox(
+            height: widget.height,
+            child: Stack(
+              children: [
+                ListView.separated(
+                  controller: _controller,
+                  scrollDirection: Axis.horizontal,
+                  padding: widget.padding,
+                  itemCount: widget.itemCount,
+                  separatorBuilder: (_, _) =>
+                      const SizedBox(width: AppSpacing.md),
+                  itemBuilder: widget.itemBuilder,
+                ),
+                _arrow(left: true, visible: _hovered && _canScrollLeft),
+                _arrow(left: false, visible: _hovered && _canScrollRight),
+              ],
+            ),
           ),
         ),
       ),
@@ -284,7 +301,7 @@ class _HoverScrollRowState extends State<HoverScrollRow> {
             child: Container(
               margin: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
               decoration: BoxDecoration(
-                color: AppColors.bgPage.withValues(alpha: 0.82),
+                color: AppColors.bgPage.withAlpha(AppOpacity.heavy),
                 shape: BoxShape.circle,
                 border: Border.all(color: AppColors.line),
               ),

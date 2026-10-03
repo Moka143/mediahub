@@ -52,42 +52,6 @@ class OpenSubtitlesService {
       return [];
     }
   }
-
-  /// Get subtitles filtered by language
-  Future<List<Subtitle>> getSubtitlesByLanguage(
-    String type,
-    String id, {
-    required List<String> languages,
-  }) async {
-    final allSubtitles = await _getSubtitles(type, id);
-
-    if (languages.isEmpty) return allSubtitles;
-
-    // Sort by preferred languages (first in list = highest priority)
-    final filtered = <Subtitle>[];
-    for (final lang in languages) {
-      filtered.addAll(
-        allSubtitles.where(
-          (s) =>
-              s.lang.toLowerCase() == lang.toLowerCase() ||
-              s.lang.toLowerCase().startsWith(lang.toLowerCase()),
-        ),
-      );
-    }
-
-    // Add remaining subtitles at the end
-    for (final sub in allSubtitles) {
-      if (!filtered.contains(sub)) {
-        filtered.add(sub);
-      }
-    }
-
-    return filtered;
-  }
-
-  void dispose() {
-    _dio.close();
-  }
 }
 
 /// Represents a subtitle from OpenSubtitles

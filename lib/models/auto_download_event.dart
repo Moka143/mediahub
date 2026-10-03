@@ -1,12 +1,23 @@
+import '../services/json_prefs_store.dart';
 import '../utils/formatters.dart';
 
-/// Types of auto-download events for the activity log
+/// Types of auto-download events for the activity log.
+///
+/// Persisted by index: append new values at the end, never reorder or
+/// remove one, or every stored event changes meaning.
 enum AutoDownloadEventType {
   downloadStarted,
   downloadCompleted,
+
+  /// A download could not be started, or left Transfers before it finished.
   downloadFailed,
+
   torrentNotFound,
+
+  /// The next episode has not aired yet; it will be fetched once it has.
   episodeQueued,
+
+  /// Nothing to fetch — the series ended, or the next season is not out.
   checked,
 }
 
@@ -48,7 +59,13 @@ class AutoDownloadEvent {
   factory AutoDownloadEvent.fromJson(Map<String, dynamic> json) {
     return AutoDownloadEvent(
       timestamp: DateTime.parse(json['timestamp'] as String),
-      type: AutoDownloadEventType.values[json['type'] as int? ?? 0],
+      // Bounds-checked: an index this build does not know (a newer build's
+      // event type) drops this one event instead of the whole log.
+      type: enumFromJson(
+        AutoDownloadEventType.values,
+        json['type'],
+        AutoDownloadEventType.downloadStarted,
+      ),
       showId: json['show_id'] as int,
       showName: json['show_name'] as String,
       season: json['season'] as int,

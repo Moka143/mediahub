@@ -2,8 +2,8 @@ import 'package:dio/dio.dart';
 
 import '../models/episode.dart';
 import '../models/movie.dart';
-import '../models/season.dart';
 import '../models/show.dart';
+import '../utils/error_messages.dart';
 import 'http_client.dart';
 
 /// Service for interacting with TMDB (The Movie Database) API.
@@ -17,6 +17,11 @@ import 'http_client.dart';
 /// by [TmdbAccountService.createAccessToken] after browser sign-in). The
 /// effective-token provider picks the user token when signed in, otherwise
 /// the read token.
+///
+/// Every call goes through [_get], which turns a failure into a
+/// [TmdbApiException] that keeps the status code — so a caller can tell a
+/// rejected token (401) from no network, which used to be one flattened
+/// string.
 class TmdbApiService {
   static const String _baseUrl = 'https://api.themoviedb.org/3';
   static const String _imageBaseUrl = 'https://image.tmdb.org/t/p';
@@ -35,232 +40,152 @@ class TmdbApiService {
   /// True when a non-empty access token is configured.
   bool get isConfigured => accessToken.isNotEmpty;
 
-  /// Get common query parameters. Auth is sent in the Authorization header,
-  /// so only the language stays here.
-  Map<String, dynamic> get _defaultParams => {'language': 'en-US'};
+  /// Auth is sent in the Authorization header, so only the language is a
+  /// default query parameter.
+  static const Map<String, dynamic> _defaultParams = {'language': 'en-US'};
 
-  /// Search for TV shows by query
-  Future<List<Show>> searchShows(String query, {int page = 1}) async {
+  /// GET [path] and hand the decoded body to [parse].
+  ///
+  /// The one place a request can fail. [what] names the request for the
+  /// exception message ("search shows"); transport and HTTP failures keep
+  /// their status code and kind, and a response that does not have the
+  /// expected shape is reported as such rather than as a `TypeError`.
+  Future<T> _get<T>(
+    String what,
+    String path,
+    T Function(Map<String, dynamic> data) parse, {
+    Map<String, dynamic> query = const {},
+  }) async {
+    final Response<dynamic> response;
     try {
-      final response = await _dio.get(
-        '/search/tv',
-        queryParameters: {
-          ..._defaultParams,
-          'query': query,
-          'page': page,
-          'include_adult': false,
-        },
+      response = await _dio.get<dynamic>(
+        path,
+        queryParameters: {..._defaultParams, ...query},
       );
-
-      final results = response.data['results'] as List<dynamic>;
-      return results.map((json) => Show.fromJson(json)).toList();
+    } on DioException catch (e) {
+      throw TmdbApiException.fromDio(what, e);
+    }
+    try {
+      return parse(response.data as Map<String, dynamic>);
     } catch (e) {
-      throw TmdbApiException('Failed to search shows: $e');
+      throw TmdbApiException('Unexpected TMDB answer to $what: $e');
     }
   }
+
+  static List<Show> _shows(Map<String, dynamic> data) => [
+    for (final json in data['results'] as List<dynamic>)
+      Show.fromJson(json as Map<String, dynamic>),
+  ];
+
+  static List<Movie> _movies(Map<String, dynamic> data) => [
+    for (final json in data['results'] as List<dynamic>)
+      Movie.fromJson(json as Map<String, dynamic>),
+  ];
+
+  /// Search for TV shows by query.
+  ///
+  /// [firstAirDateYear] narrows the search to shows that premiered that
+  /// year. Without it a search for "Doctor Who" cannot tell the 1963 series
+  /// from the 2005 one, and anything that writes to TMDB on the strength of
+  /// the first hit writes to whichever ranks higher.
+  Future<List<Show>> searchShows(
+    String query, {
+    int page = 1,
+    int? firstAirDateYear,
+  }) => _get(
+    'search shows',
+    '/search/tv',
+    _shows,
+    query: {
+      'query': query,
+      'page': page,
+      'include_adult': false,
+      'first_air_date_year': ?firstAirDateYear,
+    },
+  );
 
   /// Get popular TV shows
-  Future<List<Show>> getPopularShows({int page = 1}) async {
-    try {
-      final response = await _dio.get(
-        '/tv/popular',
-        queryParameters: {..._defaultParams, 'page': page},
-      );
-
-      final results = response.data['results'] as List<dynamic>;
-      return results.map((json) => Show.fromJson(json)).toList();
-    } catch (e) {
-      throw TmdbApiException('Failed to get popular shows: $e');
-    }
-  }
+  Future<List<Show>> getPopularShows({int page = 1}) =>
+      _get('popular shows', '/tv/popular', _shows, query: {'page': page});
 
   /// Get trending TV shows (day or week)
   Future<List<Show>> getTrendingShows({
     String timeWindow = 'week',
     int page = 1,
-  }) async {
-    try {
-      final response = await _dio.get(
-        '/trending/tv/$timeWindow',
-        queryParameters: {..._defaultParams, 'page': page},
-      );
-
-      final results = response.data['results'] as List<dynamic>;
-      return results.map((json) => Show.fromJson(json)).toList();
-    } catch (e) {
-      throw TmdbApiException('Failed to get trending shows: $e');
-    }
-  }
+  }) => _get(
+    'trending shows',
+    '/trending/tv/$timeWindow',
+    _shows,
+    query: {'page': page},
+  );
 
   /// Get top rated TV shows
-  Future<List<Show>> getTopRatedShows({int page = 1}) async {
-    try {
-      final response = await _dio.get(
-        '/tv/top_rated',
-        queryParameters: {..._defaultParams, 'page': page},
-      );
-
-      final results = response.data['results'] as List<dynamic>;
-      return results.map((json) => Show.fromJson(json)).toList();
-    } catch (e) {
-      throw TmdbApiException('Failed to get top rated shows: $e');
-    }
-  }
+  Future<List<Show>> getTopRatedShows({int page = 1}) =>
+      _get('top rated shows', '/tv/top_rated', _shows, query: {'page': page});
 
   /// Get shows currently airing
-  Future<List<Show>> getOnTheAirShows({int page = 1}) async {
-    try {
-      final response = await _dio.get(
-        '/tv/on_the_air',
-        queryParameters: {..._defaultParams, 'page': page},
-      );
+  Future<List<Show>> getOnTheAirShows({int page = 1}) =>
+      _get('on-the-air shows', '/tv/on_the_air', _shows, query: {'page': page});
 
-      final results = response.data['results'] as List<dynamic>;
-      return results.map((json) => Show.fromJson(json)).toList();
-    } catch (e) {
-      throw TmdbApiException('Failed to get on-the-air shows: $e');
-    }
-  }
+  /// Get detailed information about a TV show. Note it carries no IMDB id —
+  /// see [getShowDetailsWithImdb].
+  Future<Show> getShowDetails(int showId) =>
+      _get('show details', '/tv/$showId', Show.fromJson);
 
-  /// Get detailed information about a TV show
-  Future<Show> getShowDetails(int showId) async {
-    try {
-      final response = await _dio.get(
-        '/tv/$showId',
-        queryParameters: _defaultParams,
-      );
-
-      return Show.fromJson(response.data);
-    } catch (e) {
-      throw TmdbApiException('Failed to get show details: $e');
-    }
-  }
-
-  /// Get external IDs for a show (including IMDB ID)
-  Future<String?> getShowImdbId(int showId) async {
-    try {
-      final response = await _dio.get(
-        '/tv/$showId/external_ids',
-        queryParameters: _defaultParams,
-      );
-
-      return response.data['imdb_id'] as String?;
-    } catch (e) {
-      throw TmdbApiException('Failed to get external IDs: $e');
-    }
-  }
+  /// The show's IMDB id from `/tv/{id}/external_ids`, or null when IMDB has
+  /// none. The cheap way to the id when the details are not needed.
+  Future<String?> getShowImdbId(int showId) => _get(
+    'show external ids',
+    '/tv/$showId/external_ids',
+    (data) => data['imdb_id'] as String?,
+  );
 
   /// Get show details with external IDs + trailers + cast in one call.
   ///
   /// Uses `append_to_response` to fold four endpoints into a single
   /// request: external_ids (for IMDB), videos (trailers/teasers),
   /// aggregate_credits (show-level cast across all seasons — better
-  /// than per-season credits for the details page).
-  Future<Show> getShowDetailsWithImdb(int showId) async {
-    try {
-      final response = await _dio.get(
-        '/tv/$showId',
-        queryParameters: {
-          ..._defaultParams,
-          'append_to_response': 'external_ids,videos,aggregate_credits',
-        },
-      );
-
-      final data = response.data;
+  /// than per-season credits for the details page). The seasons list rides
+  /// on the same response, so nothing needs `/tv/{id}` a second time.
+  Future<Show> getShowDetailsWithImdb(int showId) => _get(
+    'show details',
+    '/tv/$showId',
+    (data) {
       // Merge imdb_id from external_ids into main data
-      if (data['external_ids'] != null) {
-        data['imdb_id'] = data['external_ids']['imdb_id'];
+      final external = data['external_ids'];
+      if (external is Map<String, dynamic>) {
+        data['imdb_id'] = external['imdb_id'];
       }
-
       return Show.fromJson(data);
-    } catch (e) {
-      throw TmdbApiException('Failed to get show details with IMDB: $e');
-    }
-  }
-
-  /// Get all seasons for a TV show
-  Future<List<Season>> getShowSeasons(int showId) async {
-    try {
-      final response = await _dio.get(
-        '/tv/$showId',
-        queryParameters: _defaultParams,
-      );
-
-      final seasons = response.data['seasons'] as List<dynamic>?;
-      if (seasons == null) return [];
-
-      return seasons.map((json) => Season.fromJson(json)).toList();
-    } catch (e) {
-      throw TmdbApiException('Failed to get show seasons: $e');
-    }
-  }
+    },
+    query: {'append_to_response': 'external_ids,videos,aggregate_credits'},
+  );
 
   /// Get episodes for a specific season
-  Future<List<Episode>> getSeasonEpisodes(int showId, int seasonNumber) async {
-    try {
-      final response = await _dio.get(
-        '/tv/$showId/season/$seasonNumber',
-        queryParameters: _defaultParams,
-      );
-
-      final episodes = response.data['episodes'] as List<dynamic>?;
-      if (episodes == null) return [];
-
-      return episodes
-          .map((json) => Episode.fromJson({...json, 'show_id': showId}))
-          .toList();
-    } catch (e) {
-      throw TmdbApiException('Failed to get season episodes: $e');
-    }
-  }
-
-  /// Get a specific episode's details
-  Future<Episode> getEpisodeDetails(
-    int showId,
-    int seasonNumber,
-    int episodeNumber,
-  ) async {
-    try {
-      final response = await _dio.get(
-        '/tv/$showId/season/$seasonNumber/episode/$episodeNumber',
-        queryParameters: _defaultParams,
-      );
-
-      return Episode.fromJson({...response.data, 'show_id': showId});
-    } catch (e) {
-      throw TmdbApiException('Failed to get episode details: $e');
-    }
-  }
+  Future<List<Episode>> getSeasonEpisodes(int showId, int seasonNumber) => _get(
+    'season episodes',
+    '/tv/$showId/season/$seasonNumber',
+    (data) => [
+      for (final json in (data['episodes'] as List<dynamic>?) ?? const [])
+        Episode.fromJson({...json as Map<String, dynamic>, 'show_id': showId}),
+    ],
+  );
 
   /// Get similar shows
-  Future<List<Show>> getSimilarShows(int showId, {int page = 1}) async {
-    try {
-      final response = await _dio.get(
-        '/tv/$showId/similar',
-        queryParameters: {..._defaultParams, 'page': page},
-      );
-
-      final results = response.data['results'] as List<dynamic>;
-      return results.map((json) => Show.fromJson(json)).toList();
-    } catch (e) {
-      throw TmdbApiException('Failed to get similar shows: $e');
-    }
-  }
+  Future<List<Show>> getSimilarShows(int showId, {int page = 1}) => _get(
+    'similar shows',
+    '/tv/$showId/similar',
+    _shows,
+    query: {'page': page},
+  );
 
   /// Get recommended shows based on a show
-  Future<List<Show>> getRecommendedShows(int showId, {int page = 1}) async {
-    try {
-      final response = await _dio.get(
-        '/tv/$showId/recommendations',
-        queryParameters: {..._defaultParams, 'page': page},
-      );
-
-      final results = response.data['results'] as List<dynamic>;
-      return results.map((json) => Show.fromJson(json)).toList();
-    } catch (e) {
-      throw TmdbApiException('Failed to get recommended shows: $e');
-    }
-  }
+  Future<List<Show>> getRecommendedShows(int showId, {int page = 1}) => _get(
+    'recommended shows',
+    '/tv/$showId/recommendations',
+    _shows,
+    query: {'page': page},
+  );
 
   /// Discover shows with filters
   Future<List<Show>> discoverShows({
@@ -268,41 +193,19 @@ class TmdbApiService {
     String? sortBy,
     int? year,
     String? withGenres,
-    double? voteAverageGte,
-  }) async {
-    try {
-      final params = {
-        ..._defaultParams,
-        'page': page,
-        'sort_by': ?sortBy,
-        'first_air_date_year': ?year,
-        'with_genres': ?withGenres,
-        'vote_average.gte': ?voteAverageGte,
-      };
-
-      final response = await _dio.get('/discover/tv', queryParameters: params);
-
-      final results = response.data['results'] as List<dynamic>;
-      return results.map((json) => Show.fromJson(json)).toList();
-    } catch (e) {
-      throw TmdbApiException('Failed to discover shows: $e');
-    }
-  }
-
-  /// Get TV genre list
-  Future<Map<int, String>> getGenres() async {
-    try {
-      final response = await _dio.get(
-        '/genre/tv/list',
-        queryParameters: _defaultParams,
-      );
-
-      final genres = response.data['genres'] as List<dynamic>;
-      return {for (var g in genres) g['id'] as int: g['name'] as String};
-    } catch (e) {
-      throw TmdbApiException('Failed to get genres: $e');
-    }
-  }
+    int? voteCountGte,
+  }) => _get(
+    'discover shows',
+    '/discover/tv',
+    _shows,
+    query: {
+      'page': page,
+      'sort_by': ?sortBy,
+      'first_air_date_year': ?year,
+      'with_genres': ?withGenres,
+      'vote_count.gte': ?voteCountGte,
+    },
+  );
 
   // Static helper methods for image URLs
   static String getPosterUrl(String? posterPath, {String size = 'w500'}) {
@@ -310,203 +213,90 @@ class TmdbApiService {
     return '$_imageBaseUrl/$size$posterPath';
   }
 
-  static String getBackdropUrl(
-    String? backdropPath, {
-    String size = 'original',
-  }) {
-    if (backdropPath == null) return '';
-    return '$_imageBaseUrl/$size$backdropPath';
-  }
-
-  static String getStillUrl(String? stillPath, {String size = 'w300'}) {
-    if (stillPath == null) return '';
-    return '$_imageBaseUrl/$size$stillPath';
-  }
-
   // ==================== MOVIE METHODS ====================
 
-  /// Search for movies by query
-  Future<List<Movie>> searchMovies(String query, {int page = 1}) async {
-    try {
-      final response = await _dio.get(
+  /// Search for movies by query.
+  ///
+  /// [year] narrows the search to that release year — `Halloween` 1978 and
+  /// 2018 are both just "Halloween" to a bare search.
+  Future<List<Movie>> searchMovies(String query, {int page = 1, int? year}) =>
+      _get(
+        'search movies',
         '/search/movie',
-        queryParameters: {
-          ..._defaultParams,
+        _movies,
+        query: {
           'query': query,
           'page': page,
           'include_adult': false,
+          'year': ?year,
         },
       );
 
-      final results = response.data['results'] as List<dynamic>;
-      return results.map((json) => Movie.fromJson(json)).toList();
-    } catch (e) {
-      throw TmdbApiException('Failed to search movies: $e');
-    }
-  }
-
   /// Get popular movies
-  Future<List<Movie>> getPopularMovies({int page = 1}) async {
-    try {
-      final response = await _dio.get(
-        '/movie/popular',
-        queryParameters: {..._defaultParams, 'page': page},
-      );
-
-      final results = response.data['results'] as List<dynamic>;
-      return results.map((json) => Movie.fromJson(json)).toList();
-    } catch (e) {
-      throw TmdbApiException('Failed to get popular movies: $e');
-    }
-  }
+  Future<List<Movie>> getPopularMovies({int page = 1}) =>
+      _get('popular movies', '/movie/popular', _movies, query: {'page': page});
 
   /// Get trending movies (day or week)
   Future<List<Movie>> getTrendingMovies({
     String timeWindow = 'week',
     int page = 1,
-  }) async {
-    try {
-      final response = await _dio.get(
-        '/trending/movie/$timeWindow',
-        queryParameters: {..._defaultParams, 'page': page},
-      );
-
-      final results = response.data['results'] as List<dynamic>;
-      return results.map((json) => Movie.fromJson(json)).toList();
-    } catch (e) {
-      throw TmdbApiException('Failed to get trending movies: $e');
-    }
-  }
+  }) => _get(
+    'trending movies',
+    '/trending/movie/$timeWindow',
+    _movies,
+    query: {'page': page},
+  );
 
   /// Get top rated movies
-  Future<List<Movie>> getTopRatedMovies({int page = 1}) async {
-    try {
-      final response = await _dio.get(
-        '/movie/top_rated',
-        queryParameters: {..._defaultParams, 'page': page},
-      );
-
-      final results = response.data['results'] as List<dynamic>;
-      return results.map((json) => Movie.fromJson(json)).toList();
-    } catch (e) {
-      throw TmdbApiException('Failed to get top rated movies: $e');
-    }
-  }
+  Future<List<Movie>> getTopRatedMovies({int page = 1}) => _get(
+    'top rated movies',
+    '/movie/top_rated',
+    _movies,
+    query: {'page': page},
+  );
 
   /// Get upcoming movies
-  Future<List<Movie>> getUpcomingMovies({int page = 1}) async {
-    try {
-      final response = await _dio.get(
-        '/movie/upcoming',
-        queryParameters: {..._defaultParams, 'page': page},
-      );
-
-      final results = response.data['results'] as List<dynamic>;
-      return results.map((json) => Movie.fromJson(json)).toList();
-    } catch (e) {
-      throw TmdbApiException('Failed to get upcoming movies: $e');
-    }
-  }
-
-  /// Get now playing movies
-  Future<List<Movie>> getNowPlayingMovies({int page = 1}) async {
-    try {
-      final response = await _dio.get(
-        '/movie/now_playing',
-        queryParameters: {..._defaultParams, 'page': page},
-      );
-
-      final results = response.data['results'] as List<dynamic>;
-      return results.map((json) => Movie.fromJson(json)).toList();
-    } catch (e) {
-      throw TmdbApiException('Failed to get now playing movies: $e');
-    }
-  }
+  Future<List<Movie>> getUpcomingMovies({int page = 1}) => _get(
+    'upcoming movies',
+    '/movie/upcoming',
+    _movies,
+    query: {'page': page},
+  );
 
   /// Get detailed information about a movie
-  Future<Movie> getMovieDetails(int movieId) async {
-    try {
-      final response = await _dio.get(
-        '/movie/$movieId',
-        queryParameters: _defaultParams,
-      );
-
-      return Movie.fromJson(response.data);
-    } catch (e) {
-      throw TmdbApiException('Failed to get movie details: $e');
-    }
-  }
+  Future<Movie> getMovieDetails(int movieId) =>
+      _get('movie details', '/movie/$movieId', Movie.fromJson);
 
   /// Get movie details with external IDs + trailers + cast in one call.
   ///
   /// Uses `append_to_response` to fold three endpoints into a single
   /// request: external_ids (for IMDB), videos (trailers/teasers),
   /// credits (top cast).
-  Future<Movie> getMovieDetailsWithImdb(int movieId) async {
-    try {
-      final response = await _dio.get(
-        '/movie/$movieId',
-        queryParameters: {
-          ..._defaultParams,
-          'append_to_response': 'external_ids,videos,credits',
-        },
-      );
-
-      final data = response.data;
-      // Merge imdb_id from external_ids into main data
-      if (data['external_ids'] != null) {
-        data['imdb_id'] = data['external_ids']['imdb_id'];
-      }
-
-      return Movie.fromJson(data);
-    } catch (e) {
-      throw TmdbApiException('Failed to get movie details with IMDB: $e');
-    }
-  }
-
-  /// Get external IDs for a movie (including IMDB ID)
-  Future<String?> getMovieImdbId(int movieId) async {
-    try {
-      final response = await _dio.get(
-        '/movie/$movieId/external_ids',
-        queryParameters: _defaultParams,
-      );
-
-      return response.data['imdb_id'] as String?;
-    } catch (e) {
-      throw TmdbApiException('Failed to get movie external IDs: $e');
-    }
-  }
+  Future<Movie> getMovieDetailsWithImdb(int movieId) =>
+      _get('movie details', '/movie/$movieId', (data) {
+        // Merge imdb_id from external_ids into main data
+        final external = data['external_ids'];
+        if (external is Map<String, dynamic>) {
+          data['imdb_id'] = external['imdb_id'];
+        }
+        return Movie.fromJson(data);
+      }, query: {'append_to_response': 'external_ids,videos,credits'});
 
   /// Get similar movies
-  Future<List<Movie>> getSimilarMovies(int movieId, {int page = 1}) async {
-    try {
-      final response = await _dio.get(
-        '/movie/$movieId/similar',
-        queryParameters: {..._defaultParams, 'page': page},
-      );
-
-      final results = response.data['results'] as List<dynamic>;
-      return results.map((json) => Movie.fromJson(json)).toList();
-    } catch (e) {
-      throw TmdbApiException('Failed to get similar movies: $e');
-    }
-  }
+  Future<List<Movie>> getSimilarMovies(int movieId, {int page = 1}) => _get(
+    'similar movies',
+    '/movie/$movieId/similar',
+    _movies,
+    query: {'page': page},
+  );
 
   /// Get recommended movies based on a movie
-  Future<List<Movie>> getRecommendedMovies(int movieId, {int page = 1}) async {
-    try {
-      final response = await _dio.get(
-        '/movie/$movieId/recommendations',
-        queryParameters: {..._defaultParams, 'page': page},
-      );
-
-      final results = response.data['results'] as List<dynamic>;
-      return results.map((json) => Movie.fromJson(json)).toList();
-    } catch (e) {
-      throw TmdbApiException('Failed to get recommended movies: $e');
-    }
-  }
+  Future<List<Movie>> getRecommendedMovies(int movieId, {int page = 1}) => _get(
+    'recommended movies',
+    '/movie/$movieId/recommendations',
+    _movies,
+    query: {'page': page},
+  );
 
   /// Discover movies with filters
   Future<List<Movie>> discoverMovies({
@@ -514,55 +304,43 @@ class TmdbApiService {
     String? sortBy,
     int? year,
     String? withGenres,
-    double? voteAverageGte,
-    int? runtimeGte,
-    int? runtimeLte,
-  }) async {
-    try {
-      final params = {
-        ..._defaultParams,
-        'page': page,
-        'sort_by': ?sortBy,
-        'primary_release_year': ?year,
-        'with_genres': ?withGenres,
-        'vote_average.gte': ?voteAverageGte,
-        'with_runtime.gte': ?runtimeGte,
-        'with_runtime.lte': ?runtimeLte,
-      };
-
-      final response = await _dio.get(
-        '/discover/movie',
-        queryParameters: params,
-      );
-
-      final results = response.data['results'] as List<dynamic>;
-      return results.map((json) => Movie.fromJson(json)).toList();
-    } catch (e) {
-      throw TmdbApiException('Failed to discover movies: $e');
-    }
-  }
-
-  /// Get movie genre list
-  Future<Map<int, String>> getMovieGenres() async {
-    try {
-      final response = await _dio.get(
-        '/genre/movie/list',
-        queryParameters: _defaultParams,
-      );
-
-      final genres = response.data['genres'] as List<dynamic>;
-      return {for (var g in genres) g['id'] as int: g['name'] as String};
-    } catch (e) {
-      throw TmdbApiException('Failed to get movie genres: $e');
-    }
-  }
+    int? voteCountGte,
+  }) => _get(
+    'discover movies',
+    '/discover/movie',
+    _movies,
+    query: {
+      'page': page,
+      'sort_by': ?sortBy,
+      'primary_release_year': ?year,
+      'with_genres': ?withGenres,
+      'vote_count.gte': ?voteCountGte,
+    },
+  );
 }
 
-/// Exception for TMDB API errors
-class TmdbApiException implements Exception {
-  final String message;
-  TmdbApiException(this.message);
+/// A TMDB request that failed, with enough left of the failure to act on.
+///
+/// The positional constructor is the one older code used; the named fields
+/// are what [classifyFailure] and the screens read to choose between "check
+/// your token" and "try again".
+class TmdbApiException extends HttpServiceException {
+  TmdbApiException(
+    super.message, {
+    super.statusCode,
+    super.isNetwork,
+    super.isTimeout,
+  });
+
+  /// Build from the [DioException] behind a failed [what] request.
+  TmdbApiException.fromDio(String what, DioException e)
+    : super.fromDio(
+        e.response?.statusCode != null
+            ? 'Failed to $what: TMDB answered ${e.response?.statusCode}'
+            : 'Failed to $what: ${e.type.name}',
+        e,
+      );
 
   @override
-  String toString() => 'TmdbApiException: $message';
+  String get kind => 'TmdbApiException';
 }

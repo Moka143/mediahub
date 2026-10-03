@@ -56,24 +56,41 @@ void main() {
   });
 
   group('UiScale widget', () {
+    // The probes below size the test window to the viewport they describe,
+    // because UiScale's real input is the window's constraints as well as
+    // MediaQuery — in the app the two always agree, and a test where they
+    // differ proves nothing about either.
+    void useWindow(WidgetTester tester, Size size) {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+    }
+
+    const cramped = Size(853, 432); // 1920x1080 at 225%, less the taskbar
+    const scale = 432 / 600;
+    final logical = Size(cramped.width / scale, cramped.height / scale);
+
     testWidgets('adds nothing to the tree at a normal viewport', (
       tester,
     ) async {
       // Load-bearing: the promise is that nothing changes on a normal screen,
       // and the cheapest way to keep that promise is to not be there at all.
+      useWindow(tester, const Size(1920, 1032));
       await tester.pumpWidget(
         _host(const Size(1920, 1032), const SizedBox.shrink()),
       );
+      expect(find.byType(FittedBox), findsNothing);
       expect(find.byType(Transform), findsNothing);
     });
 
     testWidgets('hands the layout back a viewport it can fit in', (
       tester,
     ) async {
+      useWindow(tester, cramped);
       late Size seen;
       await tester.pumpWidget(
         _host(
-          const Size(853, 432),
+          cramped,
           Builder(
             builder: (context) {
               seen = MediaQuery.sizeOf(context);
@@ -83,12 +100,56 @@ void main() {
         ),
       );
 
-      expect(find.byType(Transform), findsOneWidget);
+      expect(find.byType(FittedBox), findsOneWidget);
       // 432/600 = 0.72 → an 1185x600 logical viewport, which clears both the
       // 800x600 design floor and the 900px sidebar gate.
       expect(seen.width, greaterThanOrEqualTo(_floor.width));
       expect(seen.height, greaterThanOrEqualTo(_floor.height - 0.01));
       expect(seen.width, greaterThan(900));
+    });
+
+    testWidgets('lays the child out at exactly the logical size', (
+      tester,
+    ) async {
+      // The 0.7.0 bug: MediaQuery said 1185x600 but the child was laid out
+      // at the window's 853x432, so breakpoints decided against a width the
+      // layout did not have. The constraints are what the layout really
+      // gets, so they are what this checks.
+      useWindow(tester, cramped);
+      late BoxConstraints constraints;
+      late Size reported;
+      await tester.pumpWidget(
+        _host(
+          cramped,
+          LayoutBuilder(
+            builder: (context, c) {
+              constraints = c;
+              reported = MediaQuery.sizeOf(context);
+              return const SizedBox.expand();
+            },
+          ),
+        ),
+      );
+
+      expect(constraints.isTight, isTrue);
+      expect(constraints.maxWidth, closeTo(logical.width, 0.01));
+      expect(constraints.maxHeight, closeTo(logical.height, 0.01));
+      expect(constraints.maxWidth, closeTo(reported.width, 0.01));
+      expect(constraints.maxHeight, closeTo(reported.height, 0.01));
+    });
+
+    testWidgets('paints the child over the whole window', (tester) async {
+      // ...and the scaled result fills the window instead of its top-left
+      // 72%x72%.
+      useWindow(tester, cramped);
+      const key = Key('content');
+      await tester.pumpWidget(_host(cramped, const SizedBox.expand(key: key)));
+
+      final painted = tester.getRect(find.byKey(key));
+      expect(painted.left, closeTo(0, 0.01));
+      expect(painted.top, closeTo(0, 0.01));
+      expect(painted.right, closeTo(cramped.width, 0.01));
+      expect(painted.bottom, closeTo(cramped.height, 0.01));
     });
 
     testWidgets('caps runaway accessibility text only when cramped', (
@@ -97,8 +158,8 @@ void main() {
       // Windows' "Make text bigger" is independent of display scale, so a
       // cramped viewport can arrive with 2.25x text on top. Capping it is a
       // last resort and must not touch a normal screen.
-      late TextScaler cramped;
-      late TextScaler roomy;
+      late TextScaler crampedText;
+      late TextScaler roomyText;
 
       Widget probe(void Function(TextScaler) sink) => Builder(
         builder: (context) {
@@ -118,50 +179,62 @@ void main() {
         ),
       );
 
+      await tester.pumpWidget(wrap(cramped, probe((s) => crampedText = s)));
       await tester.pumpWidget(
-        wrap(const Size(853, 432), probe((s) => cramped = s)),
-      );
-      await tester.pumpWidget(
-        wrap(const Size(1920, 1032), probe((s) => roomy = s)),
+        wrap(const Size(1920, 1032), probe((s) => roomyText = s)),
       );
 
-      expect(cramped.scale(10), lessThanOrEqualTo(13.0));
+      expect(crampedText.scale(10), lessThanOrEqualTo(13.0));
       expect(
-        roomy.scale(10),
+        roomyText.scale(10),
         22.5,
         reason: 'an accessibility preference is not a layout bug to override',
       );
     });
 
+    Widget tapTarget(Alignment corner, VoidCallback onTap) => Align(
+      alignment: corner,
+      child: GestureDetector(
+        // opaque, because a bare SizedBox has nothing to hit — this is
+        // about the transform, not about what absorbs the pointer.
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: const SizedBox(width: 200, height: 100),
+      ),
+    );
+
     testWidgets('clicks still land where they look', (tester) async {
-      // Transform.scale inverse-maps pointer events, but it is the one thing
-      // worth proving rather than trusting.
+      // The box is 200x100 at the top-left of a viewport rendered at 0.72,
+      // so it paints as 144x72 and its centre lands at (72, 36). Tapping the
+      // raw screen coordinate proves the pointer is inverse-mapped through
+      // the same transform the renderer painted with.
+      useWindow(tester, cramped);
       var tapped = false;
       await tester.pumpWidget(
-        _host(
-          const Size(853, 432),
-          Align(
-            alignment: Alignment.topLeft,
-            child: GestureDetector(
-              // opaque, because a bare SizedBox has nothing to hit — this is
-              // about the transform, not about what absorbs the pointer.
-              behavior: HitTestBehavior.opaque,
-              onTap: () => tapped = true,
-              child: const SizedBox(width: 200, height: 100),
-            ),
-          ),
-        ),
+        _host(cramped, tapTarget(Alignment.topLeft, () => tapped = true)),
       );
 
-      // The box is 200x100 at the top-left of a viewport rendered at 0.72, so
-      // it paints as 144x72 and its centre lands at (72, 36). Tapping the raw
-      // screen coordinate proves the pointer is inverse-mapped through the
-      // same transform the renderer painted with.
-      expect(
-        tester.getCenter(find.byType(GestureDetector)),
-        const Offset(72, 36),
-      );
+      final centre = tester.getCenter(find.byType(GestureDetector));
+      expect(centre.dx, closeTo(72, 0.01));
+      expect(centre.dy, closeTo(36, 0.01));
       await tester.tapAt(const Offset(72, 36));
+      expect(tapped, isTrue);
+    });
+
+    testWidgets('a click in the bottom-right corner lands too', (tester) async {
+      // The region the old layout never covered. Laid out at the window's
+      // size and painted at 0.72, a bottom-right control was drawn at about
+      // (540, 275) and nothing at all answered a click in the real corner.
+      useWindow(tester, cramped);
+      var tapped = false;
+      await tester.pumpWidget(
+        _host(cramped, tapTarget(Alignment.bottomRight, () => tapped = true)),
+      );
+
+      final rect = tester.getRect(find.byType(GestureDetector));
+      expect(rect.right, closeTo(cramped.width, 0.01));
+      expect(rect.bottom, closeTo(cramped.height, 0.01));
+      await tester.tapAt(Offset(cramped.width - 6, cramped.height - 6));
       expect(tapped, isTrue);
     });
   });

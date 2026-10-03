@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,7 +7,9 @@ import 'package:url_launcher/url_launcher.dart';
 import '../services/app_logger.dart';
 import '../services/secret_store.dart';
 import '../services/tmdb_account_service.dart';
+import '../services/tmdb_watched_sync.dart';
 import 'settings_provider.dart';
+import 'shows_provider.dart';
 
 // New v4 storage keys.
 const _accountIdKey = 'tmdb_v4_account_id';
@@ -31,23 +34,21 @@ class TmdbSession {
   final String accessToken;
   final int accountId;
   final TmdbAccount account;
-
-  Map<String, dynamic> toJson() => {
-    'access_token': accessToken,
-    'account_id': accountId,
-    'account': account.toJson(),
-  };
 }
 
-/// Service used for the OAuth dance + account-scoped reads/writes. When a
-/// user is signed in, the Bearer is their user token; otherwise it falls
-/// back to the bundled/user read access token via
-/// [effectiveTmdbAccessTokenProvider].
+/// The Bearer token every TMDB request carries: the signed-in user's access
+/// token, or else the bundled / user-pasted read token
+/// ([effectiveTmdbAccessTokenProvider]). One definition, so the catalog and
+/// account services cannot disagree about which they are using.
+final tmdbBearerTokenProvider = Provider<String>((ref) {
+  return ref.watch(tmdbSessionProvider)?.accessToken ??
+      ref.watch(effectiveTmdbAccessTokenProvider);
+});
+
+/// Service used for the OAuth dance + account-scoped reads/writes, with the
+/// [tmdbBearerTokenProvider] token.
 final tmdbAccountServiceProvider = Provider<TmdbAccountService>((ref) {
-  final session = ref.watch(tmdbSessionProvider);
-  final String token =
-      session?.accessToken ?? ref.watch(effectiveTmdbAccessTokenProvider);
-  return TmdbAccountService(accessToken: token);
+  return TmdbAccountService(accessToken: ref.watch(tmdbBearerTokenProvider));
 });
 
 final tmdbSessionProvider = NotifierProvider<TmdbSessionNotifier, TmdbSession?>(
@@ -58,6 +59,20 @@ final tmdbSessionProvider = NotifierProvider<TmdbSessionNotifier, TmdbSession?>(
 final isTmdbSignedInProvider = Provider<bool>(
   (ref) => ref.watch(tmdbSessionProvider) != null,
 );
+
+/// Watched-state sync with the signed-in TMDB account, or null when nobody
+/// is signed in. The one way the app pushes "watched" to TMDB — from the
+/// library menu, from finishing something in the player, and from the
+/// reconcile — so all three identify titles the same way.
+final tmdbWatchedSyncProvider = Provider<TmdbWatchedSync?>((ref) {
+  final session = ref.watch(tmdbSessionProvider);
+  if (session == null) return null;
+  return TmdbWatchedSync(
+    account: ref.watch(tmdbAccountServiceProvider),
+    resolver: ref.watch(tmdbTitleResolverProvider),
+    accountId: session.accountId,
+  );
+});
 
 class TmdbSessionNotifier extends Notifier<TmdbSession?> {
   @override
@@ -73,8 +88,8 @@ class TmdbSessionNotifier extends Notifier<TmdbSession?> {
         '[TmdbSession] Dropping legacy v3 session — please re-sign-in '
         'via v4 OAuth.',
       );
-      prefs.remove(_legacySessionKey);
-      prefs.remove(_legacyAccountKey);
+      unawaited(prefs.remove(_legacySessionKey));
+      unawaited(prefs.remove(_legacyAccountKey));
     }
 
     final token = ref.watch(secretStoreProvider).read(Secret.tmdbAccessToken);
@@ -150,14 +165,17 @@ class TmdbSessionNotifier extends Notifier<TmdbSession?> {
   }
 
   /// Sign out: best-effort revoke on the TMDB side, then drop locally.
+  ///
+  /// Dropping the session rebuilds everything keyed on it — the TMDB
+  /// services and the title resolver with its caches — so nothing resolved
+  /// for one account is reused for the next.
   Future<void> signOut() async {
     final session = state;
     if (session != null) {
       // Use a service authenticated as the user (Bearer = the user's own
       // token) to revoke that same token. Best-effort.
       final userSvc = TmdbAccountService(accessToken: session.accessToken);
-      // ignore: unawaited_futures
-      userSvc.deleteAccessToken(session.accessToken);
+      unawaited(userSvc.deleteAccessToken(session.accessToken));
     }
     state = null;
     final prefs = ref.read(sharedPreferencesProvider);

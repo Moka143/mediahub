@@ -5,31 +5,20 @@ import '../design/app_tokens.dart';
 import '../design/app_typography.dart';
 import 'common/editorial_dialog_shell.dart';
 import 'editorial/serif_title.dart';
+import 'player/player_shortcuts.dart';
 
 /// Modal dialog that lists the player's keyboard shortcuts.
 ///
-/// Shown via the `?` button in [VideoControlsOverlay] and by pressing
-/// `?` / `Shift+/` anywhere on the player screen.
+/// Shown via the keyboard button in [VideoControlsOverlay] and by pressing
+/// `?` anywhere on the player screen. Renders [kPlayerShortcuts], the same
+/// table the key handler dispatches on, so the two cannot disagree.
 class ShortcutsHelpDialog extends StatelessWidget {
   const ShortcutsHelpDialog({super.key});
-
-  static const _shortcuts = <_ShortcutEntry>[
-    _ShortcutEntry(keys: ['Space'], label: 'Play / Pause'),
-    _ShortcutEntry(keys: ['Double-click'], label: 'Play / Pause'),
-    _ShortcutEntry(keys: ['F'], label: 'Toggle fullscreen'),
-    _ShortcutEntry(keys: ['M'], label: 'Mute / Unmute'),
-    _ShortcutEntry(keys: ['←'], label: 'Seek back 10s'),
-    _ShortcutEntry(keys: ['→'], label: 'Seek forward 10s'),
-    _ShortcutEntry(keys: ['↑'], label: 'Volume up'),
-    _ShortcutEntry(keys: ['↓'], label: 'Volume down'),
-    _ShortcutEntry(keys: ['Esc'], label: 'Exit fullscreen / close player'),
-    _ShortcutEntry(keys: ['?'], label: 'Show this help'),
-  ];
 
   static Future<void> show(BuildContext context) {
     return showDialog<void>(
       context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.6),
+      barrierColor: AppColors.barrier,
       builder: (_) => const ShortcutsHelpDialog(),
     );
   }
@@ -50,7 +39,11 @@ class ShortcutsHelpDialog extends StatelessWidget {
                 size: AppIconSize.lg,
               ),
               const SizedBox(width: AppSpacing.sm),
-              const SerifTitle('Keyboard shortcuts', size: 22, height: 1.05),
+              const SerifTitle(
+                'Keyboard shortcuts',
+                size: AppType.sizeTitle,
+                height: 1.05,
+              ),
               const Spacer(),
               IconButton(
                 icon: const Icon(Icons.close_rounded, color: AppColors.fg2),
@@ -60,24 +53,21 @@ class ShortcutsHelpDialog extends StatelessWidget {
             ],
           ),
           const SizedBox(height: AppSpacing.md),
-          ..._shortcuts.map((s) => _ShortcutRow(entry: s)),
+          for (final shortcut in kPlayerShortcuts)
+            _ShortcutRow(shortcut: shortcut),
         ],
       ),
     );
   }
 }
 
-class _ShortcutEntry {
-  final List<String> keys;
-  final String label;
-
-  const _ShortcutEntry({required this.keys, required this.label});
-}
-
 class _ShortcutRow extends StatelessWidget {
-  final _ShortcutEntry entry;
+  final PlayerShortcut shortcut;
 
-  const _ShortcutRow({required this.entry});
+  const _ShortcutRow({required this.shortcut});
+
+  /// Wide enough for the longest cap, "Double-click".
+  static const double _keysColumnWidth = 96;
 
   @override
   Widget build(BuildContext context) {
@@ -86,17 +76,17 @@ class _ShortcutRow extends StatelessWidget {
       child: Row(
         children: [
           SizedBox(
-            width: 96,
+            width: _keysColumnWidth,
             child: Wrap(
               spacing: AppSpacing.xs,
-              children: entry.keys.map((k) => _KeyCap(label: k)).toList(),
+              children: [for (final k in shortcut.keys) _KeyCap(label: k)],
             ),
           ),
           const SizedBox(width: AppSpacing.md),
           Expanded(
             child: Text(
-              entry.label,
-              style: AppType.ui(size: 13, color: AppColors.fg1),
+              shortcut.label,
+              style: AppType.ui(size: AppType.sizeBody, color: AppColors.fg1),
             ),
           ),
         ],
@@ -115,7 +105,7 @@ class _KeyCap extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.sm,
-        vertical: 3,
+        vertical: AppSpacing.xxs,
       ),
       decoration: BoxDecoration(
         color: AppColors.bgSurfaceHi,
@@ -125,7 +115,7 @@ class _KeyCap extends StatelessWidget {
       child: Text(
         label,
         style: AppType.mono(
-          size: 11,
+          size: AppType.sizeSmall,
           color: AppColors.fg,
           weight: FontWeight.w600,
         ),

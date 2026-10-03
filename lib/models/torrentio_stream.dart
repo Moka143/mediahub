@@ -1,3 +1,4 @@
+import '../utils/media_names.dart';
 import '../utils/media_quality.dart';
 
 /// Represents a stream from Torrentio addon
@@ -6,7 +7,6 @@ import '../utils/media_quality.dart';
 /// - `fileIdx`: When present, indicates this is a multi-file torrent
 ///   and this is the specific file index to play. When null, it's a single-file torrent.
 /// - `filename`: The specific filename within a multi-file torrent (from behaviorHints)
-/// - `bingeGroup`: Used by Stremio to group related streams for binge-watching
 ///
 /// IMPORTANT: A torrent with video + subtitle files will have fileIdx set, but
 /// it's NOT a season pack. We detect true season packs by looking for pack
@@ -19,7 +19,6 @@ class TorrentioStream {
   final String title;
   final String infoHash;
   final int? fileIdx;
-  final String? bingeGroup;
   final String? filename;
   final List<String> sources;
 
@@ -28,7 +27,6 @@ class TorrentioStream {
     required this.title,
     required this.infoHash,
     this.fileIdx,
-    this.bingeGroup,
     this.filename,
     this.sources = const [],
   });
@@ -41,7 +39,6 @@ class TorrentioStream {
       title: json['title'] as String? ?? '',
       infoHash: json['infoHash'] as String? ?? '',
       fileIdx: json['fileIdx'] as int?,
-      bingeGroup: behaviorHints?['bingeGroup'] as String?,
       filename: behaviorHints?['filename'] as String?,
       sources:
           (json['sources'] as List<dynamic>?)
@@ -86,63 +83,59 @@ class TorrentioStream {
     return !_isTrueSeasonPack;
   }
 
-  /// Internal check for true season pack indicators
-  bool get _isTrueSeasonPack {
+  /// Words in a title or release name that only ever describe more than one
+  /// episode.
+  static const _packIndicators = [
+    'complete',
+    'season pack',
+    'full season',
+    's01-s', // S01-S02, etc.
+    'seasons',
+    'collection',
+    'anthology',
+    'boxset',
+    'box set',
+  ];
+
+  /// A bare season token — `S01` with no episode after it.
+  static final RegExp _seasonToken = RegExp(
+    r'\bs\d{1,2}\b',
+    caseSensitive: false,
+  );
+
+  /// Internal check for true season pack indicators.
+  ///
+  /// Computed once: the sort comparators that rank streams read it through
+  /// [streamingScore] on every comparison, and this used to build three
+  /// regexes each time.
+  bool get _isTrueSeasonPack => _trueSeasonPack;
+
+  late final bool _trueSeasonPack = () {
     final titleLower = title.toLowerCase();
     final releaseLower = releaseName.toLowerCase();
-    final filenameLower = (filename ?? '').toLowerCase();
-
-    // Common season pack indicators
-    final packIndicators = [
-      'complete',
-      'season pack',
-      'full season',
-      's01-s', // S01-S02, etc.
-      'seasons',
-      'collection',
-      'anthology',
-      'boxset',
-      'box set',
-    ];
 
     // Check for pack indicators in title or release name
-    final hasPackIndicator = packIndicators.any(
+    if (_packIndicators.any(
       (indicator) =>
           titleLower.contains(indicator) || releaseLower.contains(indicator),
-    );
-
-    if (hasPackIndicator) return true;
-
-    // Check for season-only pattern (S01 without E01)
-    // Pattern: has S## but no E## in the release name
-    final seasonOnlyPattern = RegExp(
-      r'\bs\d{1,2}\b(?!.*\be\d{1,2}\b)',
-      caseSensitive: false,
-    );
-    final hasSeasonOnly = seasonOnlyPattern.hasMatch(releaseLower);
-
-    // But verify the filename HAS an episode number (confirming it's a pack with selected file)
-    final episodeInFilename = RegExp(
-      r'[sS]\d{1,2}[eE]\d{1,2}|[\.\-_]\d{1,2}x\d{1,2}[\.\-_]',
-    ).hasMatch(filenameLower);
-
-    // If release name has season-only but filename has episode = season pack
-    if (hasSeasonOnly && episodeInFilename) return true;
-
-    // Additional heuristic: if title mentions a specific episode but fileIdx is set,
-    // it's likely a single episode with subtitles, NOT a pack
-    final hasSpecificEpisode = RegExp(
-      r'[sS]\d{1,2}[eE]\d{1,2}',
-    ).hasMatch(releaseLower);
-    if (hasSpecificEpisode) {
-      // Release name has specific episode = probably just video + subs
-      return false;
+    )) {
+      return true;
     }
 
-    // Default: if we can't determine, treat fileIdx as potential pack
-    // but don't heavily penalize
+    // A release named for a season with no episode in it (`Show.S01.1080p`)
+    // whose selected file *does* name an episode is a pack with one file
+    // picked out of it. Episode codes go through the shared parser, so a
+    // three-digit episode is still an episode.
+    if (parseEpisodeCode(releaseName) == null &&
+        _seasonToken.hasMatch(releaseLower) &&
+        parseEpisodeCode(filename ?? '') != null) {
+      return true;
+    }
+
+    // Anything else with a fileIdx — most often one episode plus its
+    // subtitles — is not a pack.
     return false;
-  }
+  }();
 
   /// Get a streaming priority score (higher = better for streaming)
   ///
@@ -185,17 +178,6 @@ class TorrentioStream {
     return score;
   }
 
-  Map<String, dynamic> toJson() {
-    return {
-      'name': name,
-      'title': title,
-      'infoHash': infoHash,
-      'fileIdx': fileIdx,
-      'behaviorHints': {'bingeGroup': bingeGroup, 'filename': filename},
-      'sources': sources,
-    };
-  }
-
   /// Release quality derived from the indexer's label (e.g. "Torrentio\n4k").
   ///
   /// See [MediaQuality]. The former private ladder had a `WEB-DL` rank its
@@ -209,24 +191,33 @@ class TorrentioStream {
   /// Get quality priority for sorting (higher is better)
   int get qualityPriority => mediaQuality.rank;
 
-  /// Extract seeders count from title (e.g., "👤 212" -> 212)
-  int get seeders {
-    final match = RegExp(r'👤\s*(\d+)').firstMatch(title);
+  static final RegExp _seedersPattern = RegExp(r'👤\s*(\d+)');
+  static final RegExp _sizeLabelPattern = RegExp(r'💾\s*([\d.]+\s*[KMGT]?B)');
+  static final RegExp _sizePattern = RegExp(r'💾\s*([\d.]+)\s*([KMGT]?B)');
+
+  /// Extract seeders count from title (e.g., "👤 212" -> 212). Parsed once;
+  /// ranking reads it on every comparison.
+  int get seeders => _seeders;
+
+  late final int _seeders = () {
+    final match = _seedersPattern.firstMatch(title);
     if (match != null) {
       return int.tryParse(match.group(1) ?? '0') ?? 0;
     }
     return 0;
-  }
+  }();
 
   /// Extract size from title (e.g., "💾 1.45 GB" -> "1.45 GB")
   String get sizeFormatted {
-    final match = RegExp(r'💾\s*([\d.]+\s*[KMGT]?B)').firstMatch(title);
+    final match = _sizeLabelPattern.firstMatch(title);
     return match?.group(1) ?? 'Unknown';
   }
 
-  /// Parse size to bytes
-  int get sizeBytes {
-    final match = RegExp(r'💾\s*([\d.]+)\s*([KMGT]?B)').firstMatch(title);
+  /// Parse size to bytes. Parsed once, like [seeders].
+  int get sizeBytes => _sizeBytes;
+
+  late final int _sizeBytes = () {
+    final match = _sizePattern.firstMatch(title);
     if (match == null) return 0;
 
     final value = double.tryParse(match.group(1) ?? '0') ?? 0;
@@ -244,7 +235,7 @@ class TorrentioStream {
       default:
         return value.round();
     }
-  }
+  }();
 
   /// Extract source site from title (e.g., "⚙️ ThePirateBay")
   String get sourceSite {
@@ -270,18 +261,6 @@ class TorrentioStream {
     return 'magnet:?xt=urn:btih:$infoHash$dn$trackers';
   }
 
-  /// Health score based on seeds (0-100)
-  int get healthScore {
-    final s = seeders;
-    if (s >= 100) return 100;
-    if (s >= 50) return 80;
-    if (s >= 20) return 60;
-    if (s >= 10) return 40;
-    if (s >= 5) return 20;
-    if (s > 0) return 10;
-    return 0;
-  }
-
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -298,16 +277,8 @@ class TorrentioStream {
 /// Response wrapper for Torrentio API
 class TorrentioResponse {
   final List<TorrentioStream> streams;
-  final int cacheMaxAge;
-  final int staleRevalidate;
-  final int staleError;
 
-  TorrentioResponse({
-    required this.streams,
-    this.cacheMaxAge = 3600,
-    this.staleRevalidate = 14400,
-    this.staleError = 604800,
-  });
+  TorrentioResponse({required this.streams});
 
   factory TorrentioResponse.fromJson(Map<String, dynamic> json) {
     return TorrentioResponse(
@@ -316,9 +287,6 @@ class TorrentioResponse {
               ?.map((s) => TorrentioStream.fromJson(s as Map<String, dynamic>))
               .toList() ??
           [],
-      cacheMaxAge: json['cacheMaxAge'] as int? ?? 3600,
-      staleRevalidate: json['staleRevalidate'] as int? ?? 14400,
-      staleError: json['staleError'] as int? ?? 604800,
     );
   }
 }

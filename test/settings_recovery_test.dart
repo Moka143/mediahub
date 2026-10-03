@@ -72,12 +72,10 @@ void main() {
       final saved = AppSettings(
         engineKind: TorrentEngineKind.builtin,
         rqbitPort: 4040,
-        rqbitPath: '/opt/rqbit',
       );
       final loaded = AppSettings.fromJson(saved.toJson());
       expect(loaded.engineKind, TorrentEngineKind.builtin);
       expect(loaded.rqbitPort, 4040);
-      expect(loaded.rqbitPath, '/opt/rqbit');
       expect(loaded, equals(saved));
     });
 

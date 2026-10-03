@@ -1,220 +1,223 @@
 import 'dart:async';
+import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mediahub/providers/connection_provider.dart';
 import 'package:mediahub/services/app_shutdown.dart';
-import 'package:mediahub/services/torrent_engine_process.dart';
 import 'package:mediahub/services/window_state_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Records whether it was asked to stop, and can take as long as it likes
-/// doing so.
-class _FakeEngineProcess implements TorrentEngineProcess {
-  _FakeEngineProcess({
-    this.stopDelay = Duration.zero,
-    this.throwOnStop = false,
-  });
-
-  final Duration stopDelay;
-  final bool throwOnStop;
-  bool stopped = false;
-
-  @override
-  bool get managesLocalProcess => true;
-
-  @override
-  Future<bool> isRunning() async => true;
-
-  @override
-  Future<bool> start() async => true;
-
-  @override
-  Future<void> stop() async {
-    await Future<void>.delayed(stopDelay);
-    if (throwOnStop) throw StateError('engine refused');
-    stopped = true;
+/// Records what the teardown did, in order.
+class _Harness {
+  _Harness({
+    this.engineStopDelay = Duration.zero,
+    this.engineThrows = false,
+    bool exitsProcess = true,
+    Duration deadline = const Duration(seconds: 5),
+    Duration engineStopTimeout = const Duration(seconds: 2),
+    Future<void> Function()? hide,
+  }) {
+    shutdown = AppShutdown(
+      hideWindow: hide ?? () async => steps.add('hide'),
+      closeApp: () async => steps.add('quit'),
+      stopEngines: () async {
+        engineStops++;
+        await Future<void>.delayed(engineStopDelay);
+        if (engineThrows) throw StateError('engine refused');
+        steps.add('engines stopped');
+      },
+      exitProcess: (code) {
+        exitCodes.add(code);
+        steps.add('exit $code');
+      },
+      exitsProcess: exitsProcess,
+      deadline: deadline,
+      engineStopTimeout: engineStopTimeout,
+    )..saveWindowState = () async => steps.add('window saved');
   }
 
-  @override
-  void dispose() {}
+  final Duration engineStopDelay;
+  final bool engineThrows;
+  late final AppShutdown shutdown;
+  final List<String> steps = [];
+  final List<int> exitCodes = [];
+  int engineStops = 0;
 }
-
-/// A container holding nothing but the fake engine, so `dispose()` is on the
-/// tested path without dragging in prefs, the secret store or settings.
-ProviderContainer _containerWith(TorrentEngineProcess engine) =>
-    ProviderContainer(
-      overrides: [engineProcessProvider.overrideWithValue(engine)],
-    );
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  group('shutdown', () {
-    test('hides the window, stops the engine, then exits', () async {
+  group('AppShutdown.run', () {
+    test('hides the window first, then stops the engine and saves', () async {
       // Hiding first is the whole of the perceived-hang fix. On Windows
       // `windowManager.destroy()` is only PostQuitMessage(0), so the window
-      // sits on screen, painted and frozen, for the entire native teardown
-      // that follows. Everything after the hide happens out of sight.
-      final engine = _FakeEngineProcess();
-      var hidden = false;
-      int? code;
+      // sits on screen, painted and frozen, for the entire native teardown.
+      final h = _Harness();
+      final container = ProviderContainer();
+      var providersDisposed = false;
+      final probe = Provider<int>((ref) {
+        ref.onDispose(() => providersDisposed = true);
+        return 0;
+      });
+      container.read(probe);
+      h.shutdown.container = container;
 
-      await shutDown(
-        _containerWith(engine),
-        hide: () async => hidden = true,
-        terminate: (c) => code = c,
-        useExit: true,
+      await h.shutdown.run();
+      h.shutdown.cancelWatchdog();
+
+      expect(h.steps.first, 'hide');
+      expect(h.steps, containsAll(['engines stopped', 'window saved']));
+      expect(providersDisposed, isTrue);
+    });
+
+    test('tears down exactly once, however many exit paths fire', () async {
+      // On macOS a single click on the close button reaches here three ways:
+      // the window's close event, the quit AppKit starts when the window is
+      // hidden, and the quit the close handler itself starts at the end.
+      final h = _Harness(exitsProcess: false);
+
+      await Future.wait([
+        h.shutdown.closeFromWindow(),
+        h.shutdown.prepareToQuit(),
+        h.shutdown.didRequestAppExit(),
+        h.shutdown.run(),
+      ]);
+      h.shutdown.cancelWatchdog();
+
+      expect(h.engineStops, 1);
+      expect(h.steps.where((s) => s == 'hide'), hasLength(1));
+    });
+
+    test('every quit path waits for the teardown before answering', () async {
+      final h = _Harness(
+        exitsProcess: false,
+        engineStopDelay: const Duration(milliseconds: 100),
       );
 
-      expect(hidden, isTrue);
+      final answer = await h.shutdown.didRequestAppExit();
+      h.shutdown.cancelWatchdog();
+
+      expect(answer, AppExitResponse.exit);
       expect(
-        engine.stopped,
-        isTrue,
-        reason: 'the sidecar is detached and does not die with us',
+        h.steps,
+        contains('engines stopped'),
+        reason: 'the framework is told "exit" only after the engine stopped',
       );
-      expect(code, 0);
+      expect(await h.shutdown.prepareToQuit(), isTrue);
+    });
+
+    test('a closing window on Windows ends the process', () async {
+      final h = _Harness();
+      await h.shutdown.closeFromWindow();
+      expect(h.exitCodes, [0]);
+      expect(h.steps.last, 'exit 0');
+      expect(h.steps, isNot(contains('quit')));
+    });
+
+    test('an app exit request on Windows ends the process too', () async {
+      final h = _Harness();
+      await h.shutdown.didRequestAppExit();
+      expect(h.exitCodes, [0]);
+    });
+
+    test('macOS hands over to AppKit instead of exiting', () async {
+      final h = _Harness(exitsProcess: false);
+      await h.shutdown.closeFromWindow();
+      h.shutdown.cancelWatchdog();
+      expect(h.steps.last, 'quit');
+      expect(h.exitCodes, isEmpty);
     });
 
     test('an engine that hangs does not trap the user in the app', () async {
-      final engine = _FakeEngineProcess(stopDelay: const Duration(seconds: 30));
-      int? code;
-
-      await shutDown(
-        _containerWith(engine),
-        hide: () async {},
-        terminate: (c) => code = c,
-        useExit: true,
+      final h = _Harness(
+        engineStopDelay: const Duration(seconds: 30),
         engineStopTimeout: const Duration(milliseconds: 50),
       );
-
-      expect(engine.stopped, isFalse, reason: 'it never finished');
-      expect(code, 0, reason: 'we leave anyway');
+      await h.shutdown.closeFromWindow();
+      expect(h.exitCodes, [0], reason: 'we leave anyway');
     });
 
     test('an engine that throws does not trap them either', () async {
-      int? code;
-
-      await shutDown(
-        _containerWith(_FakeEngineProcess(throwOnStop: true)),
-        hide: () async {},
-        terminate: (c) => code = c,
-        useExit: true,
-      );
-
-      expect(code, 0);
-    });
-
-    test('a provider that throws on dispose cannot block the exit', () async {
-      // The case the old hand-written copy of this function could not see at
-      // all: it never called `container.dispose()`, so provider teardown was
-      // on nobody's tested path.
-      //
-      // Riverpod runs `onDispose` callbacks guarded and reports a throw to the
-      // zone the container was *built* in rather than out of `dispose()` — so
-      // the container has to be built inside the zone here, exactly as the
-      // real one is built inside `main`'s `runZonedGuarded`. What matters is
-      // that the close still reaches its exit.
-      int? code;
-      Object? reported;
-      await runZonedGuarded(() async {
-        final container = _containerWith(_FakeEngineProcess());
-        final boobyTrap = Provider<int>((ref) {
-          ref.onDispose(() => throw StateError('dispose exploded'));
-          return 1;
-        });
-        container.read(boobyTrap);
-
-        await shutDown(
-          container,
-          hide: () async {},
-          terminate: (c) => code = c,
-          useExit: true,
-        );
-      }, (error, _) => reported = error);
-
-      expect(code, 0, reason: 'the close still finishes');
-      expect(
-        reported,
-        isStateError,
-        reason: 'and the failure is surfaced, not swallowed',
-      );
+      final h = _Harness(engineThrows: true);
+      await h.shutdown.closeFromWindow();
+      expect(h.exitCodes, [0]);
     });
 
     test('a hide that never answers does not hold the close up', () async {
-      // window_manager is a method channel; an unanswered call is a real
-      // failure mode and must not be the thing that keeps the app open.
-      int? code;
-
-      await shutDown(
-        _containerWith(_FakeEngineProcess()),
-        hide: () => Completer<void>().future,
-        terminate: (c) => code = c,
-        useExit: true,
-      );
-
-      expect(code, 0);
+      final h = _Harness(hide: () => Completer<void>().future);
+      await h.shutdown.closeFromWindow();
+      expect(h.exitCodes, [0]);
     });
 
     test('the deadline ends it even when a step never returns', () async {
       // The backstop, and the only promise the shutdown can actually keep:
       // every budget above it is a property of our code, not of the native
       // libraries it calls into.
-      final engine = _FakeEngineProcess(stopDelay: const Duration(seconds: 30));
-      final exited = Completer<int>();
-
-      unawaited(
-        shutDown(
-          _containerWith(engine),
-          hide: () async {},
-          terminate: (c) {
-            if (!exited.isCompleted) exited.complete(c);
-          },
-          useExit: true,
-          engineStopTimeout: const Duration(seconds: 30),
-          deadline: const Duration(milliseconds: 100),
-        ),
+      final h = _Harness(
+        exitsProcess: false,
+        engineStopDelay: const Duration(seconds: 30),
+        engineStopTimeout: const Duration(seconds: 30),
+        deadline: const Duration(milliseconds: 100),
       );
-
-      expect(await exited.future.timeout(const Duration(seconds: 2)), 0);
+      unawaited(h.shutdown.run());
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(h.exitCodes, [0]);
     });
 
-    test('macOS destroys the window instead of exiting', () async {
-      // exit(0) is a Windows answer to a Windows problem. The Mac teardown is
-      // real and there is no equivalent hang to dodge, so it keeps destroy().
-      var destroyed = false;
-      var exited = false;
+    test('a provider that throws on dispose cannot block the exit', () async {
+      // Riverpod runs `onDispose` callbacks guarded and reports a throw to the
+      // zone the container was *built* in — so it is built inside the zone
+      // here, as the real one is inside `main`'s `runZonedGuarded`.
+      final h = _Harness();
+      Object? reported;
+      await runZonedGuarded(() async {
+        final container = ProviderContainer();
+        final boobyTrap = Provider<int>((ref) {
+          ref.onDispose(() => throw StateError('dispose exploded'));
+          return 1;
+        });
+        container.read(boobyTrap);
+        h.shutdown.container = container;
+        await h.shutdown.closeFromWindow();
+      }, (error, _) => reported = error);
 
-      await shutDown(
-        _containerWith(_FakeEngineProcess()),
-        hide: () async {},
-        destroy: () async => destroyed = true,
-        terminate: (_) => exited = true,
-        useExit: false,
-      );
+      expect(h.exitCodes, [0], reason: 'the close still finishes');
+      expect(reported, isStateError, reason: 'and the failure is surfaced');
+    });
 
-      expect(destroyed, isTrue);
-      expect(exited, isFalse);
+    test('a teardown that begins says so', () async {
+      final h = _Harness(exitsProcess: false);
+      expect(h.shutdown.isShuttingDown, isFalse);
+      unawaited(h.shutdown.run());
+      expect(h.shutdown.isShuttingDown, isTrue);
+      await h.shutdown.run();
+      h.shutdown.cancelWatchdog();
     });
   });
 
   group('WindowStateService close path', () {
-    test('onClosed runs even when the save fails', () async {
-      // The same rule one level up: a failed save is not a reason to leave a
-      // window the user cannot close.
+    test('a close goes to the shutdown, which owns the rest', () async {
       final prefs = await SharedPreferences.getInstance();
-      var closed = false;
+      var requested = 0;
       final service = WindowStateService(
         prefs,
-        onClosed: () async => closed = true,
+        onCloseRequested: () async => requested++,
       );
 
       service.onWindowClose();
-      await Future<void>.delayed(
-        WindowStateService.closeSaveTimeout + const Duration(milliseconds: 200),
-      );
+      await Future<void>.delayed(Duration.zero);
 
-      expect(closed, isTrue);
+      expect(requested, 1);
+    });
+
+    test('the close-time save never throws into the shutdown', () async {
+      // No window_manager plugin behind a unit test, so the save fails —
+      // standing in for a locked prefs file or a native call that errors.
+      final prefs = await SharedPreferences.getInstance();
+      final service = WindowStateService(prefs, onCloseRequested: () async {});
+
+      await expectLater(service.saveForClose(), completes);
+      await expectLater(service.pendingSave, completes);
     });
   });
 }

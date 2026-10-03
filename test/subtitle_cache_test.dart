@@ -6,81 +6,75 @@ import 'package:mediahub/providers/subtitle_provider.dart';
 import 'package:mediahub/services/opensubtitles_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+LocalMediaFile _file(String path, {String? show, int? season, int? episode}) =>
+    LocalMediaFile(
+      path: path,
+      fileName: path.split('/').last,
+      sizeBytes: 0,
+      modifiedDate: DateTime(2026),
+      extension: 'mkv',
+      showName: show,
+      seasonNumber: season,
+      episodeNumber: episode,
+    );
+
+Subtitle _sub(String id, {String lang = 'en', String langName = 'English'}) =>
+    Subtitle(
+      id: id,
+      url: 'https://example.test/subs/$id.srt',
+      lang: lang,
+      langName: langName,
+    );
+
 void main() {
-  group('computeSubtitleCacheKey', () {
-    final movieFile = LocalMediaFile(
-      path: '/library/Movie 2020.mkv',
-      fileName: 'Movie 2020.mkv',
-      sizeBytes: 0,
-      modifiedDate: DateTime.now(),
-      extension: 'mkv',
-    );
-    final episodeFile = LocalMediaFile(
-      path: '/library/Show.S03E07.mkv',
-      fileName: 'Show.S03E07.mkv',
-      sizeBytes: 0,
-      modifiedDate: DateTime.now(),
-      extension: 'mkv',
-      showName: 'Show',
-      seasonNumber: 3,
-      episodeNumber: 7,
+  group('subtitleCacheKeyFor', () {
+    // One key per file, from the file alone. The auto-load and the picker
+    // used to derive keys from whichever IMDB ids each had at the time, so a
+    // choice was saved under one key and looked up under another.
+    final movie = _file('/library/Movie 2020.mkv');
+    final episode = _file(
+      '/library/Show.S03E07.mkv',
+      show: 'Show',
+      season: 3,
+      episode: 7,
     );
 
-    test('uses movie:<imdb> when a movie IMDB id is provided', () {
+    test('is stable for the same file', () {
+      expect(subtitleCacheKeyFor(movie), subtitleCacheKeyFor(movie));
       expect(
-        computeSubtitleCacheKey(movieFile, movieImdbId: 'tt0111161'),
-        'movie:tt0111161',
+        subtitleCacheKeyFor(_file('/library/Movie 2020.mkv')),
+        subtitleCacheKeyFor(movie),
       );
     });
 
-    test('uses series:<imdb>:s##e## for episodes with show IMDB id', () {
-      expect(
-        computeSubtitleCacheKey(episodeFile, showImdbId: 'tt0903747'),
-        'series:tt0903747:s03e07',
+    test('differs between files', () {
+      expect(subtitleCacheKeyFor(movie), isNot(subtitleCacheKeyFor(episode)));
+    });
+
+    test('ignores parsed metadata — only the file matters', () {
+      // A second release of the same episode is a different file with
+      // different timing; it must not inherit the first one's subtitles.
+      final otherRelease = _file(
+        '/library/Show.S03E07.720p.mkv',
+        show: 'Show',
+        season: 3,
+        episode: 7,
       );
-    });
-
-    test('falls back to path:<sha1> when no IMDB id is available', () {
-      final key = computeSubtitleCacheKey(movieFile);
-      expect(key, startsWith('path:'));
-      expect(key.length, greaterThan('path:'.length));
-    });
-
-    test('different paths produce different fallback keys', () {
-      final a = computeSubtitleCacheKey(movieFile);
-      final b = computeSubtitleCacheKey(episodeFile);
-      expect(a, isNot(equals(b)));
+      expect(
+        subtitleCacheKeyFor(otherRelease),
+        isNot(subtitleCacheKeyFor(episode)),
+      );
+      expect(subtitleCacheKeyFor(movie), startsWith('path:'));
     });
   });
 
-  group('cacheKeyFromContext', () {
-    test('movie context returns movie:<id>', () {
-      final ctx = const SubtitleContext(imdbId: 'tt0468569', isMovie: true);
-      expect(cacheKeyFromContext(ctx), 'movie:tt0468569');
-    });
-
-    test('episode context returns series:<id>:s##e##', () {
-      final ctx = const SubtitleContext(
-        imdbId: 'tt0944947',
-        isMovie: false,
-        seasonNumber: 1,
-        episodeNumber: 2,
-      );
-      expect(cacheKeyFromContext(ctx), 'series:tt0944947:s01e02');
-    });
-
-    test('episode context without S/E returns null', () {
-      final ctx = const SubtitleContext(imdbId: 'tt0944947', isMovie: false);
-      expect(cacheKeyFromContext(ctx), isNull);
-    });
-  });
-
-  group('CurrentExternalSubtitleNotifier persistence', () {
+  group('per-file subtitle state', () {
     late ProviderContainer container;
+    late SharedPreferences prefs;
 
     setUp(() async {
       SharedPreferences.setMockInitialValues({});
-      final prefs = await SharedPreferences.getInstance();
+      prefs = await SharedPreferences.getInstance();
       container = ProviderContainer(
         overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
       );
@@ -88,17 +82,13 @@ void main() {
 
     tearDown(() => container.dispose());
 
-    test('persist then loadFor round-trips Subtitle metadata', () async {
-      final sub = Subtitle(
-        id: 'sub-42',
-        url: 'https://example.test/subs/en.srt',
-        lang: 'en',
-        langName: 'English',
-      );
-      final notifier = container.read(currentExternalSubtitleProvider.notifier);
+    CurrentExternalSubtitleNotifier selection() =>
+        container.read(currentExternalSubtitleProvider.notifier);
 
-      await notifier.persist('movie:tt0111161', sub);
-      final loaded = notifier.loadFor('movie:tt0111161');
+    test('persist then loadFor round-trips Subtitle metadata', () async {
+      final sub = _sub('sub-42');
+      await selection().persist('path:abc', sub);
+      final loaded = selection().loadFor('path:abc');
 
       expect(loaded, isNotNull);
       expect(loaded!.id, sub.id);
@@ -107,9 +97,53 @@ void main() {
       expect(loaded.langName, sub.langName);
     });
 
-    test('loadFor returns null for unknown cache key', () {
-      final notifier = container.read(currentExternalSubtitleProvider.notifier);
-      expect(notifier.loadFor('movie:never-saved'), isNull);
+    test('loadFor returns null for an unknown key', () {
+      expect(selection().loadFor('path:never-saved'), isNull);
+    });
+
+    test('opening a new file drops the previous selection', () async {
+      // The selection used to survive into the next video: its picker showed
+      // the old track as selected, and F re-applied it to the new file.
+      final a = _file('/library/A.mkv');
+      final b = _file('/library/B.mkv');
+      selection().beginFile(a);
+      await selection().choose(_sub('a-en'));
+      expect(container.read(currentExternalSubtitleProvider)?.id, 'a-en');
+
+      selection().beginFile(b);
+      expect(container.read(currentExternalSubtitleProvider), isNull);
+      expect(selection().savedForCurrentFile(), isNull);
+    });
+
+    test('a choice is saved against its own file only', () async {
+      final a = _file('/library/A.mkv');
+      final b = _file('/library/B.mkv');
+      selection().beginFile(a);
+      await selection().choose(_sub('a-en'));
+      selection().beginFile(b);
+      await selection().choose(_sub('b-fr', lang: 'fr', langName: 'French'));
+
+      selection().beginFile(a);
+      expect(selection().savedForCurrentFile()?.id, 'a-en');
+      selection().beginFile(b);
+      expect(selection().savedForCurrentFile()?.id, 'b-fr');
+    });
+
+    test('turning subtitles off forgets the saved choice', () async {
+      final a = _file('/library/A.mkv');
+      selection().beginFile(a);
+      await selection().choose(_sub('a-en'));
+      await selection().chooseNone();
+
+      expect(container.read(currentExternalSubtitleProvider), isNull);
+      expect(selection().savedForCurrentFile(), isNull);
+    });
+
+    test('a sidecar file is a selectable subtitle like any other', () {
+      final sidecar = sidecarSubtitle('/library/Movie.en.srt');
+      expect(sidecar.url, '/library/Movie.en.srt');
+      expect(sidecar.langName, 'Movie.en.srt');
+      expect(sidecar.id, isNot(sidecarSubtitle('/library/Movie.fr.srt').id));
     });
   });
 }

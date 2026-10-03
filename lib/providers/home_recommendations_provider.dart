@@ -1,40 +1,15 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/home_recommendation.dart';
 import '../models/movie.dart';
 import '../models/show.dart';
 import '../services/app_logger.dart';
 import 'favorites_provider.dart';
 import 'shows_provider.dart';
+import 'tmdb_synced_ids.dart';
 import 'watch_progress_provider.dart';
 import 'watchlist_provider.dart';
-
-/// A TMDB title recommended because the user favorited (or is watching)
-/// another title. Show and movie share one row on Home.
-class HomeRecTile {
-  const HomeRecTile.show(this.show) : movie = null;
-  const HomeRecTile.movie(this.movie) : show = null;
-
-  final Show? show;
-  final Movie? movie;
-
-  bool get isShow => show != null;
-  int get id => show?.id ?? movie!.id;
-  String get title => show?.name ?? movie!.title;
-  String? get year => show?.year ?? movie!.year;
-  String? get posterUrl => show?.posterUrl ?? movie!.posterUrl;
-}
-
-class HomeRecommendationFeed {
-  const HomeRecommendationFeed({
-    required this.becauseTitle,
-    required this.items,
-  });
-
-  /// Seed title used in the section header — "Because you liked Lioness".
-  final String becauseTitle;
-  final List<HomeRecTile> items;
-}
 
 const _maxFetchSeeds = 2;
 const _maxItems = 14;
@@ -84,48 +59,104 @@ List<({bool isShow, int id})> pickDailySeeds({
   return rotateStartingAt(pool, dayIndex).take(maxSeeds).toList();
 }
 
+/// The ids the Home row depends on, as values: the provider below selects
+/// these instead of watching whole states, so it refetches when one of them
+/// changes — not on every watch-progress write (each playback tick replaced
+/// the Continue Watching list), every library rescan, or every sync-status
+/// flip, each of which used to cost 2–4 TMDB calls and blank the row.
+@immutable
+class _RecInputs {
+  const _RecInputs({
+    required this.favoriteShows,
+    required this.favoriteMovies,
+    required this.watchlistShows,
+    required this.watchlistMovies,
+    required this.watchingShows,
+    required this.watchingMovies,
+    required this.watchedMovies,
+  });
+
+  final TmdbIds favoriteShows;
+  final TmdbIds favoriteMovies;
+  final TmdbIds watchlistShows;
+  final TmdbIds watchlistMovies;
+  final TmdbIds watchingShows;
+  final TmdbIds watchingMovies;
+  final TmdbIds watchedMovies;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _RecInputs &&
+      other.favoriteShows == favoriteShows &&
+      other.favoriteMovies == favoriteMovies &&
+      other.watchlistShows == watchlistShows &&
+      other.watchlistMovies == watchlistMovies &&
+      other.watchingShows == watchingShows &&
+      other.watchingMovies == watchingMovies &&
+      other.watchedMovies == watchedMovies;
+
+  @override
+  int get hashCode => Object.hash(
+    favoriteShows,
+    favoriteMovies,
+    watchlistShows,
+    watchlistMovies,
+    watchingShows,
+    watchingMovies,
+    watchedMovies,
+  );
+}
+
+final _recInputsProvider = Provider<_RecInputs>((ref) {
+  final fav = ref.watch(favoritesProvider);
+  final watchlist = ref.watch(watchlistProvider);
+  final watching = ref.watch(continueWatchingProvider);
+  return _RecInputs(
+    favoriteShows: TmdbIds(fav.favoriteIds),
+    favoriteMovies: TmdbIds(fav.favoriteMovieIds),
+    watchlistShows: TmdbIds(watchlist.showIds),
+    watchlistMovies: TmdbIds(watchlist.movieIds),
+    watchingShows: TmdbIds(watching.map((p) => p.showId).nonNulls),
+    watchingMovies: TmdbIds(watching.map((p) => p.movieId).nonNulls),
+    watchedMovies: TmdbIds(ref.watch(watchedIndexProvider).watchedMovieIds),
+  );
+});
+
 /// TMDB has no personal recs endpoint. Each calendar day we pick one
 /// favorite as the "because you liked" seed (plus a backup if that
 /// list is thin) and window the neighbors so the row isn't frozen.
 final homeRecommendationsProvider = FutureProvider<HomeRecommendationFeed?>((
   ref,
 ) async {
-  final fav = ref.watch(favoritesProvider);
-  final watchlist = ref.watch(watchlistProvider);
-  final continueWatching = ref.watch(continueWatchingProvider);
-  final watchedMovies = ref.watch(watchedIndexProvider).watchedMovieIds;
-  final tmdb = ref.read(tmdbApiServiceProvider);
+  // `select` compares with `==`, so a rebuild of the inputs that produced
+  // the same ids does not reach this provider.
+  final inputs = ref.watch(_recInputsProvider.select((i) => i));
+  final tmdb = ref.watch(tmdbApiServiceProvider);
   final day = homeRecDayIndex();
 
-  final showIds = <int>[];
-  final movieIds = <int>[];
-  final showNames = <int, String>{};
-  final movieNames = <int, String>{};
+  // Names are only for the header. Read, not watched: a name arriving later
+  // must not refetch the row.
+  final fav = ref.read(favoritesProvider);
+  final watching = ref.read(continueWatchingProvider);
+  final showNames = <int, String>{
+    for (final p in watching)
+      if (p.showId != null && (p.showName?.isNotEmpty ?? false))
+        p.showId!: p.showName!,
+    for (final e in fav.cachedShows.entries) e.key: e.value.name,
+  };
+  final movieNames = <int, String>{
+    for (final p in watching)
+      if (p.movieId != null && (p.showName?.isNotEmpty ?? false))
+        p.movieId!: p.showName!,
+    for (final e in fav.cachedMovies.entries) e.key: e.value.title,
+  };
 
-  void addShow(int id, String? name) {
-    if (showIds.contains(id)) return;
-    showIds.add(id);
-    if (name != null && name.isNotEmpty) showNames[id] = name;
-  }
-
-  void addMovie(int id, String? name) {
-    if (movieIds.contains(id)) return;
-    movieIds.add(id);
-    if (name != null && name.isNotEmpty) movieNames[id] = name;
-  }
-
-  for (final id in fav.favoriteIds) {
-    addShow(id, fav.cachedShows[id]?.name);
-  }
-  for (final id in fav.favoriteMovieIds) {
-    addMovie(id, fav.cachedMovies[id]?.title);
-  }
-
+  // Favorites seed the row; with none, whatever is being watched does.
+  var showIds = inputs.favoriteShows.ids;
+  var movieIds = inputs.favoriteMovies.ids;
   if (showIds.isEmpty && movieIds.isEmpty) {
-    for (final p in continueWatching) {
-      if (p.showId != null) addShow(p.showId!, p.showName);
-      if (p.movieId != null) addMovie(p.movieId!, p.showName);
-    }
+    showIds = inputs.watchingShows.ids;
+    movieIds = inputs.watchingMovies.ids;
   }
 
   final seeds = pickDailySeeds(
@@ -173,24 +204,19 @@ final homeRecommendationsProvider = FutureProvider<HomeRecommendationFeed?>((
     }
   }
 
-  final cwShowIds = {
-    for (final p in continueWatching)
-      if (p.showId != null) p.showId!,
-  };
-  final cwMovieIds = {
-    for (final p in continueWatching)
-      if (p.movieId != null) p.movieId!,
-  };
-
   return buildHomeRecommendationFeed(
     showSeeds: showBatches,
     movieSeeds: movieBatches,
-    excludeShowIds: {...fav.favoriteIds, ...watchlist.showIds, ...cwShowIds},
+    excludeShowIds: {
+      ...inputs.favoriteShows.ids,
+      ...inputs.watchlistShows.ids,
+      ...inputs.watchingShows.ids,
+    },
     excludeMovieIds: {
-      ...fav.favoriteMovieIds,
-      ...watchlist.movieIds,
-      ...watchedMovies,
-      ...cwMovieIds,
+      ...inputs.favoriteMovies.ids,
+      ...inputs.watchlistMovies.ids,
+      ...inputs.watchedMovies.ids,
+      ...inputs.watchingMovies.ids,
     },
     dayIndex: day,
   );

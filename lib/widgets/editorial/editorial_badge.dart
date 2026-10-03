@@ -9,28 +9,10 @@ import '../../design/app_typography.dart';
 /// JetBrains Mono on a transparent background with a hairline border.
 /// Quality, status, codec, network etc. all read as a single visual
 /// language.
-enum BadgeKind {
-  /// Neutral hairline — for inert metadata (year, runtime, codec).
-  neutral,
-
-  /// Accent — emphasized (the one you want to draw attention to).
-  accent,
-
-  /// Ready / seeding / complete.
-  ok,
-
-  /// Queued / checking / pending.
-  warn,
-
-  /// Error / missing.
-  err,
-}
-
 class EditorialBadge extends StatelessWidget {
   const EditorialBadge(
     this.label, {
     super.key,
-    this.kind = BadgeKind.neutral,
     this.icon,
     this.iconSize = 9,
     this.compact = false,
@@ -39,7 +21,6 @@ class EditorialBadge extends StatelessWidget {
   });
 
   final String label;
-  final BadgeKind kind;
   final IconData? icon;
   final double iconSize;
 
@@ -47,34 +28,33 @@ class EditorialBadge extends StatelessWidget {
   final bool compact;
 
   /// Larger type and padding for cinematic heroes, where the compact
-  /// 9px tags disappear against a backdrop next to an 80px title.
+  /// tags disappear against a backdrop next to an 80px title.
   final bool prominent;
 
-  /// Escape hatch for tinted-but-still-mono badges (quality colors,
-  /// torrent-state colors, rating colors). When non-null, this color
-  /// drives both the text and a translucent border, overriding [kind].
+  /// Tint for status-like badges (quality, torrent state, rating): drives
+  /// both the text and a translucent border. Null is the neutral hairline.
+  /// Use a colour that reads as text — `qualityTone`, `torrentStateTone`.
   final Color? tone;
+
+  /// A [prominent] badge's padding: roomier top and bottom than a regular
+  /// badge's 4, short of the 8 step. Public so the hero's status chip
+  /// (`NextEpisodeChip`) can stand the same height as the badges under it.
+  static const EdgeInsets prominentPadding = EdgeInsets.symmetric(
+    horizontal: AppSpacing.md,
+    vertical: 6,
+  );
 
   @override
   Widget build(BuildContext context) {
-    final (textColor, borderColor) = tone != null
-        ? (tone!, tone!.withValues(alpha: 0.5))
-        : switch (kind) {
-            BadgeKind.neutral => (AppColors.fg, AppColors.line),
-            BadgeKind.accent => (AppColors.accent, AppColors.accent),
-            BadgeKind.ok => (AppColors.ok, const Color(0x666ED274)),
-            BadgeKind.warn => (AppColors.warn, const Color(0x66F3B94C)),
-            BadgeKind.err => (AppColors.err, const Color(0x80FF5F5B)),
-          };
+    final textColor = tone ?? AppColors.fg;
+    final borderColor = tone?.withValues(alpha: 0.5) ?? AppColors.line;
 
-    final fontSize = prominent
-        ? 13.0
-        : compact
-        ? 9.0
-        : 10.0;
+    // The compact size used to be 9px, which UiScale could take below 7 on a
+    // high-DPI panel. The type scale's floor is 10.
+    final fontSize = prominent ? AppType.sizeBody : AppType.minSize;
     final resolvedIconSize = prominent ? 14.0 : iconSize;
     final padding = prominent
-        ? const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: 6)
+        ? prominentPadding
         : EdgeInsets.symmetric(
             horizontal: compact ? AppSpacing.xs : AppSpacing.sm,
             vertical: compact ? AppSpacing.xxs : AppSpacing.xs,
@@ -83,7 +63,9 @@ class EditorialBadge extends StatelessWidget {
     return Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: prominent ? 0.55 : 0.4),
+        color: prominent
+            ? AppColors.mediaBlack.withValues(alpha: 0.55)
+            : AppColors.mediaBlack.withAlpha(AppOpacity.semi),
         borderRadius: BorderRadius.circular(
           prominent ? AppRadius.xs : AppRadius.xxs,
         ),

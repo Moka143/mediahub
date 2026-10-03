@@ -27,10 +27,16 @@ Show _show({
   status: status,
 );
 
-Future<String> _chipText(WidgetTester tester, Show show) async {
+Future<String> _chipText(
+  WidgetTester tester,
+  Show show, {
+  DateTime? now,
+}) async {
   await tester.pumpWidget(
     MaterialApp(
-      home: Scaffold(body: NextEpisodeChip(show: show)),
+      home: Scaffold(
+        body: NextEpisodeChip(show: show, now: now),
+      ),
     ),
   );
   return tester
@@ -109,6 +115,39 @@ void main() {
           _show(next: _episode(now.add(const Duration(days: 1)))),
         ),
         contains('airs tomorrow'),
+      );
+    });
+
+    testWidgets('counts calendar days, whatever the time of day', (
+      tester,
+    ) async {
+      // Late on the day the clocks change: differences between local
+      // midnights came up a day short across it, so tomorrow read "airs
+      // today" and Saturday "in 5 days".
+      final lateEvening = DateTime(2026, 3, 8, 23, 30);
+      expect(
+        await _chipText(
+          tester,
+          _show(next: _episode(DateTime(2026, 3, 9))),
+          now: lateEvening,
+        ),
+        contains('airs tomorrow'),
+      );
+      expect(
+        await _chipText(
+          tester,
+          _show(next: _episode(DateTime(2026, 3, 14))),
+          now: lateEvening,
+        ),
+        contains('airs in 6 days'),
+      );
+      expect(
+        await _chipText(
+          tester,
+          _show(last: _episode(DateTime(2026, 3, 7), season: 3, number: 9)),
+          now: lateEvening,
+        ),
+        contains('aired yesterday'),
       );
     });
 

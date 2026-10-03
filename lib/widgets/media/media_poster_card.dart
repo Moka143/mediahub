@@ -4,7 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
 import '../../design/app_typography.dart';
+import '../../models/movie.dart';
+import '../../models/show.dart';
+import '../common/hub_pressable.dart';
+import '../common/mediahub_popup_menu.dart';
 import '../editorial/editorial.dart';
+import 'hue_backdrop.dart';
 import 'media_helpers.dart';
 
 /// Action available in a [MediaPosterCard] overflow menu.
@@ -35,31 +40,41 @@ enum CardTitleStyle {
   overlay,
 }
 
+/// Fewest TMDB votes a rating needs before a card shows it. A "★ 10.0" from
+/// three votes says nothing, and discover feeds sorted by rating are full of
+/// them.
+const int minRatingVotes = 20;
+
+/// The "★ 8.4" badge text for a TMDB rating, or null when there is no
+/// rating worth showing.
+///
+/// [voteCount] of 0 means "not reported" — a non-zero average needs at least
+/// one vote — so the rating is shown as before.
+String? ratingLabel(double average, {int voteCount = 0}) {
+  if (average <= 0) return null;
+  if (voteCount > 0 && voteCount < minRatingVotes) return null;
+  return '★ ${average.toStringAsFixed(1)}';
+}
+
 /// Unified poster card. Two layouts:
 ///
 /// * [CardTitleStyle.below] (default) — poster with optional badge,
-///   progress bar, watched checkmark, hover-revealed overflow menu;
-///   title and subtitle render in a caption block below the poster.
-///   Used in the Library tab.
+///   progress bar, watched checkmark, overflow menu; title and subtitle in a
+///   caption block below the poster. Used in the Library.
 ///
-/// * [CardTitleStyle.overlay] — full-bleed poster; title rendered in
-///   italic serif at the bottom of the poster with a shadow for
-///   legibility; optional [overlayYear] mono text top-left and
-///   [overlayRating] badge top-right. Used by Movies / Shows browse.
-class MediaPosterCard extends ConsumerStatefulWidget {
+/// * [CardTitleStyle.overlay] — full-bleed poster; title in italic serif at
+///   the bottom of the poster; optional [overlayYear] top-left and
+///   [overlayRating] top-right. Used for TMDB titles — see
+///   [MediaPosterCard.movie] and [MediaPosterCard.show].
+///
+/// Keyboard and right-click reach everything a hover does: the card takes
+/// focus, Enter opens it, and focus or a right click reveals the overflow
+/// menu, which used to appear only under the mouse.
+class MediaPosterCard extends StatefulWidget {
   final AsyncValue<String?>? posterAsync;
   final String title;
   final String? subtitle;
   final String? badge;
-
-  /// Visual treatment for [badge]. Defaults to neutral hairline.
-  /// Only honoured in [CardTitleStyle.below] mode.
-  final BadgeKind badgeKind;
-
-  /// When non-null, overrides [badgeKind] and tints the badge with
-  /// this arbitrary color (used for rating colors, quality colors).
-  /// Only honoured in [CardTitleStyle.below] mode.
-  final Color? badgeTone;
 
   final double? progress;
   final bool isWatched;
@@ -77,13 +92,14 @@ class MediaPosterCard extends ConsumerStatefulWidget {
   final String? overlayYear;
 
   /// Rating text shown top-right of the poster in [CardTitleStyle.overlay]
-  /// (typically `'★ 8.5'`). Renders as an [EditorialBadge] tinted with
-  /// [overlayRatingTone] when supplied, otherwise [BadgeKind.neutral].
+  /// (typically `'★ 8.5'`, see [ratingLabel]).
   final String? overlayRating;
 
-  /// Optional tint for [overlayRating]; pass [AppColors.accent]-like
-  /// for high ratings.
+  /// Optional tint for [overlayRating].
   final Color? overlayRatingTone;
+
+  /// Glyph on the placeholder shown while there is no poster.
+  final IconData placeholderIcon;
 
   const MediaPosterCard({
     super.key,
@@ -92,8 +108,6 @@ class MediaPosterCard extends ConsumerStatefulWidget {
     this.posterAsync,
     this.subtitle,
     this.badge,
-    this.badgeKind = BadgeKind.neutral,
-    this.badgeTone,
     this.progress,
     this.isWatched = false,
     this.actions = const [],
@@ -102,10 +116,68 @@ class MediaPosterCard extends ConsumerStatefulWidget {
     this.overlayYear,
     this.overlayRating,
     this.overlayRatingTone,
+    this.placeholderIcon = Icons.movie_rounded,
   });
 
-  /// Height this card needs at [width] in the default
-  /// [CardTitleStyle.below] layout.
+  /// A TMDB movie as a browse card.
+  ///
+  /// Browse, Favorites, Home and the details pages' "More like this" rows
+  /// each mapped a movie onto a card by hand — eight copies of the same
+  /// rating string among them.
+  factory MediaPosterCard.movie(
+    Movie movie, {
+    Key? key,
+    required VoidCallback onTap,
+    bool isWatched = false,
+    double? width,
+    String? subtitle,
+    List<MediaCardAction> actions = const [],
+  }) => MediaPosterCard(
+    key: key,
+    title: movie.title,
+    onTap: onTap,
+    posterAsync: AsyncValue.data(movie.posterUrl),
+    titleStyle: CardTitleStyle.overlay,
+    overlayYear: movie.year,
+    overlayRating: ratingLabel(movie.voteAverage, voteCount: movie.voteCount),
+    overlayRatingTone: movie.voteAverage >= 8 ? AppColors.accent : null,
+    isWatched: isWatched,
+    width: width,
+    subtitle: subtitle,
+    actions: actions,
+  );
+
+  /// A TMDB show as a browse card. See [MediaPosterCard.movie].
+  factory MediaPosterCard.show(
+    Show show, {
+    Key? key,
+    required VoidCallback onTap,
+    double? width,
+    String? subtitle,
+    List<MediaCardAction> actions = const [],
+  }) => MediaPosterCard(
+    key: key,
+    title: show.name,
+    onTap: onTap,
+    posterAsync: AsyncValue.data(show.posterUrl),
+    titleStyle: CardTitleStyle.overlay,
+    overlayYear: show.year,
+    overlayRating: ratingLabel(show.voteAverage, voteCount: show.voteCount),
+    overlayRatingTone: show.voteAverage >= 8 ? AppColors.accent : null,
+    width: width,
+    subtitle: subtitle,
+    placeholderIcon: Icons.live_tv_rounded,
+    actions: actions,
+  );
+
+  // The caption block's text, set explicitly so [heightForWidth] measures
+  // the same thing that is drawn — it used to assume a 1.35 line height the
+  // theme's 1.4 did not have.
+  static const double _titleSize = AppType.sizeCaption;
+  static const double _subtitleSize = AppType.sizeSmall;
+  static const double _lineHeight = 1.35;
+
+  /// Height this card needs at [width] in the [CardTitleStyle.below] layout.
   ///
   /// A horizontal `ListView` has to be given a bounded cross axis, so its
   /// host must state a height — and a hard-coded one silently drifts out of
@@ -126,139 +198,134 @@ class MediaPosterCard extends ConsumerStatefulWidget {
     final poster = width * 3 / 2;
     // _buildBelowLayout's padding: xs on top, sm on the bottom.
     const padding = AppSpacing.xs + AppSpacing.sm;
-    // bodySmall / labelSmall at their default ~1.35 line height.
-    final title = scaler.scale(12) * 1.35;
-    final subtitle = hasSubtitle ? 3 + scaler.scale(11) * 1.35 : 0.0;
+    final title = scaler.scale(_titleSize) * _lineHeight;
+    final subtitle = hasSubtitle
+        ? 3 + scaler.scale(_subtitleSize) * _lineHeight
+        : 0.0;
     // Round up, plus a hair, so sub-pixel rounding can't reintroduce the
     // overflow this method exists to prevent.
     return (poster + padding + title + subtitle).ceilToDouble() + 2;
   }
 
   @override
-  ConsumerState<MediaPosterCard> createState() => _MediaPosterCardState();
+  State<MediaPosterCard> createState() => _MediaPosterCardState();
 }
 
-class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
-  bool _isHovered = false;
+class _MediaPosterCardState extends State<MediaPosterCard> {
+  final _menuKey = GlobalKey<PopupMenuButtonState<MediaCardAction>>();
+  bool _hovered = false;
+  bool _focused = false;
+  bool _menuFocused = false;
   bool _menuOpen = false;
 
-  Color _progressColor(ThemeData theme) {
-    final p = widget.progress ?? 0;
-    if (p >= 0.9) return const Color(0xFF10B981);
-    if (p >= 0.6) return theme.colorScheme.primary;
-    return theme.colorScheme.primary.withValues(alpha: 0.8);
-  }
+  bool get _menuVisible => _hovered || _focused || _menuFocused || _menuOpen;
+
+  void _openMenu() => _menuKey.currentState?.showButtonMenu();
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scaleFactor = _isHovered ? 1.03 : 1.0;
     final hasProgress = widget.progress != null && widget.progress! > 0;
     final isOverlay = widget.titleStyle == CardTitleStyle.overlay;
+    final lifted = _hovered || _focused;
 
-    return MouseRegion(
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
+    return HubPressable(
+      onTap: widget.onTap,
+      onSecondaryTap: widget.actions.isEmpty ? null : _openMenu,
+      onHoverChanged: (h) => setState(() => _hovered = h),
+      onFocusChanged: (f) => setState(() => _focused = f),
+      borderRadius: BorderRadius.circular(AppRadius.lg),
       child: AnimatedScale(
-        scale: scaleFactor,
+        scale: lifted ? 1.03 : 1.0,
         duration: AppDuration.fast,
         curve: Curves.easeOutCubic,
         child: Container(
           width: widget.width,
-          decoration: mediaCardDecoration(context).copyWith(
-            boxShadow: _isHovered
+          decoration: mediaCardDecoration().copyWith(
+            boxShadow: lifted
                 ? [
                     BoxShadow(
-                      color: theme.colorScheme.primary.withValues(alpha: 0.2),
+                      color: AppColors.accent.withAlpha(AppOpacity.medium),
                       blurRadius: 16,
                       offset: const Offset(0, 6),
                     ),
                   ]
                 : null,
           ),
-          child: Material(
-            color: Colors.transparent,
-            borderRadius: BorderRadius.circular(AppRadius.lg),
-            clipBehavior: Clip.antiAlias,
-            child: Stack(
-              children: [
-                InkWell(
-                  onTap: widget.onTap,
-                  child: isOverlay
-                      ? _buildOverlayLayout(theme, hasProgress)
-                      : _buildBelowLayout(theme, hasProgress),
-                ),
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
+            children: [
+              isOverlay
+                  ? _buildOverlayLayout(hasProgress)
+                  : _buildBelowLayout(hasProgress),
+              if (widget.actions.isNotEmpty) _menu(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
-                // Overflow action menu — sibling of the InkWell so the
-                // popup button captures taps independently. Stays mounted
-                // regardless of hover; visibility is toggled via opacity +
-                // IgnorePointer. If we conditionally remove it on hover-out,
-                // opening the menu disposes the PopupMenuButton's State (the
-                // modal barrier triggers MouseRegion.onExit → setState → tree
-                // rebuilds without the button), and showMenu's `.then` then
-                // sees `!mounted` and silently drops `onSelected` — so the
-                // menu opens and closes but the action never fires.
-                if (widget.actions.isNotEmpty)
-                  Positioned(
-                    top: AppSpacing.xs,
-                    right: AppSpacing.xs,
-                    child: AnimatedOpacity(
-                      duration: AppDuration.fast,
-                      opacity: (_isHovered || _menuOpen) ? 1.0 : 0.0,
-                      child: IgnorePointer(
-                        ignoring: !(_isHovered || _menuOpen),
-                        child: Material(
-                          color: Colors.black54,
-                          borderRadius: BorderRadius.circular(AppRadius.full),
-                          child: PopupMenuButton<MediaCardAction>(
-                            tooltip: 'More',
-                            icon: const Padding(
-                              padding: EdgeInsets.all(2),
-                              child: Icon(
-                                Icons.more_vert_rounded,
-                                size: 18,
-                                color: Colors.white,
-                              ),
-                            ),
-                            padding: EdgeInsets.zero,
-                            onOpened: () => setState(() => _menuOpen = true),
-                            onCanceled: () => setState(() => _menuOpen = false),
-                            onSelected: (a) {
-                              setState(() => _menuOpen = false);
-                              a.onSelected();
-                            },
-                            itemBuilder: (_) => [
-                              for (final a in widget.actions)
-                                PopupMenuItem<MediaCardAction>(
-                                  value: a,
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        a.icon,
-                                        size: 18,
-                                        color: a.destructive
-                                            ? theme.colorScheme.error
-                                            : null,
-                                      ),
-                                      const SizedBox(width: AppSpacing.sm),
-                                      Text(
-                                        a.label,
-                                        style: TextStyle(
-                                          color: a.destructive
-                                              ? theme.colorScheme.error
-                                              : null,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
+  /// Overflow menu. Stays mounted regardless of hover; visibility is toggled
+  /// via opacity + IgnorePointer. Removing it on hover-out disposed the
+  /// PopupMenuButton's State the moment the menu's modal barrier triggered
+  /// onExit, and `showMenu`'s `.then` then saw `!mounted` and silently
+  /// dropped `onSelected` — the menu opened and closed but the action never
+  /// fired.
+  ///
+  /// Hidden, it is also out of the focus order: Tab must not land on an
+  /// invisible button. Focusing the card reveals it, so Tab reaches it next.
+  Widget _menu() {
+    final visible = _menuVisible;
+    return Positioned(
+      top: AppSpacing.xs,
+      right: AppSpacing.xs,
+      child: AnimatedOpacity(
+        duration: AppDuration.fast,
+        opacity: visible ? 1.0 : 0.0,
+        child: IgnorePointer(
+          ignoring: !visible,
+          child: ExcludeFocus(
+            excluding: !visible,
+            child: Focus(
+              canRequestFocus: false,
+              skipTraversal: true,
+              onFocusChange: (f) => setState(() => _menuFocused = f),
+              child: Material(
+                color: AppColors.scrimStrong,
+                borderRadius: BorderRadius.circular(AppRadius.full),
+                child: PopupMenuButton<MediaCardAction>(
+                  key: _menuKey,
+                  tooltip: 'More actions',
+                  color: kMediaHubPopupColor,
+                  shape: kMediaHubPopupShape,
+                  icon: const Padding(
+                    padding: EdgeInsets.all(AppSpacing.xxs),
+                    child: Icon(
+                      Icons.more_vert_rounded,
+                      size: 18,
+                      color: AppColors.fg,
                     ),
                   ),
-              ],
+                  padding: EdgeInsets.zero,
+                  onOpened: () => setState(() => _menuOpen = true),
+                  onCanceled: () => setState(() => _menuOpen = false),
+                  onSelected: (a) {
+                    setState(() => _menuOpen = false);
+                    a.onSelected();
+                  },
+                  itemBuilder: (_) => [
+                    for (final a in widget.actions)
+                      PopupMenuItem<MediaCardAction>(
+                        value: a,
+                        child: mediaHubMenuLabel(
+                          icon: a.icon,
+                          label: a.label,
+                          destructive: a.destructive,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
             ),
           ),
         ),
@@ -266,8 +333,14 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
     );
   }
 
+  Widget _poster() => buildPosterImage(
+    posterAsync: widget.posterAsync,
+    hue: hueForText(widget.title),
+    placeholderIcon: widget.placeholderIcon,
+  );
+
   /// Library layout — poster + caption block below.
-  Widget _buildBelowLayout(ThemeData theme, bool hasProgress) {
+  Widget _buildBelowLayout(bool hasProgress) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -276,22 +349,17 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              buildPosterImage(theme: theme, posterAsync: widget.posterAsync),
+              _poster(),
               _bottomGradient(),
-              _centeredPlayHover(theme),
+              _centeredPlayHover(),
               if (widget.badge != null)
                 Positioned(
                   top: AppSpacing.sm,
                   left: AppSpacing.sm,
-                  child: EditorialBadge(
-                    widget.badge!,
-                    kind: widget.badgeKind,
-                    tone: widget.badgeTone,
-                    compact: true,
-                  ),
+                  child: EditorialBadge(widget.badge!, compact: true),
                 ),
-              if (widget.isWatched && !_isHovered) _watchedCheckmark(),
-              if (hasProgress) _progressBar(theme),
+              if (widget.isWatched && !_menuVisible) _watchedCheckmark(),
+              if (hasProgress) _progressBar(),
             ],
           ),
         ),
@@ -309,8 +377,11 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
                 widget.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w600,
+                style: AppType.ui(
+                  size: MediaPosterCard._titleSize,
+                  color: AppColors.fg,
+                  weight: FontWeight.w600,
+                  height: MediaPosterCard._lineHeight,
                 ),
               ),
               if (widget.subtitle != null) ...[
@@ -319,10 +390,10 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
                   widget.subtitle!,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant.withValues(
-                      alpha: 0.7,
-                    ),
+                  style: AppType.ui(
+                    size: MediaPosterCard._subtitleSize,
+                    color: AppColors.fg2,
+                    height: MediaPosterCard._lineHeight,
                   ),
                 ),
               ],
@@ -334,16 +405,20 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
   }
 
   /// Browse layout — full-bleed poster with title overlaid at bottom.
-  Widget _buildOverlayLayout(ThemeData theme, bool hasProgress) {
-    const textShadow = [
-      Shadow(color: Color(0xB3000000), offset: Offset(0, 2), blurRadius: 14),
+  Widget _buildOverlayLayout(bool hasProgress) {
+    final textShadow = [
+      Shadow(
+        color: AppColors.mediaBlack.withValues(alpha: 0.7),
+        offset: const Offset(0, 2),
+        blurRadius: 14,
+      ),
     ];
     return AspectRatio(
       aspectRatio: 2 / 3,
       child: Stack(
         fit: StackFit.expand,
         children: [
-          buildPosterImage(theme: theme, posterAsync: widget.posterAsync),
+          _poster(),
           _bottomGradient(),
           if (widget.overlayYear != null || widget.overlayRating != null)
             _topGradient(),
@@ -360,24 +435,34 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
                       // Full white, not 85%: against the scrim the text is
                       // already soft enough, and the alpha was costing
                       // contrast exactly where it was scarcest.
-                      size: 10,
-                      color: Colors.white,
+                      size: AppType.sizeLabel,
+                      color: AppColors.onMedia,
                       letterSpacing: 0.12,
                       weight: FontWeight.w600,
                     ).copyWith(
-                      shadows: const [
+                      shadows: [
                         // A tight shadow for the edge of a light poster the
                         // scrim does not fully cover, plus a wider soft one
                         // for overall separation.
-                        Shadow(color: Color(0xCC000000), blurRadius: 3),
-                        Shadow(color: Color(0x99000000), blurRadius: 8),
+                        Shadow(
+                          color: AppColors.mediaBlack.withAlpha(
+                            AppOpacity.heavy,
+                          ),
+                          blurRadius: 3,
+                        ),
+                        Shadow(
+                          color: AppColors.mediaBlack.withValues(alpha: 0.6),
+                          blurRadius: 8,
+                        ),
                       ],
                     ),
               ),
             ),
 
-          // Rating badge (top-right).
-          if (widget.overlayRating != null)
+          // Rating badge (top-right). Hidden while the overflow menu, which
+          // sits in the same corner, is showing.
+          if (widget.overlayRating != null &&
+              !(widget.actions.isNotEmpty && _menuVisible))
             Positioned(
               top: 10,
               right: 10,
@@ -387,11 +472,10 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
               ),
             ),
 
-          // Browse / overlay layout: a diagonal corner ribbon reads
-          // "watched" at a glance, even when the poster has a busy
-          // background that hides the small checkmark. Hidden on hover
-          // so the play prompt + rating badge stay legible.
-          if (widget.isWatched && !_isHovered) _watchedRibbon(theme),
+          // A diagonal corner ribbon reads "watched" at a glance, even on a
+          // busy poster that would hide a small checkmark. Hidden on hover
+          // so the rating badge stays legible.
+          if (widget.isWatched && !_menuVisible) _watchedRibbon(),
 
           // Title overlay bottom.
           Positioned(
@@ -407,7 +491,7 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: AppType.serif(
-                    size: 18,
+                    size: AppType.sizeHeading,
                     color: AppColors.fg,
                     height: 1.05,
                     letterSpacing: -0.01,
@@ -421,13 +505,18 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
                     overflow: TextOverflow.ellipsis,
                     style:
                         AppType.mono(
-                          size: 10,
-                          color: Colors.white.withValues(alpha: 0.7),
+                          size: AppType.sizeLabel,
+                          color: AppColors.fg1,
                           letterSpacing: 0.1,
                           weight: FontWeight.w500,
                         ).copyWith(
-                          shadows: const [
-                            Shadow(color: Color(0x99000000), blurRadius: 6),
+                          shadows: [
+                            Shadow(
+                              color: AppColors.mediaBlack.withValues(
+                                alpha: 0.6,
+                              ),
+                              blurRadius: 6,
+                            ),
                           ],
                         ),
                   ),
@@ -436,9 +525,9 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
             ),
           ),
 
-          if (hasProgress) _progressBar(theme),
+          if (hasProgress) _progressBar(),
 
-          if (_isHovered)
+          if (_hovered || _focused)
             Positioned.fill(
               child: IgnorePointer(
                 child: DecoratedBox(
@@ -454,17 +543,13 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
     );
   }
 
-  // ── Shared sub-pieces ────────────────────────────────────────────
-
   /// Scrim behind the year and rating, mirroring [_bottomGradient].
   ///
   /// The year is small white mono text and used to rely on a drop shadow
-  /// alone, which disappears against a bright poster — a daylight sky or a
-  /// sunlit jungle left it barely readable. A shadow adds contrast only where
-  /// the background is already dark, so it cannot fix light art; a scrim can.
-  ///
-  /// Shallower and lighter than the bottom one, which has a two-line serif
-  /// title to carry. This only has to lift two corner labels off the image.
+  /// alone, which disappears against a bright poster. A shadow adds contrast
+  /// only where the background is already dark, so it cannot fix light art;
+  /// a scrim can. Shallower than the bottom one, which has a two-line serif
+  /// title to carry.
   Widget _topGradient() {
     return Positioned.fill(
       child: IgnorePointer(
@@ -474,7 +559,7 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                Colors.black.withValues(alpha: 0.55),
+                AppColors.mediaBlack.withValues(alpha: 0.55),
                 Colors.transparent,
               ],
               stops: const [0.0, 0.28],
@@ -492,7 +577,10 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Colors.transparent, Colors.black.withValues(alpha: 0.7)],
+            colors: [
+              Colors.transparent,
+              AppColors.mediaBlack.withValues(alpha: 0.7),
+            ],
             stops: const [0.5, 1.0],
           ),
         ),
@@ -500,30 +588,31 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
     );
   }
 
-  Widget _centeredPlayHover(ThemeData theme) {
+  Widget _centeredPlayHover() {
+    final active = _hovered || _focused;
     return Center(
       child: AnimatedOpacity(
         duration: AppDuration.fast,
-        opacity: _isHovered ? 1.0 : 0.85,
+        opacity: active ? 1.0 : 0.85,
         child: AnimatedScale(
           duration: AppDuration.fast,
-          scale: _isHovered ? 1.1 : 1.0,
+          scale: active ? 1.1 : 1.0,
           child: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primary,
+            padding: const EdgeInsets.all(AppSpacing.md),
+            decoration: const BoxDecoration(
+              color: AppColors.accent,
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.3),
+                  color: AppColors.scrimSoft,
                   blurRadius: 8,
-                  offset: const Offset(0, 2),
+                  offset: Offset(0, 2),
                 ),
               ],
             ),
-            child: Icon(
+            child: const Icon(
               Icons.play_arrow_rounded,
-              color: theme.colorScheme.onPrimary,
+              color: AppColors.onAccent,
               size: 28,
             ),
           ),
@@ -537,25 +626,26 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
       top: AppSpacing.xs,
       right: AppSpacing.xs,
       child: Container(
-        padding: const EdgeInsets.all(3),
+        padding: const EdgeInsets.all(AppSpacing.xs),
         decoration: const BoxDecoration(
-          color: Color(0xFF10B981),
+          color: AppColors.ok,
           shape: BoxShape.circle,
         ),
-        child: const Icon(Icons.check_rounded, size: 14, color: Colors.white),
+        child: const Icon(
+          Icons.check_rounded,
+          size: 14,
+          color: AppColors.onAccent,
+        ),
       ),
     );
   }
 
-  /// Diagonal "WATCHED" ribbon stretched across the top-right corner.
-  /// Used on the [CardTitleStyle.overlay] layout (browse posters) where
-  /// a tiny checkmark gets lost against busy poster art.
+  /// Diagonal "WATCHED" ribbon stretched across the top-right corner, for
+  /// the overlay layout where a small checkmark gets lost in busy art.
   ///
-  /// Implementation: a custom `ClipPath` cuts the card's stack to the
-  /// rounded-rect bounds (the parent `Material.clipBehavior` would
-  /// otherwise leak the ribbon's rotated overhang) and we then draw a
-  /// solid green band rotated 45° in the top-right corner.
-  Widget _watchedRibbon(ThemeData theme) {
+  /// The ClipRRect cuts the stack to the card's rounded corners — the card's
+  /// own clip would otherwise leak the rotated band's overhang.
+  Widget _watchedRibbon() {
     return Positioned.fill(
       child: IgnorePointer(
         child: ClipRRect(
@@ -570,23 +660,27 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
                   alignment: Alignment.center,
                   child: Container(
                     width: 130,
-                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: AppSpacing.xs,
+                    ),
                     alignment: Alignment.center,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF10B981),
+                    decoration: BoxDecoration(
+                      color: AppColors.ok,
                       boxShadow: [
                         BoxShadow(
-                          color: Color(0x66000000),
+                          color: AppColors.mediaBlack.withAlpha(
+                            AppOpacity.semi,
+                          ),
                           blurRadius: 6,
-                          offset: Offset(0, 1),
+                          offset: const Offset(0, 1),
                         ),
                       ],
                     ),
                     child: Text(
                       'WATCHED',
                       style: AppType.mono(
-                        size: 9,
-                        color: Colors.white,
+                        size: AppType.sizeLabel,
+                        color: AppColors.onAccent,
                         weight: FontWeight.w800,
                         letterSpacing: 0.16,
                       ),
@@ -601,26 +695,12 @@ class _MediaPosterCardState extends ConsumerState<MediaPosterCard> {
     );
   }
 
-  Widget _progressBar(ThemeData theme) {
+  Widget _progressBar() {
     return Positioned(
       left: 0,
       right: 0,
       bottom: 0,
-      child: ClipRRect(
-        borderRadius: const BorderRadius.vertical(
-          bottom: Radius.circular(AppRadius.xxs),
-        ),
-        child: AnimatedContainer(
-          duration: AppDuration.fast,
-          height: _isHovered ? 5 : 4,
-          child: LinearProgressIndicator(
-            value: widget.progress,
-            minHeight: _isHovered ? 5 : 4,
-            backgroundColor: Colors.white24,
-            valueColor: AlwaysStoppedAnimation<Color>(_progressColor(theme)),
-          ),
-        ),
-      ),
+      child: EditorialProgress(value: widget.progress!),
     );
   }
 }

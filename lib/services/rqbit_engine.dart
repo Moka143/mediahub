@@ -29,13 +29,14 @@ import 'torrent_engine.dart';
 /// emits lower-case and indexers do not always.
 ///
 /// **What it cannot do**, declared in [capabilities] rather than discovered
-/// through empty lists: no tracker table, no delta-sync endpoint, no global
-/// preferences, no live speed limits (they are launch flags — see
-/// `RqbitProcessService`), and no piece priorities for the caller to drive,
-/// because ordering pieces is the engine's own job.
+/// through empty lists: no tracker table, no delta-sync endpoint, no live
+/// speed limits (they are launch flags — see `RqbitProcessService`), and no
+/// download ordering for the caller to drive, because ordering pieces is the
+/// engine's own job.
+///
+/// Always on loopback: the app only ever talks to the sidecar it launched.
 class RqbitEngine extends TorrentEngine {
   late final Dio _dio;
-  final String _host;
   final int _port;
 
   /// The folder the sidecar was launched with, i.e. its session default.
@@ -45,24 +46,18 @@ class RqbitEngine extends TorrentEngine {
   /// and produce different directory layouts.
   final String _defaultSavePath;
 
-  /// Callback for logging.
-  final void Function(String message)? onLog;
-
   /// Piece length per hash. Never changes for a given torrent, and the only
   /// source for it is the details call, so it is worth not repeating.
   final Map<String, int> _pieceSizeCache = {};
 
   RqbitEngine({
-    String host = AppConstants.rqbitHost,
     int port = AppConstants.defaultRqbitPort,
     String defaultSavePath = '',
-    this.onLog,
-  }) : _host = host,
-       _port = port,
+  }) : _port = port,
        _defaultSavePath = defaultSavePath {
     _dio = Dio(
       BaseOptions(
-        baseUrl: 'http://$host:$port',
+        baseUrl: 'http://${AppConstants.rqbitHost}:$port',
         connectTimeout: const Duration(seconds: 10),
         receiveTimeout: const Duration(seconds: 30),
         // rqbit answers 404 for an unknown torrent and 412 for one that is
@@ -82,49 +77,37 @@ class RqbitEngine extends TorrentEngine {
     // No sync/maindata equivalent; `?with_stats=true` makes a full list cheap
     // enough that there is nothing to delta against.
     deltaSync: false,
-    globalPreferences: false,
     // `--ratelimit-download` / `--ratelimit-upload` are process launch flags.
     liveSpeedLimits: false,
     // The engine orders pieces itself. That is the entire point of it.
     pieceLevelControl: false,
     maintenanceActions: false,
+    // `update_only_files` takes the set of files to download — nothing finer.
+    rankedFilePriorities: false,
+    // `peer_stats` counts live peers without telling seeds from leechers, and
+    // gives a peer byte counters but no client, progress or rates.
+    seedsAndPeersSplit: false,
+    peerDetails: false,
   );
 
   @override
-  String get baseUrl => 'http://$_host:$_port';
-
-  /// rqbit on loopback has no auth step, so a session is whatever the last
-  /// probe said. Reported rather than assumed so the connection panel can
-  /// still show a disconnected state.
-  bool _reachable = false;
-
-  @override
-  bool get isAuthenticated => _reachable;
+  String get baseUrl => 'http://${AppConstants.rqbitHost}:$_port';
 
   // ---------------------------------------------------------------------
   // Session
   // ---------------------------------------------------------------------
 
+  /// rqbit on loopback has no auth step: a session is simply the engine
+  /// answering. False therefore means "not running", never "wrong password".
   @override
-  Future<bool> login() async {
-    _reachable = await testConnection();
-    return _reachable;
-  }
-
-  @override
-  Future<void> logout() async {
-    _reachable = false;
-  }
+  Future<bool> login() => testConnection();
 
   @override
   Future<bool> testConnection() async {
     try {
       final response = await _dio.get('/');
-      final ok = response.statusCode == 200;
-      _reachable = ok;
-      return ok;
+      return response.statusCode == 200;
     } catch (_) {
-      _reachable = false;
       return false;
     }
   }
@@ -135,10 +118,6 @@ class RqbitEngine extends TorrentEngine {
     // the connection panel gets the engine's name instead of a blank.
     return testConnection().then((ok) => ok ? 'rqbit' : null);
   }
-
-  /// rqbit does not version its HTTP API separately from the binary.
-  @override
-  Future<String?> getApiVersion() async => null;
 
   // ---------------------------------------------------------------------
   // Listing
@@ -270,16 +249,7 @@ class RqbitEngine extends TorrentEngine {
   }
 
   @override
-  Future<List<Torrent>> getTorrents({
-    String? filter,
-    String? category,
-    String? tag,
-    String? sort,
-    bool? reverse,
-    int? limit,
-    int? offset,
-    List<String>? hashes,
-  }) async {
+  Future<List<Torrent>?> tryGetTorrents({List<String>? hashes}) async {
     try {
       // rqbit pushes none of the filtering down, but `with_stats` folds what
       // would otherwise be one stats call per torrent into this one request.
@@ -287,10 +257,10 @@ class RqbitEngine extends TorrentEngine {
         '/torrents',
         queryParameters: const {'with_stats': 'true'},
       );
-      if (response.statusCode != 200) return const [];
+      if (response.statusCode != 200) return null;
 
       final raw = (response.data as Map?)?['torrents'];
-      if (raw is! List) return const [];
+      if (raw is! List) return null;
 
       var torrents = raw
           .whereType<Map>()
@@ -304,24 +274,16 @@ class RqbitEngine extends TorrentEngine {
       return torrents;
     } catch (e) {
       _log('List torrents error: $e');
-      return const [];
+      return null;
     }
   }
 
-  @override
-  Future<Map<String, dynamic>?> getTorrentProperties(String hash) async {
-    final details = await _details(hash);
-    if (details == null) return null;
-    return {
-      'save_path': details['output_folder'],
-      'pieces_num': details['total_pieces'],
-      'piece_size': await getPieceSize(hash),
-    };
-  }
-
+  /// `GET /torrents/{hash}`: the details document, an empty map when rqbit
+  /// does not know the torrent, or null when it could not be asked.
   Future<Map<String, dynamic>?> _details(String hash) async {
     try {
       final response = await _dio.get('/torrents/${hash.toLowerCase()}');
+      if (response.statusCode == 404) return const {};
       if (response.statusCode != 200) return null;
       return (response.data as Map?)?.cast<String, dynamic>();
     } catch (e) {
@@ -331,13 +293,15 @@ class RqbitEngine extends TorrentEngine {
   }
 
   @override
-  Future<List<TorrentFile>> getTorrentFiles(String hash) async {
+  Future<List<TorrentFile>?> tryGetTorrentFiles(String hash) async {
     final details = await _details(hash);
-    final rawFiles = details?['files'];
-    if (rawFiles is! List) return const [];
+    if (details == null) return null;
+    final rawFiles = details['files'];
+    if (rawFiles is! List) return <TorrentFile>[];
 
     // Per-file byte progress rides on the stats object, not on the file list.
     final progress = await _fileProgress(hash);
+    if (progress == null) return null;
 
     return rawFiles.indexed.map((entry) {
       final (index, raw) = entry;
@@ -369,7 +333,10 @@ class RqbitEngine extends TorrentEngine {
     }).toList();
   }
 
-  Future<List<int>> _fileProgress(String hash) async {
+  /// Bytes downloaded per file. Empty when rqbit has no stats for the
+  /// torrent yet (it answers 4xx while initialising); null when it could not
+  /// be asked — reporting zero progress then would read as a restart.
+  Future<List<int>?> _fileProgress(String hash) async {
     try {
       final response = await _dio.get(
         '/torrents/${hash.toLowerCase()}/stats/v1',
@@ -380,7 +347,7 @@ class RqbitEngine extends TorrentEngine {
       return raw.map((e) => (e as num).toInt()).toList();
     } catch (e) {
       _log('File progress error: $e');
-      return const [];
+      return null;
     }
   }
 
@@ -403,14 +370,11 @@ class RqbitEngine extends TorrentEngine {
     String? magnetLink,
     File? torrentFile,
     String? savePath,
-    String? category,
     bool? paused,
-    bool? skipChecking,
     bool? sequentialDownload,
-    bool? firstLastPiecePrio,
   }) async {
-    // `sequentialDownload` and `firstLastPiecePrio` are deliberately ignored:
-    // this engine orders pieces for streaming itself, which is what
+    // `sequentialDownload` is deliberately ignored: this engine orders pieces
+    // for streaming itself, which is what
     // EngineCapabilities.pieceLevelControl = false announces.
     try {
       final Object body;
@@ -714,49 +678,7 @@ class RqbitEngine extends TorrentEngine {
     }
   }
 
-  // ---------------------------------------------------------------------
-  // Global
-  // ---------------------------------------------------------------------
-
-  /// Re-key `GET /stats` to the names the status widgets read.
-  ///
-  /// Note the asymmetry in rqbit's own payload, which is easy to get wrong and
-  /// fails silently when you do: the *speeds* sit at the top level, but the
-  /// byte totals live one level down under `counters`. Reading
-  /// `fetched_bytes` from the root — as this did — yields a session that has
-  /// transferred nothing, forever, with no error anywhere.
-  static Map<String, dynamic> transferInfoFromStats(Map<String, dynamic> data) {
-    final counters = (data['counters'] as Map?)?.cast<String, dynamic>();
-    return {
-      'dl_info_speed': mibPerSecondToBytes(
-        (data['download_speed'] as Map?)?['mbps'] as num?,
-      ),
-      'up_info_speed': mibPerSecondToBytes(
-        (data['upload_speed'] as Map?)?['mbps'] as num?,
-      ),
-      'dl_info_data': (counters?['fetched_bytes'] as num?)?.toInt() ?? 0,
-      'up_info_data': (counters?['uploaded_bytes'] as num?)?.toInt() ?? 0,
-    };
-  }
-
-  @override
-  Future<Map<String, dynamic>?> getTransferInfo() async {
-    try {
-      final response = await _dio.get('/stats');
-      if (response.statusCode != 200) return null;
-      final data = (response.data as Map?)?.cast<String, dynamic>();
-      if (data == null) return null;
-      return transferInfoFromStats(data);
-    } catch (e) {
-      _log('Get transfer info error: $e');
-      return null;
-    }
-  }
-
-  void _log(String message) {
-    AppLog.d('[RqbitEngine] $message');
-    onLog?.call(message);
-  }
+  void _log(String message) => AppLog.d('[RqbitEngine] $message');
 
   @override
   void dispose() {
