@@ -111,6 +111,13 @@ class _FakeProbe implements EngineProcessProbe {
 
 const _exe = '/Applications/MediaHub.app/Contents/MacOS/rqbit';
 
+/// What the real probe reports for our engine on the machine running the
+/// tests. `stopOwned` checks the host platform's way: the full command line,
+/// or on Windows the image name alone, which is all `tasklist` gives.
+final _engineAsProbeSeesIt = Platform.isWindows
+    ? p.windows.basename(_exe)
+    : _exe;
+
 EngineLaunchRecord _record({
   int pid = 4242,
   String executable = _exe,
@@ -239,7 +246,7 @@ void _reclaimTests() {
   group('stopOwned', () {
     test('stops the recorded sidecar and removes the record', () async {
       await pidFile.write(_record());
-      probe.running[4242] = _exe;
+      probe.running[4242] = _engineAsProbeSeesIt;
 
       await RqbitProcessService.stopOwned();
 

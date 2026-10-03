@@ -314,9 +314,11 @@ void main() {
     }
 
     test('joins the save path, not the content path, with the file name', () {
+      // Normalised, as the app hands it to the file system: on Windows that
+      // turns the leading slash into a backslash.
       expect(
         torrentFilePath('/save', 'Show/Season 2/E01.mkv'),
-        p.join('/save', 'Show', 'Season 2', 'E01.mkv'),
+        p.normalize(p.join('/save', 'Show', 'Season 2', 'E01.mkv')),
       );
       expect(
         torrentFilePath('/save', r'Show\Season 2\E01.mkv'),
