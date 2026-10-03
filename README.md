@@ -109,15 +109,13 @@ but Linux is not tested or released.
 
 ### From release (Windows)
 
-Download the latest `mediahub-vX.Y.Z-windows-portable.zip` or the MSIX installer from [Releases](https://github.com/Moka143/mediahub/releases). Both are produced by CI on every tagged release.
+Download the latest `mediahub-X.Y.Z-windows-setup.exe` from [Releases](https://github.com/Moka143/mediahub/releases) and run it. CI builds it on every tagged release. It installs for your user only, so it needs no admin rights, and it adds a Start Menu entry and an uninstaller. A new version installs over the old one and keeps your settings.
 
-**Pick one and stay with it.** The two builds keep separate settings, and switching means setting the app up again.
+The installer is not code-signed, so the first run of a downloaded copy shows "Windows protected your PC". Click **More info → Run anyway**.
 
-Windows gives an MSIX-installed app its own private copy of `%APPDATA%`, so the installer and the portable build cannot see each other's settings, credentials or window layout — and neither can migrate from the other. Moving from the portable zip to the installer looks like a fresh install: you re-enter the qBittorrent connection details, your TMDB token, and your save paths once.
+Coming from the old portable zip? The installed app reads the same settings folder, so nothing needs setting up again. Delete the unzipped folder once the installed copy works.
 
-Upgrading *within* either channel is unaffected — installer over installer, or a new zip over the old one, both keep everything.
-
-This is how MSIX is designed to work: the isolation is what lets uninstall leave nothing behind. It can only be turned off with a restricted capability that would make the package ineligible for the Microsoft Store, so the split stays.
+Each release also carries an MSIX package. It is unsigned, so Windows will not install it by double-clicking; use the `.exe`. An MSIX-installed app also keeps its own private copy of `%APPDATA%`, so it would not see settings from the other builds.
 
 ### From source
 

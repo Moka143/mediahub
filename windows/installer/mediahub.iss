@@ -1,8 +1,8 @@
 ; Inno Setup script for the MediaHub Windows installer.
 ;
 ; Built by .github/workflows/windows-build.yml after `flutter build windows
-; --release`, and attached to every tagged GitHub Release alongside the
-; portable zip. Compile locally with:
+; --release`, and attached to every tagged GitHub Release: it is the Windows
+; download. Compile locally with:
 ;
 ;   iscc /DMyAppVersion=0.5.0 windows\installer\mediahub.iss
 ;

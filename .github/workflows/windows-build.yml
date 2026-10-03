@@ -61,10 +61,9 @@ jobs:
 
       - name: Fetch the bundled torrent engine
         # Must run between the Flutter build and every packaging step below.
-        # All three channels — the portable zip, the MSIX and the Inno Setup
-        # installer — copy the whole Release directory, so dropping the engine
-        # in there once covers all of them and there is nothing per-channel to
-        # keep in sync.
+        # Both packages — the Inno Setup installer and the MSIX — copy the
+        # whole Release directory, so dropping the engine in there once covers
+        # both and there is nothing per-package to keep in sync.
         #
         # The engine is pinned by version and SHA-256 in the script; a
         # mismatch fails the build rather than shipping an unverified binary.
@@ -86,15 +85,16 @@ jobs:
 
       - name: Build Inno Setup installer
         shell: pwsh
-        # The .exe installer is what most people actually want: double-click,
-        # Start Menu entry, uninstaller. The MSIX next to it is unsigned and
-        # so cannot be installed by double-clicking at all — Windows refuses
-        # an unsigned package without a trusted certificate — which leaves
-        # the portable zip and this as the only usable downloads.
+        # The .exe installer is the download: double-click, Start Menu entry,
+        # uninstaller, per-user so no admin prompt. The MSIX next to it is
+        # unsigned and so cannot be installed by double-clicking at all —
+        # Windows refuses an unsigned package without a trusted certificate.
+        # Releases used to carry a portable zip as well; the installer
+        # replaced it.
         #
-        # Neither is code-signed, so SmartScreen shows "Windows protected
-        # your PC" on first run of a downloaded copy. Removing that needs a
-        # purchased certificate; the signing step would go right here.
+        # The installer is not code-signed, so SmartScreen shows "Windows
+        # protected your PC" on first run of a downloaded copy. Removing that
+        # needs a purchased certificate; the signing step would go right here.
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) {
@@ -113,13 +113,6 @@ jobs:
           & $iscc "/DMyAppVersion=$version" windows\installer\mediahub.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed with $LASTEXITCODE" }
           Get-ChildItem build\windows\installer
-
-      - name: Upload unpacked Release build
-        uses: actions/upload-artifact@v7
-        with:
-          name: mediahub-windows-unpacked
-          path: build/windows/x64/runner/Release/
-          if-no-files-found: error
 
       - name: Upload MSIX installer
         uses: actions/upload-artifact@v7
@@ -153,17 +146,6 @@ jobs:
         with:
           name: mediahub-setup
           path: release-assets
-
-      - name: Download unpacked Release
-        uses: actions/download-artifact@v8
-        with:
-          name: mediahub-windows-unpacked
-          path: unpacked
-
-      - name: Zip portable build
-        run: |
-          cd unpacked
-          zip -rq "../release-assets/mediahub-${GITHUB_REF_NAME}-windows-portable.zip" .
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
