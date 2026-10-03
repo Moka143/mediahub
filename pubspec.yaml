@@ -2,7 +2,7 @@ name: mediahub
 description: "MediaHub — a cross-platform Flutter desktop media client."
 publish_to: 'none'
 
-version: 0.7.0+1
+version: 0.8.0+1
 
 environment:
   sdk: ^3.10.4
@@ -91,7 +91,7 @@ msix_config:
   publisher_display_name: MediaHub
   identity_name: com.mediahub.desktop
   publisher: CN=MediaHub
-  msix_version: 0.7.0.0
+  msix_version: 0.8.0.0
   logo_path: assets\icon.png
   # Deliberately no `unvirtualizedResources` here. MSIX redirects %APPDATA%
   # into the package container, so the installer build keeps a different

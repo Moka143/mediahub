@@ -49,7 +49,7 @@ class SidebarItem {
 ///
 /// Layout (matches the prototype's `.sb` chrome):
 ///   ┌─────────────────────────┐
-///   │  MediaHub  v0.7.0       │  italic serif + mono version
+///   │  MediaHub  v0.8.0       │  italic serif + mono version
 ///   ├─────────────────────────┤
 ///   │  ▸ Home                 │  active item: accent left strip
 ///   │    Transfers     12     │  count in tinted mono pill
