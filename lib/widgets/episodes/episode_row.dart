@@ -1,11 +1,21 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
 import '../../design/app_typography.dart';
 import '../../models/episode.dart';
-import 'episode_picker.dart';
+import '../common/hub_pressable.dart';
+import '../editorial/editorial.dart';
+import '../media/hue_backdrop.dart';
+import 'episode_status.dart';
 
+/// One episode in the episodes drawer. The whole row is the button: click,
+/// Enter or Space opens the episode.
+///
+/// Rows have one fixed height ([extentFor]) so the list can scroll straight
+/// to any episode — including ones not built yet — by arithmetic.
 class EpisodeRow extends StatefulWidget {
   const EpisodeRow({
     super.key,
@@ -20,8 +30,37 @@ class EpisodeRow extends StatefulWidget {
   final VoidCallback onTap;
 
   /// 0.0–1.0 if the user has watched part/all of the episode. Renders a
-  /// thin tertiary-colored progress bar at the bottom of the still.
+  /// thin progress bar along the bottom of the still.
   final double? watchedRatio;
+
+  static const double _stillHeight = 60;
+  static const double _padding = AppSpacing.md;
+  static const double _gap = AppSpacing.xs;
+
+  // Line heights set on the text below, so [extentFor] measures what is
+  // drawn rather than guessing at the fonts' natural metrics.
+  static const double _nameSize = AppType.sizeBody;
+  static const double _nameHeight = 1.25;
+  static const double _overviewSize = AppType.sizeSmall;
+  static const double _overviewHeight = 1.4;
+  static const double _metaSize = AppType.sizeLabel;
+  static const double _metaHeight = 1.3;
+
+  /// The height of every row, under [scaler].
+  ///
+  /// Tall enough for a one-line name, a two-line overview and the meta line
+  /// at the current text size; shorter rows centre in it.
+  static double extentFor(TextScaler scaler) {
+    final text =
+        scaler.scale(_nameSize) * _nameHeight +
+        2 +
+        scaler.scale(_overviewSize) * _overviewHeight * 2 +
+        4 +
+        scaler.scale(_metaSize) * _metaHeight +
+        2;
+    final content = text > _stillHeight ? text : _stillHeight;
+    return (content + _padding * 2 + _gap).ceilToDouble();
+  }
 
   @override
   State<EpisodeRow> createState() => _EpisodeRowState();
@@ -29,45 +68,51 @@ class EpisodeRow extends StatefulWidget {
 
 class _EpisodeRowState extends State<EpisodeRow> {
   bool _hover = false;
+  bool _focus = false;
+
+  String? _airDateLabel(String? raw) {
+    final date = parseAirDate(raw);
+    return date == null ? null : DateFormat('MMM d, y').format(date);
+  }
 
   @override
   Widget build(BuildContext context) {
     final ep = widget.episode;
-    final hue = (ep.name.codeUnits.fold<int>(0, (a, b) => a + b)) % 360;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
+    final active = _hover || _focus;
+    final airDate = _airDateLabel(ep.airDate);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: EpisodeRow._gap),
+      child: HubPressable(
         onTap: widget.onTap,
-        behavior: HitTestBehavior.opaque,
+        onHoverChanged: (h) => setState(() => _hover = h),
+        onFocusChanged: (f) => setState(() => _focus = f),
+        borderRadius: BorderRadius.circular(AppRadius.md),
         child: AnimatedScale(
-          // Subtle hover lift so the row feels tactile.
-          scale: _hover ? 1.012 : 1.0,
+          // Subtle lift so the row feels tactile.
+          scale: active ? 1.012 : 1.0,
           duration: AppDuration.fast,
           curve: Curves.easeOutCubic,
           child: AnimatedContainer(
             duration: AppDuration.fast,
-            margin: const EdgeInsets.only(bottom: 4),
-            padding: const EdgeInsets.all(AppSpacing.md),
+            padding: const EdgeInsets.all(EpisodeRow._padding),
             decoration: BoxDecoration(
-              color: _hover ? AppColors.bgSurfaceHi : AppColors.bgSurface,
+              color: active ? AppColors.bgSurfaceHi : AppColors.bgSurface,
               border: Border.all(
-                color: _hover ? const Color(0x33FFFFFF) : AppColors.line,
+                color: active ? AppColors.lineStrong : AppColors.line,
               ),
               borderRadius: BorderRadius.circular(AppRadius.md),
-              boxShadow: _hover
-                  ? const [
+              boxShadow: active
+                  ? [
                       BoxShadow(
-                        color: Color(0x40000000),
+                        color: AppColors.shadow.withValues(alpha: 0.25),
                         blurRadius: 14,
-                        offset: Offset(0, 4),
+                        offset: const Offset(0, 4),
                       ),
                     ]
                   : const [],
             ),
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 SizedBox(
                   width: 36,
@@ -77,10 +122,9 @@ class _EpisodeRowState extends State<EpisodeRow> {
                       Text(
                         ep.episodeNumber.toString().padLeft(2, '0'),
                         textAlign: TextAlign.center,
-                        // Watched episodes dim slightly so the user
-                        // can scan unwatched ones at a glance.
+                        // Watched episodes dim so unwatched ones stand out.
                         style: AppType.mono(
-                          size: 18,
+                          size: AppType.sizeHeading,
                           color: widget.status == EpisodeStatus.watched
                               ? AppColors.fg2
                               : AppColors.fg,
@@ -90,12 +134,14 @@ class _EpisodeRowState extends State<EpisodeRow> {
                       ),
                       if (widget.status.icon != null)
                         Padding(
-                          padding: const EdgeInsets.only(top: 4),
+                          padding: const EdgeInsets.only(top: AppSpacing.xs),
                           child: Container(
                             width: 16,
                             height: 16,
                             decoration: BoxDecoration(
-                              color: widget.status.color.withAlpha(36),
+                              color: widget.status.color.withAlpha(
+                                AppOpacity.light,
+                              ),
                               shape: BoxShape.circle,
                             ),
                             child: Icon(
@@ -113,10 +159,10 @@ class _EpisodeRowState extends State<EpisodeRow> {
                   borderRadius: BorderRadius.circular(AppRadius.sm),
                   child: SizedBox(
                     width: 100,
-                    height: 60,
+                    height: EpisodeRow._stillHeight,
                     child: EpisodeStill(
                       stillUrl: ep.stillUrl,
-                      hue: hue,
+                      hue: hueForText(ep.name),
                       watchedRatio: widget.watchedRatio,
                     ),
                   ),
@@ -124,16 +170,18 @@ class _EpisodeRowState extends State<EpisodeRow> {
                 const SizedBox(width: AppSpacing.md),
                 Expanded(
                   child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         ep.name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
+                        style: AppType.ui(
+                          size: EpisodeRow._nameSize,
                           color: AppColors.fg,
+                          weight: FontWeight.w600,
+                          height: EpisodeRow._nameHeight,
                         ),
                       ),
                       if (ep.overview != null && ep.overview!.isNotEmpty) ...[
@@ -142,62 +190,35 @@ class _EpisodeRowState extends State<EpisodeRow> {
                           ep.overview!,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 11,
+                          style: AppType.ui(
+                            size: EpisodeRow._overviewSize,
                             color: AppColors.fg1,
-                            height: 1.4,
+                            height: EpisodeRow._overviewHeight,
                           ),
                         ),
                       ],
                       const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Text(
-                            [
-                              if (ep.airDate != null) ep.airDate!.toUpperCase(),
-                              if (ep.runtime != null) '${ep.runtime}m',
-                            ].join(' · '),
-                            style: AppType.mono(
-                              size: 10,
-                              color: AppColors.fg2,
-                              letterSpacing: 0.04,
-                            ),
-                          ),
-                          if (widget.status != EpisodeStatus.none) ...[
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 5,
-                                vertical: 1,
-                              ),
-                              decoration: BoxDecoration(
-                                color: widget.status.color.withAlpha(36),
-                                borderRadius: BorderRadius.circular(
-                                  AppRadius.xs,
-                                ),
-                              ),
-                              child: Text(
-                                widget.status.label.toUpperCase(),
-                                style: AppType.mono(
-                                  size: 9,
-                                  color: widget.status.color,
-                                  weight: FontWeight.w700,
-                                  letterSpacing: 0.055,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
+                      // Status is not repeated here: the icon under the
+                      // number and the action label already carry it.
+                      Text(
+                        [
+                          ?airDate,
+                          if (ep.runtime != null) '${ep.runtime} min',
+                        ].join(' · '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppType.mono(
+                          size: EpisodeRow._metaSize,
+                          color: AppColors.fg2,
+                          letterSpacing: 0.04,
+                          height: EpisodeRow._metaHeight,
+                        ),
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(width: AppSpacing.md),
-                EpisodeActionButton(
-                  status: widget.status,
-                  hover: _hover,
-                  onTap: widget.onTap,
-                ),
+                EpisodeActionLabel(status: widget.status, active: active),
               ],
             ),
           ),
@@ -207,41 +228,42 @@ class _EpisodeRowState extends State<EpisodeRow> {
   }
 }
 
-/// Episode-row action button — switches label + icon + accent color
-/// based on the lifecycle status. Replaces the always-`GET` button.
-class EpisodeActionButton extends StatelessWidget {
-  const EpisodeActionButton({
+/// What opening the row will do, drawn like a button. The row itself is
+/// the button — this used to be a second, mouse-only tap target with the
+/// same action, and could not be reached from the keyboard.
+class EpisodeActionLabel extends StatelessWidget {
+  const EpisodeActionLabel({
     super.key,
     required this.status,
-    required this.hover,
-    required this.onTap,
+    required this.active,
   });
 
   final EpisodeStatus status;
-  final bool hover;
-  final VoidCallback onTap;
+
+  /// Row hovered or focused — the label fills in.
+  final bool active;
 
   ({IconData icon, String label, Color color}) _spec() {
     return switch (status) {
       EpisodeStatus.watched => (
         icon: Icons.replay_rounded,
-        label: 'REWATCH',
-        color: AppColors.seeding,
+        label: 'Rewatch',
+        color: AppColors.fg1,
       ),
       EpisodeStatus.downloaded => (
         icon: Icons.play_arrow_rounded,
-        label: 'OPEN',
-        color: AppColors.seeding,
+        label: 'Play',
+        color: AppColors.ok,
       ),
       EpisodeStatus.downloading => (
         icon: Icons.downloading_rounded,
-        label: 'IN PROGRESS',
-        color: AppColors.downloading,
+        label: 'Downloading',
+        color: AppColors.accent,
       ),
       EpisodeStatus.none => (
-        icon: Icons.download_rounded,
-        label: 'GET',
-        color: AppColors.seedColor,
+        icon: Icons.play_circle_outline_rounded,
+        label: 'Stream',
+        color: AppColors.accent,
       ),
     };
   }
@@ -249,46 +271,42 @@ class EpisodeActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final spec = _spec();
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.sm,
-        ),
-        decoration: BoxDecoration(
-          color: hover ? spec.color : spec.color.withAlpha(36),
-          border: Border.all(color: spec.color.withAlpha(0x66)),
-          borderRadius: BorderRadius.circular(AppRadius.sm),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(spec.icon, size: 11, color: hover ? Colors.white : spec.color),
-            const SizedBox(width: 4),
-            Text(
-              spec.label,
-              style: AppType.mono(
-                size: 11,
-                color: hover ? Colors.white : spec.color,
-                weight: FontWeight.w700,
-                letterSpacing: 0.05,
-              ),
+    // Dark text on the filled state: white on this orange is 2.7:1, and on
+    // the green 1.9:1.
+    final fg = active ? AppColors.onAccent : spec.color;
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: active ? spec.color : spec.color.withAlpha(AppOpacity.light),
+        border: Border.all(color: spec.color.withAlpha(AppOpacity.semi)),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(spec.icon, size: 13, color: fg),
+          const SizedBox(width: 4),
+          Text(
+            spec.label,
+            style: AppType.ui(
+              size: AppType.sizeCaption,
+              color: fg,
+              weight: FontWeight.w600,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
 
-/// Episode still image with a deterministic gradient placeholder fallback
-/// (driven by the episode title hash so each row is visually distinct
-/// while loading or when TMDB has no still).
+/// Episode still with a [HueBackdrop] while it loads or when TMDB has none.
 ///
-/// When [watchedRatio] is set, a thin tertiary-tinted progress bar runs
-/// along the bottom of the still showing the user how far they got — a
-/// glanceable "you watched this much" cue.
+/// When [watchedRatio] is set, a progress bar along the bottom shows how far
+/// the user got.
 class EpisodeStill extends StatelessWidget {
   const EpisodeStill({
     super.key,
@@ -298,62 +316,40 @@ class EpisodeStill extends StatelessWidget {
   });
 
   final String? stillUrl;
-  final int hue;
+  final double hue;
   final double? watchedRatio;
 
   @override
   Widget build(BuildContext context) {
-    final placeholder = _gradientPlaceholder();
+    final placeholder = HueBackdrop(hue: hue);
     final url = stillUrl;
     final image = (url == null || url.isEmpty)
         ? placeholder
-        : Image.network(
-            url,
+        : CachedNetworkImage(
+            imageUrl: url,
             fit: BoxFit.cover,
-            gaplessPlayback: true,
-            loadingBuilder: (context, child, progress) {
-              if (progress == null) return child;
-              return placeholder;
-            },
-            errorBuilder: (_, _, _) => placeholder,
+            // 100 logical px wide; twice that covers a 2× display.
+            memCacheWidth: 240,
+            placeholder: (_, _) => placeholder,
+            errorWidget: (_, _, _) => placeholder,
           );
 
     final ratio = watchedRatio;
     if (ratio == null || ratio <= 0) return image;
 
-    final scheme = Theme.of(context).colorScheme;
     return Stack(
       fit: StackFit.expand,
       children: [
         image,
-        // Subtle dim on already-watched portion so unwatched stills pop.
-        Container(
-          color: Colors.black.withValues(alpha: AppOpacity.light / 255.0),
-        ),
-        // Progress bar pinned to the bottom edge.
-        Align(
-          alignment: Alignment.bottomLeft,
-          child: FractionallySizedBox(
-            widthFactor: ratio.clamp(0.0, 1.0),
-            child: Container(height: 3, color: scheme.tertiary),
-          ),
+        // Dim watched stills a touch so unwatched ones pop.
+        Container(color: AppColors.mediaBlack.withAlpha(AppOpacity.light)),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: EditorialProgress(value: ratio),
         ),
       ],
-    );
-  }
-
-  Widget _gradientPlaceholder() {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            HSLColor.fromAHSL(1, hue.toDouble(), 0.5, 0.32).toColor(),
-            HSLColor.fromAHSL(1, (hue + 30) % 360, 0.5, 0.16).toColor(),
-          ],
-        ),
-      ),
     );
   }
 }

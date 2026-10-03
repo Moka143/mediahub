@@ -1,4 +1,6 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mediahub/widgets/media/media_poster_card.dart';
 
@@ -72,6 +74,115 @@ void main() {
       // appears out of nowhere.
       final height = await _heightAt(tester);
       expect(height, height.roundToDouble());
+    });
+  });
+
+  group('MediaPosterCard caption', () {
+    // The arithmetic above only matters if it describes the card that is
+    // drawn: lay the real card out at exactly the height it asks for, and
+    // any shortfall shows up as an overflow.
+    for (final width in [120.0, 152.0, 180.0]) {
+      for (final scale in [1.0, 1.5, 2.0]) {
+        testWidgets('fits at ${width.toInt()}px and ${scale}x text', (
+          tester,
+        ) async {
+          await tester.pumpWidget(
+            MaterialApp(
+              // Inside the app: MaterialApp sets its own MediaQuery.
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: TextScaler.linear(scale)),
+                child: child!,
+              ),
+              home: Scaffold(
+                body: Builder(
+                  builder: (context) => Align(
+                    alignment: Alignment.topLeft,
+                    child: SizedBox(
+                      width: width,
+                      height: MediaPosterCard.heightForWidth(
+                        context,
+                        width: width,
+                      ),
+                      child: MediaPosterCard(
+                        title: 'Arrival',
+                        subtitle: '2.1 GB · 1080p',
+                        width: width,
+                        onTap: () {},
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          expect(tester.takeException(), isNull);
+        });
+      }
+    }
+  });
+
+  group('MediaPosterCard menu', () {
+    Future<List<String>> pump(WidgetTester tester) async {
+      final log = <String>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: MediaPosterCard(
+                title: 'Arrival',
+                onTap: () => log.add('open'),
+                actions: [
+                  MediaCardAction(
+                    icon: Icons.delete_outline_rounded,
+                    label: 'Delete',
+                    onSelected: () => log.add('delete'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      return log;
+    }
+
+    double menuOpacity(WidgetTester tester) => tester
+        .widget<AnimatedOpacity>(
+          find
+              .ancestor(
+                of: find.byIcon(Icons.more_vert_rounded),
+                matching: find.byType(AnimatedOpacity),
+              )
+              .first,
+        )
+        .opacity;
+
+    testWidgets('the keyboard reaches the card, and focus shows the menu', (
+      tester,
+    ) async {
+      final log = await pump(tester);
+      expect(menuOpacity(tester), 0);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pumpAndSettle();
+      expect(menuOpacity(tester), 1);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      expect(log, ['open']);
+    });
+
+    testWidgets('a right click opens the menu', (tester) async {
+      final log = await pump(tester);
+      await tester.tap(find.text('Arrival'), buttons: kSecondaryButton);
+      await tester.pumpAndSettle();
+      expect(find.text('Delete'), findsOneWidget);
+
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+      expect(log, ['delete']);
     });
   });
 }

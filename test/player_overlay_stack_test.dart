@@ -32,6 +32,8 @@ void main() {
     bool controlsVisible = true,
     Widget? upNextChip,
     Widget? statusChip,
+    Widget? error,
+    int skipTick = 0,
   }) {
     return tester.pumpWidget(
       MaterialApp(
@@ -53,6 +55,8 @@ void main() {
             controls: controls,
             upNextChip: upNextChip,
             statusChip: statusChip,
+            error: error,
+            skipTick: skipTick,
             onTap: () {},
             onDoubleTap: () {},
             onHorizontalDragStart: (_) {},
@@ -154,6 +158,17 @@ void main() {
       );
     });
 
+    testWidgets('each press replays the ripple', (tester) async {
+      // The ripple animates once, on mount. It used to be the same widget for
+      // as long as it stayed up, so a second ← within half a second showed
+      // nothing at all.
+      await pump(tester, video: video, showSkipForward: true, skipTick: 1);
+      final first = tester.state(find.byType(SkipRippleIndicator));
+      await pump(tester, video: video, showSkipForward: true, skipTick: 2);
+      final second = tester.state(find.byType(SkipRippleIndicator));
+      expect(identical(first, second), isFalse);
+    });
+
     testWidgets('the seek readout needs both a delta and a start', (
       tester,
     ) async {
@@ -169,6 +184,40 @@ void main() {
         seekStartTime: const Duration(minutes: 5),
       );
       expect(find.byType(SeekIndicator), findsOneWidget);
+    });
+  });
+
+  group('playback error', () {
+    const errorPanel = SizedBox(key: Key('error'), width: 10, height: 10);
+
+    testWidgets('replaces everything but the picture', (tester) async {
+      // There is nothing to buffer, resume, control or queue up once the
+      // file has failed — and a spinner over the error would say otherwise.
+      await pump(
+        tester,
+        video: video,
+        showBuffering: true,
+        error: errorPanel,
+        upNextChip: const SizedBox(key: Key('upnext'), width: 10, height: 10),
+        statusChip: const SizedBox(key: Key('status'), width: 10, height: 10),
+      );
+      expect(find.byKey(const Key('error')), findsOneWidget);
+      expect(find.byType(BufferingIndicator), findsNothing);
+      expect(find.byKey(const Key('controls')), findsNothing);
+      expect(find.byKey(const Key('upnext')), findsNothing);
+      expect(find.byKey(const Key('status')), findsNothing);
+    });
+
+    testWidgets('shows even before the media opened', (tester) async {
+      // A file that cannot be opened never gets a video surface.
+      await pump(
+        tester,
+        video: null,
+        showResumePrompt: true,
+        error: errorPanel,
+      );
+      expect(find.byKey(const Key('error')), findsOneWidget);
+      expect(find.byType(ResumePrompt), findsNothing);
     });
   });
 

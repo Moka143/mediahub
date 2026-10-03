@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
+import '../../design/app_typography.dart';
 import '../editorial/mono_label.dart';
 import '../editorial/serif_title.dart';
 
@@ -58,12 +59,12 @@ class MediaHubDrawerHeader extends StatelessWidget {
               gradient: const LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [AppColors.accent, AppColors.accentAmber],
+                colors: [AppColors.accent, AppColors.warn],
               ),
-              borderRadius: BorderRadius.circular(2),
+              borderRadius: BorderRadius.circular(AppRadius.full),
               boxShadow: [
                 BoxShadow(
-                  color: AppColors.accent.withAlpha(120),
+                  color: AppColors.accent.withValues(alpha: 0.47),
                   blurRadius: 12,
                 ),
               ],
@@ -76,7 +77,12 @@ class MediaHubDrawerHeader extends StatelessWidget {
               children: [
                 MonoLabel(kicker, color: AppColors.accent, letterSpacing: 0.14),
                 const SizedBox(height: 6),
-                SerifTitle(title, size: 26, height: 1.1, maxLines: 2),
+                SerifTitle(
+                  title,
+                  size: AppType.sizeTitle,
+                  height: 1.1,
+                  maxLines: 2,
+                ),
                 if (subtitle != null && subtitle!.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   MonoLabel(

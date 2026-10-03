@@ -11,11 +11,11 @@ Browse the TMDB catalog, pick a torrent, and stream it directly in the built-in 
 ## Features
 
 ### Media browser
-- Browse popular, trending, and top-rated movies and TV shows via TMDB
+- Browse popular, trending, and top-rated movies and TV shows via TMDB, filtered by any of TMDB's genres
 - Show details with seasons, episodes, cast, ratings, trailers
-- Search across movies and shows
-- Calendar view for upcoming episodes of favorited shows
-- Local media library — auto-scans a configured folder for already-downloaded videos
+- Search within Movies and within TV Shows
+- Calendar view for upcoming episodes of favorited shows, with a one-click download for episodes that have aired
+- Local media library — scans the download folder (Settings → Downloads) for videos already on disk
 
 ### Torrent engine
 - **Built in.** Nothing to install, nothing to configure, no second program on screen
@@ -36,24 +36,40 @@ Browse the TMDB catalog, pick a torrent, and stream it directly in the built-in 
 - ±10s seek from the ← / → keys or the bottom bar, with an animated ripple
 
 ### Torrent management
-- Add torrents via magnet link or `.torrent` file
+- Add torrents via magnet link, web link, bare info hash or `.torrent` file — or drag a `.torrent` onto the window; a magnet link on the clipboard is offered automatically
 - Real-time progress, speeds, ETA, peers, trackers
-- File-level priority and selection
-- Pause / resume / delete with file-removal toggle
-- Filter and sort (status, name, size, progress, speeds)
+- File-level selection (built-in engine: download or skip; qBittorrent: full priorities)
+- Pause / resume / delete with file-removal toggle; right-click a transfer for its actions
+- Filter and sort (status, name, size, progress, speeds); Shift- and ⌘/Ctrl-click to select several
 
 ### Auto-download
-- Favorite a show to auto-download new episodes as they air
-- Per-show quality preference (1080p / 720p / etc.)
-- Status indicators on the Favorites screen
+- Favorite a show to auto-download new episodes as they air — one at a time, as you watch, never the whole backlog
+- Per-show quality preference (1080p / 720p / etc.) and on/off switch, on the show's page
+- Status indicators on the Favorites screen, and a log of recent activity in Settings → Downloads
 
 ### Settings
-- First-launch TMDB onboarding with browser sign-in (favorites & watchlist sync)
+- First-launch TMDB onboarding — the token is checked with TMDB before it is saved — and optional browser sign-in (favorites & watchlist sync)
 - Torrent engine picker — built-in, or your own qBittorrent
 - qBittorrent host / port / credentials, and auto-start (qBittorrent only)
 - Speed limits
-- Local library scan path
-- Theme (system / light / dark)
+- Download folder (also the folder the Library shows)
+- Text settings save when you press Enter or leave the field, and are checked first
+- A dark, cinema-style theme — there is no light mode
+
+Settings are grouped as **Connection** (engine, qBittorrent, TMDB token and account),
+**Downloads** (save location, speed limits, auto-download and its activity log),
+**General** (playback, refresh) and **About** (keyboard shortcuts, diagnostics, reset).
+
+### Keyboard
+
+| Keys | Where | Action |
+|---|---|---|
+| ⌘1–⌘7 (Ctrl+1–7) | anywhere | Switch tabs, in sidebar order |
+| ⌘, (Ctrl+,) | anywhere | Settings |
+| Esc, ⌘[ (Alt+←) | pushed pages | Back |
+| ⌘W | macOS | Close the window (the engine is stopped first) |
+| Tab / Enter / Space | anywhere | Move between and activate buttons, rows and chips |
+| Space, ← / →, ↑ / ↓, M, F, Esc, ? | player | Play/pause, ±10 s, volume, mute, full screen, leave, show shortcuts |
 
 ## Requirements
 
@@ -86,6 +102,10 @@ The two engines are not equivalent, and the app hides what does not apply:
 | Speed limits | applied when the engine restarts | applied immediately |
 
 ## Installation
+
+Release builds are published for **Windows**. macOS is supported but built from
+source (see below). The `linux/` runner is kept so the project builds there too,
+but Linux is not tested or released.
 
 ### From release (Windows)
 
@@ -155,38 +175,53 @@ order.
 
 ```
 lib/
-├── main.dart, app.dart
-├── design/                       # design tokens, colors, theme
-├── models/                       # Torrent, Movie, Show, Episode, Settings, etc.
+├── main.dart, app.dart               # bootstrap; one shutdown path for every way of quitting
+├── design/                           # tokens, colours, type scale, theme, UI scaling
+├── models/                           # Torrent, Movie, Show, Episode, Settings, …
 ├── services/
 │   ├── tmdb_api_service.dart, tmdb_account_service.dart
-│   ├── eztv_api_service.dart
-│   ├── torrentio_api_service.dart
+│   ├── tmdb_title_resolver.dart        # file name → TMDB id, year-aware, unambiguous only
+│   ├── tmdb_watched_sync.dart          # watched marks ↔ TMDB ratings
+│   ├── eztv_api_service.dart, torrentio_api_service.dart
 │   ├── opensubtitles_service.dart
 │   ├── torrent_engine.dart             # the backend contract + EngineCapabilities
 │   ├── torrent_engine_process.dart     # the engine-process contract
+│   ├── engine_process_support.dart     # shared start / health-check / stop logic
+│   ├── engine_pid_file.dart            # reclaims an engine left behind by a crash
 │   ├── rqbit_engine.dart               # built-in engine, serves its own streams
 │   ├── rqbit_process_service.dart      # headless sidecar lifecycle
-│   ├── qbittorrent_api_service.dart
-│   ├── qbittorrent_process_service.dart
-│   ├── streaming_service.dart          # file selection, buffer monitoring, player wiring
+│   ├── qbittorrent_api_service.dart, qbittorrent_process_service.dart
+│   ├── streaming_service.dart          # stream sessions and player wiring
+│   ├── streaming/                      # file selection, video file lookup, buffer policy
+│   ├── piece_geometry.dart             # piece ↔ byte maths, aware of each file's offset
 │   ├── local_streaming_server.dart     # piece-aware HTTP proxy — qBittorrent path only
 │   ├── playback_health_monitor.dart    # download-edge tracking + stall recovery
-│   ├── auto_download_service.dart      # new-episode polling + queueing
+│   ├── player_service.dart             # media_kit player operations and failures
+│   ├── auto_download_service.dart      # next-episode lookup, source ranking, queueing
 │   ├── library_actions.dart            # delete / mark-watched / TMDB reconcile
 │   ├── local_media_scanner.dart
+│   ├── json_prefs_store.dart           # prefs JSON with per-entry decode + quarantine
+│   ├── secret_store.dart               # credentials in Keychain / DPAPI / libsecret
+│   ├── app_shutdown.dart               # bounded, idempotent teardown
 │   └── app_logger.dart                 # append-only disk log with rotation
-├── providers/                    # Riverpod 3.x notifiers (one per feature area)
+├── providers/                        # Riverpod 3.x notifiers (one per feature area)
 ├── screens/
 │   ├── splash_screen.dart, onboarding_screen.dart
-│   ├── main_navigation_screen.dart     # sidebar (≥900px) / NavigationBar
+│   ├── main_navigation_screen.dart     # sidebar ≥600px (icon rail below 900px), bottom bar below
 │   ├── mediahub_home_screen.dart, movies_screen.dart, shows_screen.dart
 │   ├── movie_details_screen.dart, show_details_screen.dart
 │   ├── watch_screen.dart               # local library
 │   ├── favorites_screen.dart, calendar_screen.dart
-│   ├── video_player_screen.dart        # full-screen player + health monitor
-│   └── torrent_details_screen.dart, settings_screen.dart
-└── widgets/                      # cards, overlays, dialogs, video controls
+│   ├── video_player_screen.dart        # full-screen player + its mixins
+│   ├── downloads_screen.dart, torrent_details_screen.dart
+│   └── settings_screen.dart, settings/
+├── utils/                            # formatters, release-name parsing, title matching, error text
+└── widgets/
+    ├── common/                       # HubPressable (keyboard-accessible buttons), BackShortcuts,
+    │                                 #   paged browse grid, empty/error states, dialogs, …
+    ├── editorial/                    # the design system's buttons, badges, progress
+    ├── player/, transfers/, library/, media/, details/, episodes/
+    └── …                             # drawers, overlays, tabs
 ```
 
 ## Tech stack
@@ -198,22 +233,24 @@ lib/
 | HTTP | dio |
 | Torrent engine | rqbit (bundled) or qBittorrent Web API v2 |
 | Metadata | TMDB API (v4 Bearer auth) |
-| Persistence | shared_preferences |
+| Persistence | shared_preferences; credentials in flutter_secure_storage (Keychain / DPAPI / libsecret) |
 | Window chrome | window_manager |
 | Posters | cached_network_image |
 
 ## Troubleshooting
 
-### "Failed to connect" on the built-in engine
+### "The built-in engine isn't running"
 Something else is probably using the engine's port. Change it under
-Settings → Connection → Torrent Engine → *Engine port*. The app log
-(Settings → About) records why the engine did not start.
+Settings → Connection → Torrent engine → *Engine port*. The app log
+(Settings → About → Diagnostics → *App log*) records why the engine did not
+start. If MediaHub was force-quit, the next launch takes back the engine it
+left running.
 
 ### "Failed to connect to qBittorrent"
 Make sure qBittorrent is running with Web UI enabled, the host/port match Settings, and the credentials are correct.
 
 ### "qBittorrent executable not found"
-Settings → Connection → qBittorrent Application → set the path manually.
+Settings → Connection → qBittorrent application → set *qBittorrent program* manually.
 
 ### Video freezes mid-stream
 The player includes a stall-recovery monitor that pauses when you outrun the download and back-seeks 3 s on a hard stall. If freezes persist, look at the seek bar — the dim track shows how much of the file is actually on disk. If it isn't advancing, the torrent isn't getting peers.
@@ -225,7 +262,9 @@ xattr -cr /Applications/MediaHub.app
 
 ## Contributing
 
-Pull requests welcome. CI runs `dart format --set-exit-if-changed`, `flutter analyze`, `flutter test`, and a Windows build on every PR.
+Pull requests welcome. CI runs `dart format --set-exit-if-changed`, `flutter analyze` (fatal on infos — the lint set in `analysis_options.yaml` includes `unawaited_futures`, `discarded_futures` and `avoid_void_async`), `flutter test`, and a Windows build on every PR.
+
+Set `MEDIAHUB_VERBOSE_LOG=1` to keep debug-level lines in the app log of a release build.
 
 ## License
 

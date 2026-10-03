@@ -90,8 +90,15 @@ class PollLoop {
     // would let a slow endpoint build an unbounded backlog.
     if (_tickInFlight || _disposed) return;
     _tickInFlight = true;
+    // `Future.sync`, not a bare `_onTick()`: a callback that throws before
+    // returning its Future — a non-`async` function that fails on its first
+    // line — would otherwise escape this method before `.catchError` and
+    // `.whenComplete` are attached. The throw would surface as an uncaught
+    // error from the timer, and `_tickInFlight` would stay true forever, so
+    // every later tick was dropped as "still running": the loop looked alive
+    // and never polled again.
     unawaited(
-      _onTick()
+      Future<void>.sync(_onTick)
           .catchError((Object e, StackTrace st) {
             AppLog.w('[PollLoop:$name] tick failed: $e');
           })

@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mediahub/models/local_media_file.dart';
 import 'package:mediahub/services/next_episode_planner.dart';
 
 /// A 45-minute episode — the shape most of these rules were tuned for.
@@ -292,6 +293,68 @@ void main() {
           threshold: 0.7,
         ),
         isTrue,
+      );
+    });
+  });
+
+  group('which episode comes next, and where it is', () {
+    LocalMediaFile ep(String show, int s, int e, {String? path}) =>
+        LocalMediaFile(
+          path: path ?? '/lib/$show.S${s}E$e.mkv',
+          fileName: '$show.S${s}E$e.mkv',
+          sizeBytes: 1,
+          modifiedDate: DateTime(2026),
+          extension: 'mkv',
+          showName: show,
+          seasonNumber: s,
+          episodeNumber: e,
+        );
+
+    test("TMDB's answer is the only candidate when there is one", () {
+      expect(
+        NextEpisodePlanner.nextEpisodeCandidates(
+          fromTmdb: (season: 2, episode: 1),
+          season: 1,
+          episode: 10,
+        ),
+        [(season: 2, episode: 1)],
+      );
+    });
+
+    test('without TMDB: next in the season, then the next season', () {
+      expect(NextEpisodePlanner.nextEpisodeCandidates(season: 1, episode: 4), [
+        (season: 1, episode: 5),
+        (season: 2, episode: 1),
+      ]);
+      expect(NextEpisodePlanner.nextEpisodeCandidates(), isEmpty);
+    });
+
+    test('files come back in candidate order, same show only', () {
+      final library = [
+        ep('Young Sheldon', 1, 5),
+        ep('You', 2, 1),
+        ep('You', 1, 5),
+        ep('You', 1, 4, path: '/playing.mkv'),
+      ];
+      final files = NextEpisodePlanner.nextEpisodeFilesIn(
+        library,
+        showName: 'You',
+        playingPath: '/playing.mkv',
+        candidates: [(season: 1, episode: 5), (season: 2, episode: 1)],
+      );
+      expect(files.map((f) => f.fileName), ['You.S1E5.mkv', 'You.S2E1.mkv']);
+    });
+
+    test('the file playing now is never its own next episode', () {
+      final playing = ep('Dark', 1, 2, path: '/now.mkv');
+      expect(
+        NextEpisodePlanner.nextEpisodeFilesIn(
+          [playing],
+          showName: 'Dark',
+          playingPath: '/now.mkv',
+          candidates: [(season: 1, episode: 2)],
+        ),
+        isEmpty,
       );
     });
   });

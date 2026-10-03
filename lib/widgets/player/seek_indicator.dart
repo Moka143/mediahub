@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
+import '../../design/app_typography.dart';
 import '../../utils/formatters.dart';
 
 /// Overlay shown while the user is dragging horizontally to seek.
@@ -21,9 +23,12 @@ class SeekIndicator extends StatelessWidget {
     final targetTime = dragStartTime + Duration(seconds: seekDelta.round());
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.xxl,
+        vertical: AppSpacing.lg,
+      ),
       decoration: BoxDecoration(
-        color: Colors.black87,
+        color: AppColors.mediaBlack.withValues(alpha: 0.87),
         borderRadius: BorderRadius.circular(AppRadius.lg),
       ),
       child: Column(
@@ -34,28 +39,30 @@ class SeekIndicator extends StatelessWidget {
             children: [
               Icon(
                 isForward ? Icons.forward_rounded : Icons.replay_rounded,
-                color: Colors.white,
-                size: 28,
+                color: AppColors.onMedia,
+                size: AppIconSize.xl,
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: AppSpacing.sm),
               Text(
                 '${isForward ? '+' : '-'}${seconds}s',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
+                style: AppType.mono(
+                  size: AppType.sizeTitle,
+                  color: AppColors.onMedia,
+                  weight: FontWeight.w700,
+                  letterSpacing: 0,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppSpacing.sm),
           Text(
             Formatters.formatPlaybackDuration(
               targetTime.isNegative ? Duration.zero : targetTime,
             ),
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.7),
-              fontSize: 16,
+            style: AppType.mono(
+              size: AppType.sizeSubhead,
+              color: AppColors.onMediaMuted,
+              letterSpacing: 0,
             ),
           ),
         ],

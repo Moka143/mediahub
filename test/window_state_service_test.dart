@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -272,42 +275,84 @@ void main() {
   });
 
   group('WindowStateService close handling', () {
-    // `main` sets setPreventClose(true) so the close-time save has somewhere
-    // to run — which means this service is now the only thing that closes the
-    // window. If it ever failed to, the app would be unquittable, so this is
-    // the property that matters more than the saving.
+    // `main` sets setPreventClose(true), so every close of the window comes
+    // here and is handed to the app's shutdown.
     setUp(() => SharedPreferences.setMockInitialValues({}));
 
-    test('always closes, even when saving throws', () async {
-      // There is no window_manager plugin behind a unit test, so saveNow()
-      // throws MissingPluginException on its first call — standing in for
-      // any real failure: a locked prefs file, a full disk, a native call
-      // that never answers.
-      final prefs = await SharedPreferences.getInstance();
-      var closed = false;
-      final service = WindowStateService(
-        prefs,
-        onClosed: () async => closed = true,
-      );
-
-      service.onWindowClose();
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-
-      expect(closed, isTrue, reason: 'a failed save must not trap the user');
-    });
-
-    test('closes exactly once', () async {
+    test('hands the close to the shutdown exactly once', () async {
       final prefs = await SharedPreferences.getInstance();
       var closeCount = 0;
       final service = WindowStateService(
         prefs,
-        onClosed: () async => closeCount++,
+        onCloseRequested: () async => closeCount++,
       );
 
       service.onWindowClose();
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await Future<void>.delayed(Duration.zero);
 
       expect(closeCount, 1);
+    });
+
+    test('a save cannot be scheduled once the close-time save began', () async {
+      // Hiding the window during the shutdown fires blur and resize. Each
+      // used to arm the debouncer again, and the save it scheduled ran after
+      // the teardown had moved on.
+      final prefs = await SharedPreferences.getInstance();
+      final service = WindowStateService(prefs, onCloseRequested: () async {});
+
+      fakeAsync((async) {
+        unawaited(service.saveForClose());
+        async.flushMicrotasks();
+
+        service
+          ..onWindowBlur()
+          ..onWindowResize()
+          ..onWindowMoved();
+        expect(async.pendingTimers, isEmpty);
+      });
+    });
+
+    test('a failed event-driven save is logged, not thrown', () async {
+      // No window_manager plugin behind a unit test, so every save fails.
+      final prefs = await SharedPreferences.getInstance();
+      final service = WindowStateService(prefs, onCloseRequested: () async {});
+
+      service.onWindowMaximize();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      // Reaching here without an uncaught error is the assertion.
+    });
+  });
+
+  group('WindowStateService.toWindowSpace', () {
+    const area = Rect.fromLTWH(1920, 0, 1536, 824);
+
+    test('is the identity when both scales agree', () {
+      expect(
+        WindowStateService.toWindowSpace(
+          area,
+          displayScale: 1.25,
+          windowScale: 1.25,
+        ),
+        area,
+      );
+    });
+
+    test('rescales another display into the window\'s units', () {
+      // A 250% display seen from a window on a 100% one: the area was
+      // divided by 2.5; window_manager's numbers are divided by 1.
+      final converted = WindowStateService.toWindowSpace(
+        const Rect.fromLTWH(768, 0, 1536, 864),
+        displayScale: 2.5,
+        windowScale: 1,
+      );
+      expect(converted, const Rect.fromLTWH(1920, 0, 3840, 2160));
+    });
+
+    test('ignores a nonsensical scale rather than producing garbage', () {
+      expect(
+        WindowStateService.toWindowSpace(area, displayScale: 0, windowScale: 1),
+        area,
+      );
     });
   });
 }

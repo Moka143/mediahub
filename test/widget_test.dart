@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:mediahub/app.dart';
+import 'package:mediahub/design/app_colors.dart';
 import 'package:mediahub/providers/settings_provider.dart';
 import 'package:mediahub/utils/constants.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -74,5 +75,20 @@ void main() {
 
     final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
     expect(app.title, AppConstants.appName);
+  });
+
+  testWidgets('the startup placeholder paints the page colour on its own', (
+    tester,
+  ) async {
+    // Shown before the Keychain read, when there is no theme, no providers
+    // and no Navigator yet — it must need none of them.
+    await tester.pumpWidget(const StartupPlaceholder());
+
+    // The splash screen's backdrop, fading out to the page colour, so the
+    // hand-over to the splash is seamless.
+    final box = tester.widget<DecoratedBox>(find.byType(DecoratedBox).first);
+    final gradient = (box.decoration as BoxDecoration).gradient!;
+    expect(gradient.colors.last, AppColors.bgPage);
+    expect(tester.takeException(), isNull);
   });
 }

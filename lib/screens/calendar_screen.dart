@@ -1,209 +1,68 @@
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../app.dart';
 import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
 import '../design/app_typography.dart';
-import '../models/auto_download_event.dart';
-import '../providers/auto_download_events_provider.dart';
+import '../models/show.dart';
 import '../providers/auto_download_provider.dart';
-import '../providers/favorites_provider.dart';
-import '../providers/settings_provider.dart';
-import '../providers/shows_provider.dart';
+import '../providers/calendar_provider.dart';
+import '../providers/local_media_provider.dart';
+import '../providers/navigation_provider.dart';
+import '../services/app_logger.dart';
 import '../services/auto_download_service.dart';
+import '../utils/error_messages.dart';
 import '../utils/feedback_utils.dart';
-import '../utils/formatters.dart';
 import '../widgets/common/empty_state.dart';
+import '../widgets/common/hub_pressable.dart';
 import '../widgets/common/loading_state.dart';
 import '../widgets/editorial/editorial.dart';
+import '../widgets/episodes/episode_status.dart';
+import '../widgets/media/hue_backdrop.dart';
+import '../widgets/media/row_header.dart';
+import 'settings_screen.dart';
 import 'show_details_screen.dart';
 
-/// Model for calendar episode with additional date information
-class CalendarEpisode {
-  final int showId;
-  final String showName;
-  final String? posterPath;
-  final int seasonNumber;
-  final int episodeNumber;
-  final String? episodeName;
-  final DateTime airDate;
-  final String? overview;
-
-  CalendarEpisode({
-    required this.showId,
-    required this.showName,
-    this.posterPath,
-    required this.seasonNumber,
-    required this.episodeNumber,
-    this.episodeName,
-    required this.airDate,
-    this.overview,
-  });
-
-  String get episodeCode => Formatters.episodeCode(seasonNumber, episodeNumber);
-
-  String get displayTitle => episodeName ?? 'Episode $episodeNumber';
-
-  bool get isToday {
-    final now = DateTime.now();
-    return airDate.year == now.year &&
-        airDate.month == now.month &&
-        airDate.day == now.day;
-  }
-
-  bool get isPast => airDate.isBefore(DateTime.now());
-
-  bool get isFuture => airDate.isAfter(DateTime.now());
+/// When an episode airs, relative to [today], in calendar days.
+///
+/// Date only: TMDB air dates carry no time, which is why every row used to
+/// read "12:00 AM", and why "Airs today" is as precise as it can honestly
+/// get. An episode dated in the past says so — yesterday's episodes used to
+/// read "Scheduled".
+String calendarTimingLabel(CalendarEpisode episode, DateTime today) {
+  final days = episode.daysFrom(today);
+  if (days < -1) return 'Aired';
+  if (days == -1) return 'Aired yesterday';
+  if (days == 0) return 'Airs today';
+  if (days == 1) return 'Tomorrow';
+  return 'In $days days';
 }
 
-/// Provider for calendar episodes from favorite shows
-final calendarEpisodesProvider =
-    FutureProvider<Map<DateTime, List<CalendarEpisode>>>((ref) async {
-      final favorites = ref.watch(favoritesProvider);
-      final tmdbService = ref.watch(tmdbApiServiceProvider);
-
-      if (favorites.favoriteIds.isEmpty || !tmdbService.isConfigured) return {};
-
-      final Map<DateTime, List<CalendarEpisode>> calendar = {};
-
-      // Date range: 7 days ago to 30 days in future
-      final startDate = DateTime.now().subtract(const Duration(days: 7));
-      final endDate = DateTime.now().add(const Duration(days: 30));
-
-      for (final showId in favorites.favoriteIds) {
-        try {
-          // Get show details for name and poster
-          final show = await tmdbService.getShowDetails(showId);
-          final numSeasons = show.numberOfSeasons ?? 0;
-
-          // Get episodes from recent seasons (last 2 seasons to limit API calls)
-          for (
-            int seasonNum = (numSeasons - 1).clamp(1, numSeasons);
-            seasonNum <= numSeasons;
-            seasonNum++
-          ) {
-            if (seasonNum <= 0) continue; // Skip specials
-
-            try {
-              final episodes = await tmdbService.getSeasonEpisodes(
-                showId,
-                seasonNum,
-              );
-
-              for (final episode in episodes) {
-                if (episode.airDate == null) continue;
-
-                final airDate = DateTime.tryParse(episode.airDate!);
-                if (airDate == null) continue;
-
-                // Only include episodes within our date range
-                if (airDate.isBefore(startDate) || airDate.isAfter(endDate)) {
-                  continue;
-                }
-
-                // Normalize to date only (no time)
-                final dateKey = DateTime(
-                  airDate.year,
-                  airDate.month,
-                  airDate.day,
-                );
-
-                calendar.putIfAbsent(dateKey, () => []);
-                calendar[dateKey]!.add(
-                  CalendarEpisode(
-                    showId: showId,
-                    showName: show.name,
-                    posterPath: show.posterPath,
-                    seasonNumber: episode.seasonNumber,
-                    episodeNumber: episode.episodeNumber,
-                    episodeName: episode.name,
-                    airDate: airDate,
-                    overview: episode.overview,
-                  ),
-                );
-              }
-            } catch (e) {
-              // Skip seasons that fail to load
-            }
-          }
-        } catch (e) {
-          // Skip shows that fail to load
-        }
-      }
-
-      // Sort episodes within each day
-      for (final episodes in calendar.values) {
-        episodes.sort((a, b) {
-          // Sort by show name, then by episode
-          final showCompare = a.showName.compareTo(b.showName);
-          if (showCompare != 0) return showCompare;
-          return a.episodeCode.compareTo(b.episodeCode);
-        });
-      }
-
-      return calendar;
-    });
-
-/// Provider for today's episodes count (for badges)
-final todayEpisodesCountProvider = Provider<int>((ref) {
-  final calendarAsync = ref.watch(calendarEpisodesProvider);
-  final calendar = calendarAsync.value ?? {};
-
-  final today = DateTime.now();
-  final todayKey = DateTime(today.year, today.month, today.day);
-
-  return calendar[todayKey]?.length ?? 0;
-});
-
-/// Provider for upcoming episodes count (next 7 days)
-final upcomingEpisodesCountProvider = Provider<int>((ref) {
-  final calendarAsync = ref.watch(calendarEpisodesProvider);
-  final calendar = calendarAsync.value ?? {};
-
-  final now = DateTime.now();
-  final today = DateTime(now.year, now.month, now.day);
-  final weekFromNow = today.add(const Duration(days: 7));
-
-  int count = 0;
-  for (final entry in calendar.entries) {
-    if (entry.key.isAfter(today.subtract(const Duration(days: 1))) &&
-        entry.key.isBefore(weekFromNow)) {
-      count += entry.value.length;
-    }
+/// The strip's date range as a heading — "October 3 – 9, 2026", or
+/// "Sep 29 – Oct 5, 2026" across a month boundary.
+String calendarRangeLabel(DateTime start, {int days = 7}) {
+  final end = start.add(Duration(days: days - 1));
+  if (start.month == end.month && start.year == end.year) {
+    return '${DateFormat('MMMM d').format(start)} – ${end.day}, ${end.year}';
   }
-  return count;
-});
+  return '${DateFormat('MMM d').format(start)} – '
+      '${DateFormat('MMM d').format(end)}, ${end.year}';
+}
 
-/// Download status for a calendar episode, cross-referencing auto-download tracking
-final calendarEpisodeDownloadStatusProvider =
-    Provider.family<
-      EpisodeDownloadStatus?,
-      ({int showId, int season, int episode})
-    >((ref, params) {
-      final autoState = ref.watch(autoDownloadProvider);
-      final tracking = autoState.lastDownloadedEpisodes[params.showId];
-      if (tracking != null &&
-          tracking.season == params.season &&
-          tracking.episode == params.episode) {
-        return tracking.status;
-      }
-      // Check download queue
-      final queueKey =
-          '${params.showId}_'
-          '${Formatters.episodeCode(params.season, params.episode)}';
-      if (autoState.downloadQueue.contains(queueKey)) {
-        return EpisodeDownloadStatus.downloading;
-      }
-      return null;
-    });
+/// The two stops of an episode chip's gradient. The second is 30° round the
+/// wheel — `(hue + 30) % 360`; it used to be written `hue + 30 % 360`,
+/// which is `hue + 30`, and handed HSL hues past 360.
+List<Color> calendarChipGradient(double hue) => [
+  HSLColor.fromAHSL(0.6, hue % 360, 0.6, 0.3).toColor(),
+  HSLColor.fromAHSL(0.6, (hue + 30) % 360, 0.5, 0.18).toColor(),
+];
 
-// ============================================================================
-// Calendar Screen
-// ============================================================================
-
-/// Screen showing upcoming episodes from favorite shows in a calendar format
+/// Upcoming and recent episodes from the user's favourite shows.
 class CalendarScreen extends ConsumerStatefulWidget {
   const CalendarScreen({super.key});
 
@@ -214,261 +73,346 @@ class CalendarScreen extends ConsumerStatefulWidget {
 class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   final ScrollController _scrollController = ScrollController();
 
+  /// Episodes with a download request in flight. A second click on the same
+  /// row used to start a second search and add the torrent twice.
+  final Set<CalendarEpisode> _busy = {};
+
   @override
   void dispose() {
     _scrollController.dispose();
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final calendarAsync = ref.watch(calendarEpisodesProvider);
-    return calendarAsync.when(
-      loading: () => const LoadingIndicator(message: 'Loading calendar...'),
-      error: (e, _) => EmptyState.error(
-        message: 'Failed to load calendar',
-        onRetry: () => ref.invalidate(calendarEpisodesProvider),
-      ),
-      data: (calendar) {
-        if (calendar.isEmpty) {
-          return const EmptyState(
-            icon: Icons.calendar_month_outlined,
-            title: 'No upcoming episodes',
-            subtitle:
-                'Add shows to your favorites to see upcoming episodes here',
-          );
-        }
+  void _openSettings() => unawaited(
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const SettingsScreen())),
+  );
 
-        final now = DateTime.now();
-        final today = DateTime(now.year, now.month, now.day);
-        // Anchor the strip on yesterday + today + the next 5 days. The
-        // calendar's job is to surface UPCOMING episodes, so dedicating
-        // most of the columns to forward-dates is more useful than the
-        // ISO-week strip we used before — which on Sunday hid the entire
-        // following week behind a "next week" jump.
-        const lookback = 1;
-        final weekStart = today.subtract(const Duration(days: lookback));
-        final weekDays = List.generate(
-          7,
-          (i) => weekStart.add(Duration(days: i)),
-        );
-
-        final airingThisWeek = <CalendarEpisode>[];
-        for (final d in weekDays) {
-          airingThisWeek.addAll(calendar[d] ?? const []);
-        }
-        airingThisWeek.sort((a, b) => a.airDate.compareTo(b.airDate));
-
-        return SingleChildScrollView(
-          controller: _scrollController,
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(AppSpacing.xxl),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _CalendarWeekHeader(
-                weekStart: weekStart,
-                airingCount: airingThisWeek.length,
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              _WeekStrip(
-                weekDays: weekDays,
-                today: today,
-                calendar: calendar,
-                onEpisodeTap: (e) => _navigateToShow(context, e),
-              ),
-              const SizedBox(height: AppSpacing.xxl),
-              const _AiringHeader(),
-              const SizedBox(height: AppSpacing.md),
-              if (airingThisWeek.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: AppSpacing.huge),
-                  child: Center(
-                    child: Text(
-                      'Nothing airing this week.',
-                      style: TextStyle(color: AppColors.fg2),
-                    ),
-                  ),
-                )
-              else
-                Column(
-                  children: [
-                    for (final ep in airingThisWeek)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 4),
-                        child: _AiringRow(
-                          episode: ep,
-                          today: today,
-                          onTap: () => _navigateToShow(context, ep),
-                          onAutoGrab: () => _downloadEpisode(context, ep),
-                        ),
-                      ),
-                  ],
-                ),
-            ],
+  /// The show page loads the full record itself, so this opens at once —
+  /// it used to wait on a details request first, and fail with a toast
+  /// when offline.
+  void _openShow(CalendarEpisode episode) {
+    unawaited(
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ShowDetailsScreen(
+            show: Show(
+              id: episode.showId,
+              name: episode.showName,
+              posterPath: episode.posterPath,
+            ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
-  Future<void> _navigateToShow(
-    BuildContext context,
-    CalendarEpisode episode,
-  ) async {
-    final tmdbService = ref.read(tmdbApiServiceProvider);
+  Future<void> _download(CalendarEpisode episode) async {
+    if (_busy.contains(episode)) return;
+    setState(() => _busy.add(episode));
+    // The same queue, tracking and duplicate checks automatic downloads go
+    // through. This used to be a private copy of the search-and-add with
+    // none of them — and a details call without the IMDb id it needed, so
+    // it failed every time.
+    final notifier = ref.read(autoDownloadProvider.notifier);
+    final container = ProviderScope.containerOf(context, listen: false);
+    EpisodeGrabResult? result;
     try {
-      final show = await tmdbService.getShowDetails(episode.showId);
-      if (context.mounted) {
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => ShowDetailsScreen(show: show)),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        AppSnackBar.showError(context, message: 'Failed to load show details');
-      }
-    }
-  }
-
-  Future<void> _downloadEpisode(
-    BuildContext context,
-    CalendarEpisode episode,
-  ) async {
-    final tmdbService = ref.read(tmdbApiServiceProvider);
-    try {
-      final show = await tmdbService.getShowDetails(episode.showId);
-      if (show.imdbId == null) {
-        if (context.mounted) {
-          AppSnackBar.showError(
-            context,
-            message: 'No IMDB ID found for this show',
-          );
-        }
-        return;
-      }
-
-      final service = ref.read(autoDownloadServiceProvider);
-      final quality = ref.read(autoDownloadProvider).defaultQuality;
-
-      final torrent = await service.findTorrentForEpisode(
-        imdbId: show.imdbId!,
+      result = await notifier.downloadEpisodeNow(
+        showId: episode.showId,
+        showName: episode.showName,
+        imdbId: episode.imdbId,
         season: episode.seasonNumber,
         episode: episode.episodeNumber,
-        preferredQuality: quality,
       );
-
-      if (torrent == null) {
-        if (context.mounted) {
-          AppSnackBar.showInfo(
-            context,
-            message:
-                'No torrent found for ${episode.showName} ${episode.episodeCode}',
-          );
-        }
-        await ref
-            .read(autoDownloadEventsProvider.notifier)
-            .addEvent(
-              AutoDownloadEvent(
-                timestamp: DateTime.now(),
-                type: AutoDownloadEventType.torrentNotFound,
-                showId: episode.showId,
-                showName: episode.showName,
-                season: episode.seasonNumber,
-                episode: episode.episodeNumber,
-                quality: quality,
-                message:
-                    'Manual search: no torrent for ${episode.showName} ${episode.episodeCode}',
-              ),
-            );
-        return;
-      }
-
-      final settings = ref.read(settingsProvider);
-      final success = await service.downloadNextEpisode(
-        magnetLink: torrent.magnetUrl,
-        savePath: settings.defaultSavePath,
-        infoHash: torrent.hash,
-        fileIdx: torrent.fileIdx,
-      );
-
-      if (context.mounted) {
-        if (success) {
-          AppSnackBar.showSuccess(
-            context,
-            message: 'Downloading ${episode.showName} ${episode.episodeCode}',
-          );
-        } else {
-          AppSnackBar.showError(context, message: 'Failed to start download');
-        }
-      }
-
-      if (success) {
-        await ref
-            .read(autoDownloadEventsProvider.notifier)
-            .addEvent(
-              AutoDownloadEvent(
-                timestamp: DateTime.now(),
-                type: AutoDownloadEventType.downloadStarted,
-                showId: episode.showId,
-                showName: episode.showName,
-                season: episode.seasonNumber,
-                episode: episode.episodeNumber,
-                quality: quality,
-                message:
-                    'Manual download: ${episode.showName} ${episode.episodeCode} in $quality',
-              ),
-            );
-      }
     } catch (e) {
-      if (context.mounted) {
-        AppSnackBar.showError(context, message: 'Download failed: $e');
-      }
+      AppLog.w('[Calendar] download of ${episode.episodeCode} failed: $e');
+    }
+    if (!mounted) return;
+    setState(() => _busy.remove(episode));
+
+    if (result == null) {
+      AppSnackBar.showError(
+        context,
+        message:
+            "Couldn't start the download for ${episode.showName} "
+            '${episode.episodeCode}.',
+      );
+      return;
+    }
+    if (result.ok) {
+      AppSnackBar.showSuccess(
+        context,
+        message: result.message,
+        actionLabel: 'Open Transfers',
+        onAction: () {
+          container
+              .read(currentTabIndexProvider.notifier)
+              .show(AppTab.transfers);
+          rootNavigatorKey.currentState?.popUntil((route) => route.isFirst);
+        },
+      );
+    } else {
+      AppSnackBar.showWarning(context, message: result.message);
     }
   }
-}
-
-// ============================================================================
-// MediaHub calendar layout — week header + 7-column week strip + airing feed
-// ============================================================================
-
-class _CalendarWeekHeader extends StatelessWidget {
-  const _CalendarWeekHeader({
-    required this.weekStart,
-    required this.airingCount,
-  });
-
-  final DateTime weekStart;
-  final int airingCount;
 
   @override
   Widget build(BuildContext context) {
-    final end = weekStart.add(const Duration(days: 6));
-    final startMonth = DateFormat('MMMM').format(weekStart);
-    final endMonth = DateFormat('MMMM').format(end);
-    final range = startMonth == endMonth
-        ? '${DateFormat('MMMM d').format(weekStart)} – ${end.day}, ${end.year}'
-        : '${DateFormat('MMM d').format(weekStart)} – ${DateFormat('MMM d').format(end)}, ${end.year}';
+    final async = ref.watch(calendarEpisodesProvider);
+    final data = async.value;
+    if (data == null) {
+      if (async.hasError) {
+        return EmptyState.error(
+          title: "Couldn't load your calendar",
+          message: friendlyErrorMessage(async.error!, subject: 'your shows'),
+          onRetry: () => ref.invalidate(calendarEpisodesProvider),
+        );
+      }
+      return const LoadingIndicator(message: 'Loading your calendar…');
+    }
 
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SerifTitle(range, size: 48, height: 1.0, letterSpacing: -0.01),
-              const SizedBox(height: 6),
-              MonoLabel(
-                airingCount == 1
-                    ? 'NEXT 7 DAYS · 1 AIRING'
-                    : 'NEXT 7 DAYS · $airingCount AIRING',
-                color: AppColors.fg2,
-                letterSpacing: 0.1,
-              ),
-            ],
-          ),
+    if (data.showCount == 0) {
+      return EmptyState(
+        icon: Icons.calendar_month_outlined,
+        title: 'No favorite shows yet',
+        subtitle: 'Favorite a show and its episodes appear here as they air.',
+        action: EditorialButton(
+          label: 'Browse shows',
+          icon: Icons.explore_rounded,
+          kind: EditorialButtonKind.accent,
+          onPressed: () =>
+              ref.read(currentTabIndexProvider.notifier).show(AppTab.shows),
         ),
-      ],
+      );
+    }
+    if (!data.tmdbConfigured) {
+      return EmptyState(
+        icon: Icons.key_off_rounded,
+        title: 'The calendar needs a TMDB token',
+        subtitle: 'Add your TMDB token in Settings to see when your shows air.',
+        action: EditorialButton(
+          label: 'Open Settings',
+          kind: EditorialButtonKind.accent,
+          onPressed: _openSettings,
+        ),
+      );
+    }
+    if (data.allFailed) {
+      final error = data.failures.first.error;
+      final needsSettings = failureNeedsSettings(error);
+      return EmptyState.error(
+        title: "Couldn't load your calendar",
+        message: friendlyErrorMessage(error, subject: 'your shows'),
+        onRetry: () => ref.invalidate(calendarEpisodesProvider),
+        secondaryLabel: needsSettings ? 'Open Settings' : null,
+        onSecondary: needsSettings ? _openSettings : null,
+      );
+    }
+
+    return _CalendarPage(
+      data: data,
+      today: dateOnly(DateTime.now()),
+      scrollController: _scrollController,
+      busy: _busy,
+      onOpenShow: _openShow,
+      onDownload: (e) => unawaited(_download(e)),
+      onRetry: () => ref.invalidate(calendarEpisodesProvider),
+    );
+  }
+}
+
+class _CalendarPage extends StatelessWidget {
+  const _CalendarPage({
+    required this.data,
+    required this.today,
+    required this.scrollController,
+    required this.busy,
+    required this.onOpenShow,
+    required this.onDownload,
+    required this.onRetry,
+  });
+
+  final CalendarData data;
+  final DateTime today;
+  final ScrollController scrollController;
+  final Set<CalendarEpisode> busy;
+  final ValueChanged<CalendarEpisode> onOpenShow;
+  final ValueChanged<CalendarEpisode> onDownload;
+  final VoidCallback onRetry;
+
+  /// The date range is the page's headline — larger than the type ramp's
+  /// top step, [AppType.sizeDisplay].
+  static const double _headlineSize = 48;
+
+  @override
+  Widget build(BuildContext context) {
+    // The strip is today and the six days after it — what the header says.
+    // It used to start yesterday under a "NEXT 7 DAYS" heading.
+    final weekDays = List.generate(7, (i) => today.add(Duration(days: i)));
+    final thisWeek = data.between(weekDays.first, weekDays.last);
+    final comingUp = data.between(
+      today,
+      today.add(const Duration(days: calendarLookaheadDays)),
+    );
+    final recentlyAired = data.between(
+      today.subtract(const Duration(days: calendarLookbackDays)),
+      today.subtract(const Duration(days: 1)),
+    );
+
+    Widget row(CalendarEpisode e) => Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+      child: _AiringRow(
+        episode: e,
+        today: today,
+        busy: busy.contains(e),
+        onTap: () => onOpenShow(e),
+        onDownload: () => onDownload(e),
+      ),
+    );
+
+    return SingleChildScrollView(
+      controller: scrollController,
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(AppSpacing.xxl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SerifTitle(
+            calendarRangeLabel(today),
+            size: _headlineSize,
+            height: 1.0,
+            letterSpacing: -0.01,
+          ),
+          const SizedBox(height: 6),
+          MonoLabel(
+            'Next 7 days · '
+            '${thisWeek.length == 1 ? '1 episode' : '${thisWeek.length} episodes'}',
+            color: AppColors.fg2,
+            letterSpacing: 0.1,
+          ),
+          if (data.failures.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.md),
+            _PartialFailureBanner(
+              failed: data.failures.length,
+              total: data.showCount,
+              onRetry: onRetry,
+            ),
+          ],
+          const SizedBox(height: AppSpacing.lg),
+          _WeekStrip(
+            weekDays: weekDays,
+            today: today,
+            data: data,
+            onEpisodeTap: onOpenShow,
+          ),
+          const SizedBox(height: AppSpacing.xxl),
+          const RowHeader(title: 'Coming up', size: AppType.sizeTitle),
+          const SizedBox(height: AppSpacing.md),
+          if (comingUp.isEmpty)
+            _NothingComingUp(
+              showCount: data.showCount,
+              next: data.nextAfterWindow,
+            )
+          else
+            Column(children: [for (final e in comingUp) row(e)]),
+          if (recentlyAired.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.xxl),
+            RowHeader(
+              title: 'Recently aired',
+              note: 'Last $calendarLookbackDays days',
+              size: AppType.sizeTitle,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Column(children: [for (final e in recentlyAired.reversed) row(e)]),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Some favourite shows failed to load: the page shows the rest, and says
+/// so — a missing show must not read as "nothing airing".
+class _PartialFailureBanner extends StatelessWidget {
+  const _PartialFailureBanner({
+    required this.failed,
+    required this.total,
+    required this.onRetry,
+  });
+
+  final int failed;
+  final int total;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.warn.withAlpha(AppOpacity.subtle),
+        border: Border.all(color: AppColors.warn.withValues(alpha: 0.33)),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.info_outline_rounded,
+            size: 16,
+            color: AppColors.warn,
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              "Couldn't load $failed of your $total shows, so some episodes "
+              'may be missing.',
+              style: AppType.caption(color: AppColors.fg1),
+            ),
+          ),
+          TextButton(onPressed: onRetry, child: const Text('Try again')),
+        ],
+      ),
+    );
+  }
+}
+
+/// Nothing dated in the next 30 days — said as exactly that, with the next
+/// known date when there is one. It used to tell people with favourites to
+/// "add shows to your favorites".
+class _NothingComingUp extends StatelessWidget {
+  const _NothingComingUp({required this.showCount, required this.next});
+
+  final int showCount;
+  final CalendarEpisode? next;
+
+  @override
+  Widget build(BuildContext context) {
+    final shows = showCount == 1 ? 'your 1 show' : 'your $showCount shows';
+    final upcoming = next;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.xl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Nothing airing in the next $calendarLookaheadDays days from '
+            '$shows.',
+            style: AppType.ui(size: AppType.sizeLead, color: AppColors.fg1),
+          ),
+          if (upcoming != null) ...[
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              'Next up: ${upcoming.showName} ${upcoming.episodeCode} on '
+              '${DateFormat('EEEE, MMMM d, y').format(upcoming.airDate)}.',
+              style: AppType.ui(size: AppType.sizeBody, color: AppColors.fg2),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -477,13 +421,13 @@ class _WeekStrip extends StatelessWidget {
   const _WeekStrip({
     required this.weekDays,
     required this.today,
-    required this.calendar,
+    required this.data,
     required this.onEpisodeTap,
   });
 
   final List<DateTime> weekDays;
   final DateTime today;
-  final Map<DateTime, List<CalendarEpisode>> calendar;
+  final CalendarData data;
   final ValueChanged<CalendarEpisode> onEpisodeTap;
 
   @override
@@ -492,6 +436,7 @@ class _WeekStrip extends StatelessWidget {
       builder: (context, c) {
         final colWidth = (c.maxWidth - AppSpacing.sm * 6) / 7;
         return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             for (var i = 0; i < weekDays.length; i++) ...[
               if (i > 0) const SizedBox(width: AppSpacing.sm),
@@ -500,7 +445,7 @@ class _WeekStrip extends StatelessWidget {
                 child: _WeekColumn(
                   date: weekDays[i],
                   isToday: weekDays[i] == today,
-                  episodes: calendar[weekDays[i]] ?? const [],
+                  episodes: data.on(weekDays[i]),
                   onEpisodeTap: onEpisodeTap,
                 ),
               ),
@@ -531,11 +476,11 @@ class _WeekColumn extends StatelessWidget {
       constraints: const BoxConstraints(minHeight: 220),
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: isToday
-            ? AppColors.seedColor.withAlpha(36)
-            : AppColors.bgSurface,
+        color: isToday ? AppColors.accentSoft : AppColors.bgSurface,
         border: Border.all(
-          color: isToday ? AppColors.seedColor.withAlpha(0x66) : AppColors.line,
+          color: isToday
+              ? AppColors.accent.withAlpha(AppOpacity.semi)
+              : AppColors.line,
         ),
         borderRadius: BorderRadius.circular(AppRadius.lg),
       ),
@@ -547,14 +492,14 @@ class _WeekColumn extends StatelessWidget {
             textBaseline: TextBaseline.alphabetic,
             children: [
               MonoLabel(
-                DateFormat('E').format(date).toUpperCase(),
-                color: isToday ? AppColors.accent : AppColors.fg3,
+                DateFormat('E').format(date),
+                color: isToday ? AppColors.accent : AppColors.fg2,
                 letterSpacing: 0.14,
               ),
               const Spacer(),
               SerifTitle(
                 '${date.day}',
-                size: 36,
+                size: AppType.sizeHeadline,
                 height: 1.0,
                 color: isToday ? AppColors.accent : AppColors.fg,
               ),
@@ -567,10 +512,13 @@ class _WeekColumn extends StatelessWidget {
           ],
           if (episodes.length > 3)
             Padding(
-              padding: const EdgeInsets.only(top: 2),
+              padding: const EdgeInsets.only(top: AppSpacing.xxs),
               child: Text(
                 '+${episodes.length - 3} more',
-                style: AppType.mono(size: 10, color: AppColors.fg2),
+                style: AppType.mono(
+                  size: AppType.sizeLabel,
+                  color: AppColors.fg2,
+                ),
               ),
             ),
         ],
@@ -587,28 +535,20 @@ class _DayEpisodeChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hue = episode.showName.codeUnits.fold<int>(0, (a, b) => a + b) % 360;
-    return GestureDetector(
+    final hue = hueForText(episode.showName);
+    return HubPressable(
       onTap: onTap,
-      behavior: HitTestBehavior.opaque,
+      borderRadius: BorderRadius.circular(AppRadius.xs),
       child: Container(
         padding: const EdgeInsets.all(AppSpacing.sm),
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [
-              HSLColor.fromAHSL(0.6, hue.toDouble(), 0.6, 0.3).toColor(),
-              HSLColor.fromAHSL(
-                0.6,
-                hue.toDouble() + 30 % 360,
-                0.5,
-                0.18,
-              ).toColor(),
-            ],
+            colors: calendarChipGradient(hue),
           ),
           border: Border.all(
-            color: HSLColor.fromAHSL(0.4, hue.toDouble(), 0.6, 0.5).toColor(),
+            color: HSLColor.fromAHSL(0.4, hue, 0.6, 0.5).toColor(),
           ),
           borderRadius: BorderRadius.circular(AppRadius.xs),
         ),
@@ -627,7 +567,7 @@ class _DayEpisodeChip extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: AppType.ui(
-                size: 12,
+                size: AppType.sizeCaption,
                 color: AppColors.fg,
                 weight: FontWeight.w500,
                 height: 1.2,
@@ -640,212 +580,140 @@ class _DayEpisodeChip extends StatelessWidget {
   }
 }
 
-class _AiringHeader extends StatelessWidget {
-  const _AiringHeader();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.baseline,
-      textBaseline: TextBaseline.alphabetic,
-      children: const [
-        SerifTitle('Airing this week', size: 22, height: 1.0),
-        SizedBox(width: 12),
-        MonoLabel('AUTO-GRAB', color: AppColors.fg3, letterSpacing: 0.14),
-      ],
-    );
-  }
-}
-
-class _AiringRow extends StatelessWidget {
+/// One episode in the Coming up / Recently aired lists. The row opens the
+/// show; the button on the right downloads the episode.
+class _AiringRow extends StatefulWidget {
   const _AiringRow({
     required this.episode,
     required this.today,
+    required this.busy,
     required this.onTap,
-    required this.onAutoGrab,
+    required this.onDownload,
   });
 
   final CalendarEpisode episode;
   final DateTime today;
+  final bool busy;
   final VoidCallback onTap;
-  final VoidCallback onAutoGrab;
+  final VoidCallback onDownload;
+
+  @override
+  State<_AiringRow> createState() => _AiringRowState();
+}
+
+class _AiringRowState extends State<_AiringRow> {
+  bool _active = false;
 
   @override
   Widget build(BuildContext context) {
-    final hue = episode.showName.codeUnits.fold<int>(0, (a, b) => a + b) % 360;
-    final airDate = DateTime(
-      episode.airDate.year,
-      episode.airDate.month,
-      episode.airDate.day,
-    );
-    final isToday = airDate == today;
-    final inHours = episode.airDate.difference(DateTime.now()).inHours;
-    final isLive = isToday && inHours >= 0 && inHours < 8;
+    final e = widget.episode;
+    final hue = hueForText(e.showName);
+    final isToday = e.daysFrom(widget.today) == 0;
 
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
+    return HubPressable(
+      onTap: widget.onTap,
+      onHoverChanged: (h) => setState(() => _active = h),
+      borderRadius: BorderRadius.circular(AppRadius.md),
       child: Container(
         padding: const EdgeInsets.all(AppSpacing.md),
         decoration: BoxDecoration(
-          color: AppColors.bgSurface,
+          color: _active ? AppColors.bgSurfaceHi : AppColors.bgSurface,
           border: Border.all(
-            color: isLive
-                ? AppColors.accentAmber.withAlpha(0x66)
+            color: isToday
+                ? AppColors.warn.withAlpha(AppOpacity.semi)
                 : AppColors.line,
           ),
           borderRadius: BorderRadius.circular(AppRadius.md),
         ),
         child: Row(
           children: [
-            // Date column
             SizedBox(
               width: 70,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    DateFormat('E').format(airDate).toUpperCase(),
+                    DateFormat('E').format(e.airDate).toUpperCase(),
                     style: AppType.mono(
-                      size: 10,
+                      size: AppType.sizeLabel,
                       color: AppColors.fg2,
                       weight: FontWeight.w700,
                       letterSpacing: 0.066,
                     ),
                   ),
                   Text(
-                    DateFormat('MMM d').format(airDate).toUpperCase(),
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
+                    DateFormat('MMM d').format(e.airDate),
+                    style: AppType.ui(
+                      size: AppType.sizeSubhead,
+                      weight: FontWeight.w700,
                       color: AppColors.fg,
-                      height: 1,
+                      height: 1.1,
                     ),
                   ),
                 ],
               ),
             ),
             const SizedBox(width: AppSpacing.md),
-            // Poster thumbnail — real TMDB art when we have a path,
-            // hue gradient fallback otherwise.
             ClipRRect(
               borderRadius: BorderRadius.circular(AppRadius.sm),
               child: SizedBox(
                 width: 40,
                 height: 60,
-                child:
-                    episode.posterPath != null && episode.posterPath!.isNotEmpty
+                child: e.posterPath != null && e.posterPath!.isNotEmpty
                     ? CachedNetworkImage(
                         imageUrl:
-                            'https://image.tmdb.org/t/p/w185${episode.posterPath}',
+                            'https://image.tmdb.org/t/p/w185${e.posterPath}',
                         fit: BoxFit.cover,
-                        errorWidget: (_, _, _) => _gradientPoster(hue),
-                        placeholder: (_, _) => _gradientPoster(hue),
+                        memCacheWidth: 120,
+                        errorWidget: (_, _, _) => HueBackdrop(hue: hue),
+                        placeholder: (_, _) => HueBackdrop(hue: hue),
                       )
-                    : _gradientPoster(hue),
+                    : HueBackdrop(hue: hue),
               ),
             ),
             const SizedBox(width: AppSpacing.md),
-            // Title + meta
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    episode.showName,
+                    e.showName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
+                    style: AppType.ui(
+                      size: AppType.sizeBody,
+                      weight: FontWeight.w600,
                       color: AppColors.fg,
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${episode.episodeCode} · ${DateFormat('h:mm a').format(episode.airDate)}',
+                    [
+                      e.episodeCode,
+                      if (e.episodeName != null && e.episodeName!.isNotEmpty)
+                        e.episodeName!,
+                    ].join(' · '),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: AppType.mono(size: 11, color: AppColors.fg2),
+                    style: AppType.mono(
+                      size: AppType.sizeSmall,
+                      color: AppColors.fg2,
+                    ),
                   ),
                 ],
               ),
             ),
             const SizedBox(width: AppSpacing.md),
-            // Status pill
-            isLive
-                ? Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.accentAmber.withAlpha(36),
-                      borderRadius: BorderRadius.circular(AppRadius.xs),
-                    ),
-                    child: Text(
-                      '● LIVE IN ${inHours.clamp(1, 99)}H',
-                      style: AppType.mono(
-                        size: 10,
-                        color: AppColors.accentAmber,
-                        weight: FontWeight.w700,
-                        letterSpacing: 0.05,
-                      ),
-                    ),
-                  )
-                : Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withAlpha(AppOpacity.subtle),
-                      borderRadius: BorderRadius.circular(AppRadius.xs),
-                    ),
-                    child: Text(
-                      'SCHEDULED',
-                      style: AppType.mono(
-                        size: 10,
-                        color: AppColors.fg2,
-                        weight: FontWeight.w700,
-                        letterSpacing: 0.05,
-                      ),
-                    ),
-                  ),
+            _TimingPill(
+              label: calendarTimingLabel(e, widget.today),
+              highlight: isToday,
+            ),
             const SizedBox(width: AppSpacing.sm),
-            // AUTO-GRAB button
-            GestureDetector(
-              onTap: onAutoGrab,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.md,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.seedColor,
-                  borderRadius: BorderRadius.circular(AppRadius.sm),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.download_rounded,
-                      size: 11,
-                      color: Colors.white,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      'AUTO-GRAB',
-                      style: AppType.mono(
-                        size: 11,
-                        color: Colors.white,
-                        weight: FontWeight.w700,
-                        letterSpacing: 0.05,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+            _DownloadControl(
+              episode: e,
+              today: widget.today,
+              busy: widget.busy,
+              onDownload: widget.onDownload,
             ),
           ],
         ),
@@ -854,20 +722,148 @@ class _AiringRow extends StatelessWidget {
   }
 }
 
-/// Compact gradient placeholder used when an episode has no poster
-/// path (or while the network image is loading). Hue is derived
-/// from the show name so each title looks distinct.
-Widget _gradientPoster(int hue) {
-  return DecoratedBox(
-    decoration: BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          HSLColor.fromAHSL(1, hue.toDouble(), 0.6, 0.4).toColor(),
-          HSLColor.fromAHSL(1, (hue + 30) % 360, 0.55, 0.2).toColor(),
-        ],
+class _TimingPill extends StatelessWidget {
+  const _TimingPill({required this.label, required this.highlight});
+
+  final String label;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = highlight ? AppColors.warn : AppColors.fg2;
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.xs,
       ),
-    ),
-  );
+      decoration: BoxDecoration(
+        color: highlight
+            ? AppColors.warn.withAlpha(AppOpacity.light)
+            : AppColors.glassFill,
+        borderRadius: BorderRadius.circular(AppRadius.xs),
+      ),
+      child: Text(
+        label,
+        style: AppType.ui(
+          size: AppType.sizeSmall,
+          color: color,
+          weight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+/// The Download button, or what already happened to the episode.
+///
+/// Watches Transfers, automatic-download tracking and the library, so a
+/// download started here — or by auto-download — shows on its row instead
+/// of inviting a second one.
+class _DownloadControl extends ConsumerWidget {
+  const _DownloadControl({
+    required this.episode,
+    required this.today,
+    required this.busy,
+    required this.onDownload,
+  });
+
+  final CalendarEpisode episode;
+  final DateTime today;
+  final bool busy;
+  final VoidCallback onDownload;
+
+  EpisodeStatus _status(WidgetRef ref) {
+    final e = episode;
+    final inTransfers = ref
+        .watch(transfersEpisodeIndexProvider)
+        .statusOf(e.showName, e.seasonNumber, e.episodeNumber);
+    if (inTransfers != EpisodeStatus.none) return inTransfers;
+
+    final tracking = ref.watch(showAutoDownloadTrackingProvider(e.showId));
+    if (tracking != null &&
+        tracking.season == e.seasonNumber &&
+        tracking.episode == e.episodeNumber) {
+      switch (tracking.status) {
+        case EpisodeDownloadStatus.downloading:
+          return EpisodeStatus.downloading;
+        case EpisodeDownloadStatus.downloaded:
+        case EpisodeDownloadStatus.watched:
+          return EpisodeStatus.downloaded;
+        case EpisodeDownloadStatus.notAired:
+        case EpisodeDownloadStatus.awaitingTorrent:
+        case EpisodeDownloadStatus.available:
+          break;
+      }
+    }
+
+    final library = ref.watch(localMediaFilesProvider).value ?? const [];
+    if (libraryHasEpisode(
+      library,
+      e.showName,
+      e.seasonNumber,
+      e.episodeNumber,
+    )) {
+      return EpisodeStatus.downloaded;
+    }
+    return EpisodeStatus.none;
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final status = _status(ref);
+    if (status == EpisodeStatus.downloaded ||
+        status == EpisodeStatus.downloading) {
+      return EditorialBadge(status.label, tone: status.color);
+    }
+
+    final unaired = episode.isUnairedOn(today);
+    final label = busy ? 'Starting…' : 'Download';
+    final enabled = !unaired && !busy;
+    final fg = enabled ? AppColors.onAccent : AppColors.fg2;
+    return HubPressable(
+      onTap: enabled ? onDownload : null,
+      tooltip: unaired ? "It hasn't aired yet" : null,
+      semanticLabel: 'Download ${episode.showName} ${episode.episodeCode}',
+      excludeChildSemantics: true,
+      borderRadius: BorderRadius.circular(AppRadius.sm),
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.sm,
+        ),
+        decoration: BoxDecoration(
+          color: enabled ? AppColors.accent : AppColors.bgSurfaceHi,
+          borderRadius: BorderRadius.circular(AppRadius.sm),
+          border: Border.all(
+            color: enabled ? AppColors.accent : AppColors.line,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (busy)
+              const SizedBox(
+                width: 11,
+                height: 11,
+                child: CircularProgressIndicator(
+                  strokeWidth: 1.6,
+                  color: AppColors.fg2,
+                ),
+              )
+            else
+              Icon(Icons.download_rounded, size: 13, color: fg),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: AppType.ui(
+                size: AppType.sizeCaption,
+                color: fg,
+                weight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

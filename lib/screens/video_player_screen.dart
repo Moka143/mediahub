@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
+import '../design/app_colors.dart';
 import '../models/local_media_file.dart';
+import '../models/playback_failure.dart';
+import '../models/streaming_session.dart';
 import '../providers/local_media_provider.dart';
 import '../providers/player_provider.dart';
 import '../providers/settings_provider.dart';
@@ -15,11 +17,11 @@ import '../providers/watch_progress_provider.dart';
 import '../services/app_logger.dart';
 import '../services/local_streaming_server.dart';
 import '../services/next_episode_planner.dart';
-import '../services/streaming_service.dart';
+import '../services/player_service.dart';
 import '../widgets/next_episode_overlay.dart';
+import '../widgets/player/player_error_overlay.dart';
 import '../widgets/player/player_keyboard.dart';
 import '../widgets/player/player_overlay_stack.dart';
-import '../widgets/player/up_next_chip.dart';
 import '../widgets/streaming_status_indicator.dart';
 import '../widgets/video_controls.dart';
 import '_player_next_episode_controller.dart';
@@ -41,12 +43,12 @@ class VideoPlayerScreen extends ConsumerStatefulWidget {
   /// Configures the player to tolerate incomplete data.
   final bool isStreaming;
 
-  /// qBittorrent info-hash for the torrent backing this stream, used by the
+  /// Info-hash of the torrent backing this stream, used by the
   /// PlaybackHealthMonitor to track download edge and prevent over-read into
   /// sparse (zero-filled) regions. Only meaningful when [isStreaming] is true.
   final String? streamingTorrentHash;
 
-  /// Index of the target file within the torrent (matches qBittorrent's file
+  /// Index of the target file within the torrent (matches the engine's file
   /// list order). Used alongside [streamingTorrentHash]. Only meaningful when
   /// [isStreaming] is true.
   final int? streamingFileIndex;
@@ -86,6 +88,32 @@ class VideoPlayerScreen extends ConsumerStatefulWidget {
     this.streamingSessionId,
   });
 
+  /// The player for [file], fed by [session] when it is a stream.
+  ///
+  /// The one place a [StreamingSession] becomes player arguments. Four call
+  /// sites used to copy the six streaming fields by hand, and the copy in the
+  /// next-episode hand-off had already dropped two of them.
+  factory VideoPlayerScreen.fromSession({
+    Key? key,
+    required LocalMediaFile file,
+    StreamingSession? session,
+    String? showImdbId,
+    String? movieImdbId,
+    Duration? startPosition,
+  }) => VideoPlayerScreen(
+    key: key,
+    file: file,
+    startPosition: startPosition,
+    showImdbId: showImdbId ?? session?.showImdbId,
+    movieImdbId: movieImdbId ?? session?.movieImdbId,
+    isStreaming: session != null,
+    streamingTorrentHash: session?.torrentHash,
+    streamingFileIndex: session?.selectedFileIndex,
+    streamingProxyUrl: session?.streamUrl,
+    initialBufferedRatio: session?.bufferProgress,
+    streamingSessionId: session?.id,
+  );
+
   @override
   ConsumerState<VideoPlayerScreen> createState() => _VideoPlayerScreenState();
 }
@@ -95,6 +123,18 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
         PlayerNextEpisodeController<VideoPlayerScreen>,
         PlayerStreamingHealth<VideoPlayerScreen>,
         PlayerWindowChrome<VideoPlayerScreen> {
+  /// How long the controls stay up after the last pointer or key activity.
+  static const Duration _controlsHideDelay = Duration(seconds: 3);
+
+  /// How long the ±10 s ripple stays on screen.
+  static const Duration _skipIndicatorDuration = Duration(milliseconds: 500);
+
+  /// Drag-to-seek: seconds moved per pixel dragged (100 px = 10 s).
+  static const double _dragSecondsPerPixel = 0.1;
+
+  /// Saved progress below this fraction plays from the start without asking.
+  static const double _resumePromptMinProgress = 0.05;
+
   bool _showControls = true;
   Timer? _hideControlsTimer;
   bool _showResumePrompt = false;
@@ -112,6 +152,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
   // Double tap indicators
   bool _showSkipForward = false;
   bool _showSkipBackward = false;
+  int _skipTick = 0;
   Timer? _skipIndicatorTimer;
 
   // Binge watching. The *when* — trigger window, overlay-vs-autoplay and
@@ -121,19 +162,33 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
   // only because `build()` reads it to decide whether to draw the overlay.
   late final NextEpisodePlanner _planner;
 
-  /// Captured in [initState] so [dispose] can reach it without `ref.read`,
+  /// Captured in [initState] so [dispose] can reach them without `ref.read`,
   /// which is not safe there.
   late final StreamingSessionsNotifier _streamingSessions;
+  late final PlayerService _playerService;
+
+  /// The shared player's [PlayerService.generation] for the file this screen
+  /// asked it to open; null until it has asked. What lets this screen stop
+  /// playback it started — however it leaves — without stopping a file a
+  /// newer screen has opened since.
+  int? _openGeneration;
+
+  StreamSubscription<PlaybackFailure>? _failureSubscription;
+
+  /// Why this file could not be played, once mpv has given up on it.
+  PlaybackFailure? _failure;
 
   /// Streaming sessions this screen must tear down on dispose. Set to null
   /// the moment a session is handed to a replacement screen — that screen
   /// takes ownership with it, and cancelling here would kill the proxy the
   /// next episode is about to read from.
   String? _ownedSessionId;
+
   @override
   void initState() {
     super.initState();
     _streamingSessions = ref.read(streamingSessionsProvider.notifier);
+    _playerService = ref.read(playerServiceProvider);
     _ownedSessionId = widget.streamingSessionId;
     _keyboardFocus = FocusNode();
     _planner = NextEpisodePlanner(
@@ -148,40 +203,18 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
     }
     // Delay initialization to after widget tree is built
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _keyboardFocus.requestFocus();
-      _initializePlayer();
-      setupNextEpisodeWatcher();
+      if (!mounted) return;
+      _keyboardFocus.requestFocus();
+      unawaited(_initializePlayer());
+      unawaited(setupNextEpisodeWatcher());
       setupAutoDownloadWatcher();
       setupPlaybackCompletionWatcher();
     });
   }
 
   Future<void> _initializePlayer() async {
-    final playerService = ref.read(playerServiceProvider);
-
-    // Set up subtitle context if movie IMDB ID is provided
-    if (widget.movieImdbId != null) {
-      ref
-          .read(subtitleContextProvider.notifier)
-          .setMovieContext(widget.movieImdbId!);
-      AppLog.d('[Subtitles] Set movie context: ${widget.movieImdbId}');
-    }
-
-    // Set up subtitle context if show IMDB ID is provided with episode info
-    if (widget.showImdbId != null &&
-        widget.file.seasonNumber != null &&
-        widget.file.episodeNumber != null) {
-      ref
-          .read(subtitleContextProvider.notifier)
-          .setSeriesContext(
-            imdbId: widget.showImdbId!,
-            season: widget.file.seasonNumber!,
-            episode: widget.file.episodeNumber!,
-          );
-      AppLog.d(
-        '[Subtitles] Set series context from widget: ${widget.showImdbId} S${widget.file.seasonNumber}E${widget.file.episodeNumber}',
-      );
-    }
+    _resetSubtitleState();
+    _failureSubscription = _playerService.failures.listen(_onPlaybackFailure);
 
     // Check for existing progress
     final existingProgress = ref.read(
@@ -189,7 +222,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
     );
 
     if (existingProgress != null &&
-        existingProgress.progress > 0.05 &&
+        existingProgress.progress > _resumePromptMinProgress &&
         !existingProgress.shouldMarkCompleted &&
         widget.startPosition == null) {
       // Show resume prompt — streaming UI is wired up later in _handleResume
@@ -208,80 +241,115 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
           'localPath=${widget.file.path}',
         );
       }
-      // Open the file FIRST, then wire up streaming-specific listeners.
-      //
-      // Earlier this called `setupStreamingBufferingDebounce()` before
-      // `openFile()`, with the intent of "not missing any initial buffering
-      // events". In practice that order made `waitForFirstPlay` (called
-      // from inside the debounce setup) capture a stale baseline from the
-      // previous session's player state — so the grace period either
-      // cleared too early or the spinner waited on an event that could
-      // never fire. Setting up after open() is safe: the grace flag still
-      // suppresses the spinner during initial decode.
-      await playerService.openFile(
-        widget.file,
-        startPosition: widget.startPosition,
-        isStreaming: widget.isStreaming,
-        streamUrl: widget.streamingProxyUrl,
-      );
-      if (mounted) setState(() => _mediaOpened = true);
-      if (widget.isStreaming) {
-        setupStreamingBufferingDebounce();
-        startPlaybackHealthMonitor();
-      }
-
-      // Auto-load a previously selected / sidecar subtitle. Best-effort —
-      // any failure logs and falls through (user can still pick manually).
-      unawaited(_autoLoadSubtitle());
+      await _openMedia(startPosition: widget.startPosition);
     }
 
-    _startHideControlsTimer();
+    if (mounted) _startHideControlsTimer();
+  }
+
+  /// Point the app-wide subtitle state at this file.
+  ///
+  /// The OpenSubtitles query and the selected external subtitle live in
+  /// keep-alive providers, and nothing reset them between videos. A Library
+  /// file — which opens with no IMDB id of its own — listed and loaded the
+  /// previous movie's subtitles, saved choices under that movie's key, and
+  /// showed its CC icon as on; pressing F re-applied the old track.
+  void _resetSubtitleState() {
+    final query = ref.read(subtitleContextProvider.notifier)..clear();
+    ref.read(currentExternalSubtitleProvider.notifier).beginFile(widget.file);
+    ref.read(sidecarSubtitlesProvider.notifier).set(const []);
+
+    final movieImdbId = widget.movieImdbId;
+    final showImdbId = widget.showImdbId;
+    final season = widget.file.seasonNumber;
+    final episode = widget.file.episodeNumber;
+    if (movieImdbId != null) {
+      query.setMovieContext(movieImdbId);
+    } else if (showImdbId != null && season != null && episode != null) {
+      query.setSeriesContext(
+        imdbId: showImdbId,
+        season: season,
+        episode: episode,
+      );
+    }
+  }
+
+  /// Open the file, then wire up what depends on it being open.
+  ///
+  /// Open FIRST, then the streaming listeners. Setting up the buffering
+  /// debounce before the open made `waitForFirstPlay` (called from inside
+  /// it) capture a stale baseline from the previous session's player state —
+  /// so the grace period either cleared too early or the spinner waited on
+  /// an event that could never fire. After the open is safe: the grace flag
+  /// still suppresses the spinner during initial decode.
+  Future<void> _openMedia({Duration? startPosition}) async {
+    final opening = _playerService.openFile(
+      widget.file,
+      startPosition: startPosition,
+      isStreaming: widget.isStreaming,
+      streamUrl: widget.streamingProxyUrl,
+    );
+    // `openFile` claims the shared player before its first await, so this is
+    // the token for the file just requested.
+    final generation = _playerService.generation;
+    _openGeneration = generation;
+    await opening;
+
+    if (!mounted) {
+      // Closed while the file was still opening — `openFile` can wait six
+      // seconds for a duration before a resume seek. Nothing on screen would
+      // stop what it went on to play, and for a stream the setup below would
+      // reach `ref` on a disposed screen.
+      await _playerService.stopIfCurrent(generation);
+      return;
+    }
+    setState(() => _mediaOpened = true);
+    if (widget.isStreaming) {
+      setupStreamingBufferingDebounce();
+      startPlaybackHealthMonitor();
+    }
+
+    // Auto-load a previously selected / sidecar subtitle. Best-effort —
+    // any failure logs and falls through (user can still pick manually).
+    unawaited(_autoLoadSubtitle());
+  }
+
+  void _onPlaybackFailure(PlaybackFailure failure) {
+    if (!mounted || failure.generation != _openGeneration) return;
+    setState(() {
+      _failure = failure;
+      _showControls = true;
+    });
   }
 
   /// Resolve a subtitle for the current file in this order:
-  ///   1. Sidecar `.srt`/`.ass`/`.vtt`/etc. next to the video file, preferring
-  ///      one whose filename contains the user's preferred-language tag.
-  ///   2. Previously persisted OpenSubtitles selection for this file's
-  ///      cache key (movie IMDB / series IMDB+S##E## / path hash).
+  ///   1. The choice saved for this file — the user picked it last time.
+  ///   2. A sidecar `.srt`/`.ass`/`.vtt`/etc. next to the video file.
   ///   3. Nothing — leave subtitle off.
+  ///
+  /// Whatever loads is also recorded as the selection, so the picker shows
+  /// it and fullscreen re-applies it. A sidecar used to load without being
+  /// recorded, and was dropped by the first fullscreen toggle.
   Future<void> _autoLoadSubtitle() async {
     try {
-      final playerService = ref.read(playerServiceProvider);
       final scanner = ref.read(localMediaScannerProvider);
-      final preferredLang = ref.read(preferredSubtitleLanguageProvider);
+      final selection = ref.read(currentExternalSubtitleProvider.notifier);
+      final sidecarList = ref.read(sidecarSubtitlesProvider.notifier);
 
-      final sidecars = await scanner.findSubtitles(widget.file.path);
-      if (sidecars.isNotEmpty) {
-        String chosen = sidecars.first;
-        if (preferredLang != null && preferredLang.isNotEmpty) {
-          final lang = preferredLang.toLowerCase();
-          final byLang = sidecars.firstWhere(
-            (p) => p.toLowerCase().contains('.$lang.'),
-            orElse: () => sidecars.first,
-          );
-          chosen = byLang;
-        }
-        await playerService.loadExternalSubtitle(chosen);
-        AppLog.d('[Subtitles] Auto-loaded sidecar: $chosen');
-        return;
-      }
+      final paths = await scanner.findSubtitles(widget.file.path);
+      if (!mounted) return;
+      final sidecars = [for (final path in paths) sidecarSubtitle(path)];
+      sidecarList.set(sidecars);
 
-      final cacheKey = computeSubtitleCacheKey(
-        widget.file,
-        movieImdbId: widget.movieImdbId,
-        showImdbId: widget.showImdbId,
-      );
-      final saved = ref
-          .read(currentExternalSubtitleProvider.notifier)
-          .loadFor(cacheKey);
-      if (saved != null && saved.url.isNotEmpty) {
-        await playerService.loadExternalSubtitle(saved.url);
-        ref.read(currentExternalSubtitleProvider.notifier).set(saved);
-        AppLog.d(
-          '[Subtitles] Auto-loaded persisted choice for $cacheKey '
-          '(${saved.lang})',
-        );
-      }
+      final chosen =
+          selection.savedForCurrentFile() ??
+          (sidecars.isEmpty ? null : sidecars.first);
+      if (chosen == null || chosen.url.isEmpty) return;
+
+      await _playerService.loadExternalSubtitle(chosen.url);
+      if (!mounted) return;
+      selection.set(chosen);
+      AppLog.d('[Subtitles] Auto-loaded ${chosen.langName ?? chosen.lang}');
     } catch (e) {
       AppLog.e('[Subtitles] Auto-load failed: $e');
     }
@@ -289,51 +357,46 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
 
   void _startHideControlsTimer() {
     _hideControlsTimer?.cancel();
-    _hideControlsTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted) {
+    _hideControlsTimer = Timer(_controlsHideDelay, () {
+      if (mounted && _failure == null) {
         setState(() => _showControls = false);
       }
     });
   }
 
+  /// Bring the controls back and restart their hide timer.
+  ///
+  /// Runs on every mouse move, so it only rebuilds when the controls were
+  /// actually hidden — it used to `setState` on each move, rebuilding the
+  /// whole screen dozens of times a second while the pointer was moving.
   @override
   void onUserInteraction() {
-    setState(() => _showControls = true);
+    if (!mounted) return;
+    if (!_showControls) setState(() => _showControls = true);
     _startHideControlsTimer();
   }
 
   Future<void> _handleResume(bool resume) async {
     setState(() => _showResumePrompt = false);
-
-    final playerService = ref.read(playerServiceProvider);
-    await playerService.openFile(
-      widget.file,
-      startPosition: resume ? _resumePosition : null,
-      isStreaming: widget.isStreaming,
-      streamUrl: widget.streamingProxyUrl,
-    );
-    if (mounted) setState(() => _mediaOpened = true);
-    if (widget.isStreaming) {
-      setupStreamingBufferingDebounce();
-      startPlaybackHealthMonitor();
-    }
+    await _openMedia(startPosition: resume ? _resumePosition : null);
   }
 
-  Future<void> _exitPlayer() async {
+  /// Leave the player, stopping what it started.
+  ///
+  /// Always stops — not only once the media reported open. A file still
+  /// opening when the user left used to be skipped here and never stopped:
+  /// a local file played on with no screen in front of it.
+  Future<void> _exitPlayer({PlayerExitReason? reason}) async {
     if (_exiting) return;
     _exiting = true;
     try {
-      if (_mediaOpened) {
-        await ref.read(playerServiceProvider).stop();
-      }
+      final generation = _openGeneration;
+      if (generation != null) await _playerService.stopIfCurrent(generation);
       await exitWindowFullscreen();
-      if (mounted) {
-        Navigator.of(context).pop();
-      }
     } catch (e) {
       AppLog.e('[Player] exit failed: $e');
-      if (mounted) Navigator.of(context).pop();
     }
+    if (mounted) Navigator.of(context).pop(reason);
   }
 
   // Handle horizontal swipe to seek
@@ -357,13 +420,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
     if (!_isSeeking || _dragStartPosition == null) return;
 
     final dragDistance = details.localPosition.dx - _dragStartPosition!.dx;
-
-    // Each 100 pixels = 10 seconds
-    final seekSeconds = (dragDistance / 100) * 10;
-
-    setState(() {
-      _seekDelta = seekSeconds;
-    });
+    setState(() => _seekDelta = dragDistance * _dragSecondsPerPixel);
   }
 
   void _onHorizontalDragEnd(DragEndDetails details) {
@@ -374,7 +431,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
         ? Duration.zero
         : newPosition;
 
-    ref.read(playerServiceProvider).seek(clampedPosition);
+    unawaited(_playerService.seek(clampedPosition));
 
     setState(() {
       _isSeeking = false;
@@ -392,29 +449,30 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
   /// Skipping stays on the ← / → keys and the bottom transport buttons, both
   /// of which still show the ripple.
   void _onDoubleTap() {
-    ref.read(playerServiceProvider).playOrPause();
+    unawaited(_playerService.playOrPause());
     onUserInteraction();
   }
 
   void _seekBackward() {
     _showSkipIndicator(forward: false);
-    ref.read(playerServiceProvider).seekBackward(seconds: 10);
+    unawaited(_playerService.seekBackward());
     onUserInteraction();
   }
 
   void _seekForward() {
     _showSkipIndicator(forward: true);
-    ref.read(playerServiceProvider).seekForward(seconds: 10);
+    unawaited(_playerService.seekForward());
     onUserInteraction();
   }
 
   void _showSkipIndicator({required bool forward}) {
     _skipIndicatorTimer?.cancel();
     setState(() {
+      _skipTick++;
       _showSkipForward = forward;
       _showSkipBackward = !forward;
     });
-    _skipIndicatorTimer = Timer(const Duration(milliseconds: 500), () {
+    _skipIndicatorTimer = Timer(_skipIndicatorDuration, () {
       if (mounted) {
         setState(() {
           _showSkipForward = false;
@@ -436,6 +494,9 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
   bool get resumePromptVisible => _showResumePrompt;
 
   @override
+  String? get openedWithShowImdbId => widget.showImdbId;
+
+  @override
   String? get streamingTorrentHash => widget.streamingTorrentHash;
 
   @override
@@ -447,20 +508,17 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
   @override
   void openReplacementPlayer(
     LocalMediaFile file, {
-    String? torrentHash,
-    int? fileIndex,
-    String? proxyUrl,
-    String? sessionId,
+    StreamingSession? session,
+    String? showImdbId,
   }) {
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => VideoPlayerScreen(
-          file: file,
-          isStreaming: torrentHash != null,
-          streamingTorrentHash: torrentHash,
-          streamingFileIndex: fileIndex,
-          streamingProxyUrl: proxyUrl,
-          streamingSessionId: sessionId,
+    unawaited(
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(
+          builder: (_) => VideoPlayerScreen.fromSession(
+            file: file,
+            session: session,
+            showImdbId: showImdbId,
+          ),
         ),
       ),
     );
@@ -470,25 +528,32 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
   void dispose() {
     _hideControlsTimer?.cancel();
     _skipIndicatorTimer?.cancel();
+    unawaited(_failureSubscription?.cancel());
     disposeNextEpisodeController();
     disposeStreamingHealth();
     _keyboardFocus.dispose();
+    // Stop what this screen started, if nothing newer owns the player — the
+    // back button already did, but the route can also be removed under us
+    // (a navigator pop, the app shell replacing it). Before the session
+    // cancels below, so mpv is not left reading from a proxy that is gone.
+    final generation = _openGeneration;
+    if (generation != null) {
+      unawaited(_playerService.stopIfCurrent(generation));
+    }
     // Release the sessions this screen owns: cancelSession stops the 2 s
     // monitoring timer and shuts down the LocalStreamingServer. Uses the
-    // notifier captured in initState, not ref.read — see below.
+    // notifier captured in initState, not ref.read, which is not safe here.
     for (final sessionId in {_ownedSessionId, prefetchSessionId}) {
       if (sessionId != null) {
         unawaited(_streamingSessions.cancelSession(sessionId));
       }
     }
-    // Note: Don't use ref.read() in dispose - providers will clean up themselves.
     unawaited(exitWindowFullscreen());
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final videoController = ref.watch(videoControllerProvider);
     final isPlaying = ref.watch(isPlayingProvider).value ?? false;
     final rawBuffering = ref.watch(isBufferingProvider).value ?? false;
 
@@ -498,31 +563,50 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
         ? (streamBuffering && !streamBufferingGrace)
         : rawBuffering;
 
-    final upNext = UpNextChip.resolve(
+    final upNext = UpNextModel.resolve(
       overlayActive: _planner.overlayActive,
       downloaded: nextEpisode,
       fromTmdb: nextEpisodeFromTmdb,
       countdownSeconds: ref.read(nextEpisodeCountdownSecondsProvider),
     );
+    // Esc dismisses the card while it is expanded, rather than closing the
+    // player out from under it.
+    final dismissUpNext = upNext != null && !_planner.overlayMinimized
+        ? consumeNextEpisodePrompt
+        : null;
+    final failure = _failure;
+    final statusMessage = streamingStatusMessage;
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: AppColors.mediaBlack,
       body: Focus(
         focusNode: _keyboardFocus,
-        onKeyEvent: (node, event) {
-          _handleKeyEvent(event, ref);
-          if (event is KeyDownEvent &&
-              event.logicalKey == LogicalKeyboardKey.escape) {
-            return KeyEventResult.handled;
-          }
-          return KeyEventResult.ignored;
-        },
+        onKeyEvent: (node, event) =>
+            handlePlayerKeyEvent(
+              event,
+              ref: ref,
+              isFullscreen: isWindowFullscreen,
+              onUserInteraction: onUserInteraction,
+              onSeekBackward: _seekBackward,
+              onSeekForward: _seekForward,
+              onToggleFullscreen: () => unawaited(toggleWindowFullscreen()),
+              onExitPlayer: () => unawaited(_exitPlayer()),
+              onShowShortcuts: _showShortcutsDialog,
+              onDismissUpNext: dismissUpNext,
+              mediaOpened: _mediaOpened && failure == null,
+              resumePromptVisible: _showResumePrompt,
+            )
+            ? KeyEventResult.handled
+            : KeyEventResult.ignored,
         child: MouseRegion(
           cursor: _showControls ? MouseCursor.defer : SystemMouseCursors.none,
           onHover: (_) => onUserInteraction(),
           child: PlayerOverlayStack(
             video: _mediaOpened
-                ? Video(controller: videoController, controls: NoVideoControls)
+                ? Video(
+                    controller: ref.watch(videoControllerProvider),
+                    controls: NoVideoControls,
+                  )
                 : null,
             showBuffering: isBuffering,
             bufferingLabel: widget.isStreaming
@@ -530,22 +614,23 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
                 : null,
             showSkipForward: _showSkipForward,
             showSkipBackward: _showSkipBackward,
+            skipTick: _skipTick,
             seekDelta: _isSeeking ? _seekDelta : null,
             seekStartTime: _isSeeking ? _dragStartTime : null,
             showResumePrompt: _showResumePrompt,
             resumePosition: _resumePosition ?? Duration.zero,
-            onStartOver: () => _handleResume(false),
-            onResume: () => _handleResume(true),
+            onStartOver: () => unawaited(_handleResume(false)),
+            onResume: () => unawaited(_handleResume(true)),
             controlsVisible: _showControls,
             controls: VideoControlsOverlay(
               file: widget.file,
               isPlaying: isPlaying,
               isFullscreen: isWindowFullscreen,
-              onPlayPause: () => ref.read(playerServiceProvider).playOrPause(),
+              onPlayPause: () => unawaited(_playerService.playOrPause()),
               onSeekForward: _seekForward,
               onSeekBackward: _seekBackward,
-              onToggleFullscreen: toggleWindowFullscreen,
-              onClose: _exitPlayer,
+              onToggleFullscreen: () => unawaited(toggleWindowFullscreen()),
+              onClose: () => unawaited(_exitPlayer()),
               onShowShortcuts: _showShortcutsDialog,
               streamingDownloadedRatio: widget.isStreaming
                   ? streamingDownloadedRatio
@@ -564,20 +649,33 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
                     minimized: _planner.overlayMinimized,
                     playLabel: upNext.playLabel,
                     onPlay: upNext.playsFromDisk
-                        ? onPlayNextEpisode
-                        : onStreamNextEpisode,
+                        ? () => unawaited(onPlayNextEpisode())
+                        : () => unawaited(onStreamNextEpisode()),
                     onMinimize: minimizeNextEpisode,
                     onDismiss: consumeNextEpisodePrompt,
                     onRestore: restoreNextEpisode,
                   ),
-            statusChip: streamingStatus == null
+            statusChip: statusMessage == null
                 ? null
                 : StreamingStatusIndicator(
-                    status: streamingStatus!,
-                    message: streamingMessage,
-                    episodeCode: streamingEpisodeCode,
-                    progress: streamingProgress,
-                    onDismiss: dismissStreamingStatus,
+                    message: statusMessage,
+                    progress: streamingStatusProgress,
+                  ),
+            error: failure == null
+                ? null
+                : PlayerErrorOverlay(
+                    message: playbackFailureMessage(
+                      failure,
+                      streaming: widget.isStreaming,
+                    ),
+                    onBack: () => unawaited(_exitPlayer()),
+                    onTryAnotherSource: widget.isStreaming
+                        ? () => unawaited(
+                            _exitPlayer(
+                              reason: PlayerExitReason.tryAnotherSource,
+                            ),
+                          )
+                        : null,
                   ),
             onTap: onUserInteraction,
             onDoubleTap: _onDoubleTap,
@@ -593,24 +691,4 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
   void _showShortcutsDialog() {
     showPlayerShortcutsDialog(context, onUserInteraction: onUserInteraction);
   }
-
-  void _handleKeyEvent(KeyEvent event, WidgetRef ref) {
-    handlePlayerKeyEvent(
-      event,
-      ref: ref,
-      isFullscreen: isWindowFullscreen,
-      onUserInteraction: onUserInteraction,
-      onSeekBackward: _seekBackward,
-      onSeekForward: _seekForward,
-      onToggleFullscreen: toggleWindowFullscreen,
-      onExitPlayer: _exitPlayer,
-      onShowShortcuts: _showShortcutsDialog,
-      mediaOpened: _mediaOpened,
-      resumePromptVisible: _showResumePrompt,
-    );
-  }
 }
-
-// ---------------------------------------------------------------------------
-// Buffering indicator — branded, frosted-glass feel
-// ---------------------------------------------------------------------------

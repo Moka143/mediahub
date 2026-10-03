@@ -33,6 +33,12 @@ linter:
     # A dropped Future is a silent failure that surfaces later as a stuck
     # spinner. Mark deliberate fire-and-forget with `unawaited(...)`.
     unawaited_futures: true
+    # The same mistake one level up: a Future discarded in synchronous code
+    # (initState, a button callback) and a `void` async function, whose
+    # errors nothing can catch. Both slipped past `unawaited_futures`, and
+    # several of them used to take the whole app down.
+    discarded_futures: true
+    avoid_void_async: true
     # Timers, subscriptions and sinks that outlive their owner keep polling
     # against a disposed notifier.
     cancel_subscriptions: true

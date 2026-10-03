@@ -7,17 +7,15 @@ class AppSettings {
   //
   // Defaults to qBittorrent, not the built-in engine: an existing install has
   // a configured qBittorrent and a library in it, and a silent switch would
-  // look like every torrent disappearing. New installs are steered to the
-  // built-in engine by onboarding instead.
+  // look like every torrent disappearing. A fresh install gets the built-in
+  // engine from `SettingsNotifier.freshInstallDefaults` instead, and an
+  // install from before the engine setting existed is moved across once by
+  // `SettingsNotifier.migrateEngine`.
   final TorrentEngineKind engineKind;
 
   /// Port the bundled engine listens on. Only relevant to
   /// [TorrentEngineKind.builtin]; [port] stays qBittorrent's.
   final int rqbitPort;
-
-  /// Override for the engine binary. Empty means "find it" — bundled copy
-  /// first, then `PATH`.
-  final String rqbitPath;
 
   /// Whether the user has been told their install was moved to the built-in
   /// engine.
@@ -61,7 +59,6 @@ class AppSettings {
   AppSettings({
     this.engineKind = TorrentEngineKind.qbittorrent,
     this.rqbitPort = AppConstants.defaultRqbitPort,
-    this.rqbitPath = '',
     this.engineMigrationNoticeSeen = true,
     this.host = AppConstants.defaultHost,
     this.port = AppConstants.defaultPort,
@@ -87,9 +84,6 @@ class AppSettings {
        defaultSavePath =
            defaultSavePath ?? PlatformUtils.getDefaultDownloadPath();
 
-  /// Get the full API base URL
-  String get apiBaseUrl => 'http://$host:$port';
-
   /// Read an enum by persisted index, falling back rather than throwing.
   ///
   /// `TorrentFilter.values[json[...]]` throws on an out-of-range index, and
@@ -102,8 +96,10 @@ class AppSettings {
   }
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
-    // Note: legacy `max_connections` and `theme_mode` keys are silently
-    // dropped — neither was wired to UI. MediaHub is dark-only.
+    // Legacy keys are ignored rather than rejected: `max_connections` and
+    // `theme_mode` were never wired to any UI (the theme is pinned dark in
+    // `MediaHubApp`), and `rqbit_path` was an engine-binary override nothing
+    // could set.
     return AppSettings(
       engineKind: _enumAt(
         TorrentEngineKind.values,
@@ -111,7 +107,6 @@ class AppSettings {
         TorrentEngineKind.qbittorrent,
       ),
       rqbitPort: json['rqbit_port'] as int? ?? AppConstants.defaultRqbitPort,
-      rqbitPath: json['rqbit_path'] as String? ?? '',
       engineMigrationNoticeSeen:
           json['engine_migration_notice_seen'] as bool? ?? true,
       host: json['host'] as String? ?? AppConstants.defaultHost,
@@ -155,7 +150,6 @@ class AppSettings {
     return {
       'engine_kind': engineKind.index,
       'rqbit_port': rqbitPort,
-      'rqbit_path': rqbitPath,
       'engine_migration_notice_seen': engineMigrationNoticeSeen,
       'host': host,
       'port': port,
@@ -180,7 +174,6 @@ class AppSettings {
   AppSettings copyWith({
     TorrentEngineKind? engineKind,
     int? rqbitPort,
-    String? rqbitPath,
     bool? engineMigrationNoticeSeen,
     String? host,
     int? port,
@@ -205,7 +198,6 @@ class AppSettings {
     return AppSettings(
       engineKind: engineKind ?? this.engineKind,
       rqbitPort: rqbitPort ?? this.rqbitPort,
-      rqbitPath: rqbitPath ?? this.rqbitPath,
       engineMigrationNoticeSeen:
           engineMigrationNoticeSeen ?? this.engineMigrationNoticeSeen,
       host: host ?? this.host,
@@ -241,7 +233,6 @@ class AppSettings {
           runtimeType == other.runtimeType &&
           engineKind == other.engineKind &&
           rqbitPort == other.rqbitPort &&
-          rqbitPath == other.rqbitPath &&
           engineMigrationNoticeSeen == other.engineMigrationNoticeSeen &&
           host == other.host &&
           port == other.port &&
@@ -267,7 +258,6 @@ class AppSettings {
   int get hashCode => Object.hashAll([
     engineKind,
     rqbitPort,
-    rqbitPath,
     engineMigrationNoticeSeen,
     host,
     port,

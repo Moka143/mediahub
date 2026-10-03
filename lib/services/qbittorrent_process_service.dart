@@ -1,12 +1,13 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:process_run/process_run.dart';
 
 import '../utils/constants.dart';
 import '../utils/platform_utils.dart';
-import '../utils/poll_loop.dart';
 import 'app_logger.dart';
+import 'engine_process_support.dart';
 import 'torrent_engine_process.dart';
 
 /// Service for managing the qBittorrent process lifecycle.
@@ -16,60 +17,61 @@ import 'torrent_engine_process.dart';
 /// *desktop* application — window, tray icon and its own notifications. On
 /// macOS `open -gj` hides it at launch, but it is still the GUI app. Only
 /// Linux gets a genuinely headless binary (`qbittorrent-nox`).
-class QBittorrentProcessService implements TorrentEngineProcess {
-  Process? _process;
-  late final PollLoop _healthCheck = PollLoop(
-    name: 'qb-process-health',
-    onTick: _performHealthCheck,
-  );
-  bool _isStarting = false;
-
-  /// Not final: [start] rewrites it when [findExecutable] locates qBittorrent
-  /// somewhere other than the configured path.
-  String _qbittorrentPath;
-  final int _port;
-  final String _host;
-
-  /// Callback for when connection status changes
-  final void Function(bool isConnected)? onConnectionStatusChanged;
-
-  /// Callback for logging
-  final void Function(String message)? onLog;
-
+///
+/// ## Stopping it
+///
+/// One policy on every platform: a qBittorrent this app launched is asked to
+/// quit through its own Web API when the app closes — the same clean exit as
+/// its File → Exit, resume data saved — and one the user started is never
+/// touched. There used to be three behaviours: Windows hard-killed it
+/// (TerminateProcess, so no resume data), macOS did nothing (the PID it held
+/// was `open`'s, long exited), and Windows only even tried while no setting
+/// had changed since the launch.
+class QBittorrentProcessService extends EngineProcessSupport {
   QBittorrentProcessService({
     String? qbittorrentPath,
-    int port = AppConstants.defaultPort,
-    String host = AppConstants.defaultHost,
-    this.onConnectionStatusChanged,
-    this.onLog,
+    super.port = AppConstants.defaultPort,
+    super.host = AppConstants.defaultHost,
+    Future<bool> Function()? requestQuit,
   }) : _qbittorrentPath =
            qbittorrentPath ?? PlatformUtils.getDefaultQBittorrentPath(),
-       _port = port,
-       _host = host;
+       _requestQuit = requestQuit,
+       super(engineName: 'qBittorrent', logTag: 'QBittorrentProcess');
 
-  /// Whether this service may start and restart a qBittorrent process.
-  ///
-  /// False when the user has pointed the app at another machine: we cannot
-  /// launch a process there, and probing our own loopback port to decide
-  /// would answer "not running" forever — which had the health check trying
-  /// to spawn a local qBittorrent every 5 s against a perfectly healthy
-  /// remote one.
+  /// Not final: [launch] rewrites it when [findExecutable] locates
+  /// qBittorrent somewhere other than the configured path.
+  String _qbittorrentPath;
+
+  /// Asks the running qBittorrent to quit through its Web API. Supplied by
+  /// whoever builds this service, which is what holds the credentials.
+  final Future<bool> Function()? _requestQuit;
+
+  /// Set when the app starts closing, and never cleared — see
+  /// [EngineProcessSupport.isClosing].
+  static bool _closing = false;
+
+  /// How to ask the qBittorrent this app launched to quit, or null when the
+  /// app launched none. Static: the instance that launched it may have been
+  /// replaced — or the user may have switched engines — by the time the app
+  /// closes.
+  static Future<bool> Function()? _quitLaunched;
+
   @override
-  bool get managesLocalProcess => PlatformUtils.isLocalHost(_host);
+  bool get isClosing => _closing;
 
-  // No setters: a settings change rebuilds this service through
-  // `qbProcessServiceProvider`.
+  /// Whether this run of the app launched a qBittorrent.
+  @visibleForTesting
+  static bool get launchedThisSession => _quitLaunched != null;
 
-  /// Check if qBittorrent is currently running (by checking if port is in use)
-  @override
-  Future<bool> isRunning() async {
-    return PlatformUtils.isPortInUse(_port, host: _host);
+  @visibleForTesting
+  static void resetForTest() {
+    _closing = false;
+    _quitLaunched = null;
   }
 
   /// Check if the qBittorrent executable exists
-  Future<bool> executableExists() async {
-    return PlatformUtils.qBittorrentExists(_qbittorrentPath);
-  }
+  Future<bool> executableExists() =>
+      PlatformUtils.qBittorrentExists(_qbittorrentPath);
 
   /// Find the qBittorrent executable.
   ///
@@ -89,206 +91,100 @@ class QBittorrentProcessService implements TorrentEngineProcess {
       for (final name in names) {
         final result = whichSync(name);
         if (result != null) {
-          _log('Found qBittorrent at: $result');
+          debug('Found qBittorrent at: $result');
           return result;
         }
       }
 
       for (final candidate in PlatformUtils.qBittorrentCandidates()) {
         if (await PlatformUtils.qBittorrentExists(candidate)) {
-          _log('Found qBittorrent at: $candidate');
+          debug('Found qBittorrent at: $candidate');
           return candidate;
         }
       }
     } catch (e) {
-      _log('Error finding qBittorrent: $e');
+      log('Error finding qBittorrent: $e');
     }
     return null;
   }
 
-  /// Start qBittorrent process
   @override
-  Future<bool> start() async {
-    if (_isStarting) {
-      _log('Already starting qBittorrent...');
-      return false;
-    }
-
+  Future<bool> launch() async {
     if (!managesLocalProcess) {
-      _log('qBittorrent is remote ($_host) — not starting a local process');
-      _isStarting = false;
+      log('qBittorrent is remote ($host) — not starting a local process');
       return isRunning();
     }
 
-    _isStarting = true;
-
-    try {
-      // Check if already running
-      if (await isRunning()) {
-        _log('qBittorrent is already running on port $_port');
-        _isStarting = false;
-        onConnectionStatusChanged?.call(true);
-        _startHealthCheck();
-        return true;
-      }
-
-      // Check if executable exists
-      if (!await executableExists()) {
-        // Try to find it
-        final found = await findExecutable();
-        if (found != null) {
-          _qbittorrentPath = found;
-        } else {
-          _log('qBittorrent executable not found at: $_qbittorrentPath');
-          _isStarting = false;
-          return false;
-        }
-      }
-
-      _log('Starting qBittorrent from: $_qbittorrentPath');
-
-      // On macOS, use `open -gj` to launch the app hidden and in the background
-      if (Platform.isMacOS && _qbittorrentPath.contains('.app/')) {
-        // Extract the .app bundle path from the binary path
-        final appPath = _qbittorrentPath.substring(
-          0,
-          _qbittorrentPath.indexOf('.app/') + '.app'.length,
-        );
-        final args = <String>[
-          '-g', // Don't bring to foreground
-          '-j', // Launch hidden
-          appPath,
-          '--args',
-          '--webui-port=$_port',
-        ];
-        _process = await Process.start(
-          'open',
-          args,
-          mode: ProcessStartMode.detached,
-        );
-      } else {
-        // Build arguments
-        final args = _buildArguments();
-
-        // Start the process
-        _process = await Process.start(
-          _qbittorrentPath,
-          args,
-          mode: ProcessStartMode.detached,
-        );
-      }
-
-      _log('qBittorrent process started with PID: ${_process?.pid}');
-
-      // Wait for qBittorrent to be ready
-      final ready = await _waitForReady();
-      if (ready) {
-        _log('qBittorrent is ready');
-        onConnectionStatusChanged?.call(true);
-        _startHealthCheck();
-      } else {
-        _log('qBittorrent failed to start');
-        onConnectionStatusChanged?.call(false);
-      }
-
-      _isStarting = false;
-      return ready;
-    } catch (e) {
-      _log('Error starting qBittorrent: $e');
-      _isStarting = false;
-      return false;
-    }
-  }
-
-  /// Build command line arguments based on platform
-  List<String> _buildArguments() {
-    final args = <String>[];
-
-    if (Platform.isMacOS) {
-      // macOS doesn't need special args if Web UI is enabled in preferences
-      args.add('--webui-port=$_port');
-    } else if (Platform.isWindows) {
-      args.add('--webui-port=$_port');
-    } else if (Platform.isLinux) {
-      // qbittorrent-nox is already a daemon, just specify port
-      args.add('--webui-port=$_port');
+    if (await isRunning()) {
+      log('qBittorrent is already running on port $port');
+      return true;
     }
 
-    return args;
-  }
-
-  /// Wait for qBittorrent to be ready (with retry logic)
-  Future<bool> _waitForReady({
-    int maxAttempts = AppConstants.maxRetryAttempts,
-    Duration initialDelay = AppConstants.initialRetryDelay,
-  }) async {
-    var delay = initialDelay;
-
-    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
-      _log('Waiting for qBittorrent... (attempt $attempt/$maxAttempts)');
-
-      await Future.delayed(delay);
-
-      if (await isRunning()) {
-        return true;
+    if (!await executableExists()) {
+      final found = await findExecutable();
+      if (found == null) {
+        log('qBittorrent executable not found at: $_qbittorrentPath');
+        return failWith(EngineStartFailure.notFound);
       }
+      _qbittorrentPath = found;
+    }
+    if (isClosing || isDisposed) return failWith(EngineStartFailure.closing);
 
-      // Exponential backoff
-      delay = Duration(
-        milliseconds:
-            (delay.inMilliseconds * AppConstants.retryBackoffMultiplier)
-                .round(),
+    log('Starting qBittorrent from: $_qbittorrentPath');
+    if (Platform.isMacOS && _qbittorrentPath.contains('.app/')) {
+      // `open -gj` launches the bundle hidden and in the background. The
+      // process it returns is `open`'s, which exits at once — which is why
+      // stopping goes through the Web API rather than a PID.
+      final appPath = _qbittorrentPath.substring(
+        0,
+        _qbittorrentPath.indexOf('.app/') + '.app'.length,
       );
+      await Process.start('open', [
+        '-g', // Don't bring to foreground
+        '-j', // Launch hidden
+        appPath,
+        '--args',
+        '--webui-port=$port',
+      ], mode: ProcessStartMode.detached);
+    } else {
+      await Process.start(_qbittorrentPath, [
+        '--webui-port=$port',
+      ], mode: ProcessStartMode.detached);
     }
 
-    return false;
+    // Recorded at launch, not at readiness: one that takes too long to
+    // answer is still ours to close.
+    _quitLaunched = _requestQuit;
+
+    final ready = await waitForReady();
+    log(ready ? 'qBittorrent is ready' : 'qBittorrent failed to start');
+    return ready;
   }
 
-  /// Start health check timer
-  void _startHealthCheck() {
-    _healthCheck.start(AppConstants.connectionCheckInterval);
-  }
-
-  /// Perform a health check
-  Future<void> _performHealthCheck() async {
-    final running = await isRunning();
-    if (running) return;
-
-    _log('qBittorrent health check failed - not running');
-    onConnectionStatusChanged?.call(false);
-
-    if (!managesLocalProcess) return;
-
-    // Try to restart
-    _log('Attempting to restart qBittorrent...');
-    await start();
-  }
-
-  /// Stop qBittorrent process
-  @override
-  Future<void> stop() async {
-    _healthCheck.stop();
-
-    if (_process != null) {
-      _log('Stopping qBittorrent process...');
-      _process?.kill(ProcessSignal.sigterm);
-      _process = null;
+  /// Ask a qBittorrent this app launched to quit; leave anything else alone.
+  ///
+  /// [closing] makes it final for this run of the app: no service may launch
+  /// one again, which is what stops a health check that was already in
+  /// flight from relaunching it moments after it was asked to go.
+  static Future<void> quitIfLaunched({bool closing = false}) async {
+    if (closing) _closing = true;
+    final quit = _quitLaunched;
+    if (quit == null) return;
+    _quitLaunched = null;
+    AppLog.i('[QBittorrentProcess] asking the qBittorrent we launched to quit');
+    try {
+      final ok = await quit();
+      AppLog.i(
+        '[QBittorrentProcess] ${ok ? 'qBittorrent is quitting' : 'qBittorrent did not accept the request to quit'}',
+      );
+    } catch (e) {
+      AppLog.w('[QBittorrentProcess] could not ask qBittorrent to quit: $e');
     }
-
-    onConnectionStatusChanged?.call(false);
   }
 
-  /// Dispose of resources
+  /// Stop checking on qBittorrent. It keeps running: it is the user's
+  /// desktop application, and whether it closes with this app is decided once,
+  /// at shutdown, by [quitIfLaunched].
   @override
-  void dispose() {
-    _healthCheck.dispose();
-    // Note: We don't kill the process on dispose as qBittorrent should keep running
-  }
-
-  /// Log a message. The tag is applied here rather than at the [onLog]
-  /// adapter, so a line is tagged exactly once.
-  void _log(String message) {
-    AppLog.d('[QBittorrentProcess] $message');
-    onLog?.call(message);
-  }
+  Future<void> stop() async => stopKeepingAlive();
 }

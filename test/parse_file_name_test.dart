@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mediahub/models/local_media_file.dart';
+import 'package:mediahub/models/watch_progress.dart';
 
 /// Tests for the show name the library derives from a filename.
 ///
@@ -88,6 +89,46 @@ void main() {
 
     test('handles two-digit seasons', () {
       expect(numbersOf('Show.S10E11.mkv'), (season: 10, episode: 11));
+    });
+
+    test('keeps three-digit episodes whole', () {
+      // `[Ee](\d{1,2})` with no trailing boundary read `S01E105` as episode
+      // 10, and `1x123` as 12 — the library then listed the wrong episode.
+      expect(numbersOf('One.Piece.S01E105.mkv'), (season: 1, episode: 105));
+      expect(numbersOf('Show.1x123.mkv'), (season: 1, episode: 123));
+    });
+
+    test('does not read a resolution as an episode', () {
+      expect(numbersOf('Movie.1920x1080.mkv'), (season: null, episode: null));
+    });
+  });
+
+  group('LocalMediaFile.fromProgress', () {
+    test('carries everything the progress row knows', () {
+      final file = LocalMediaFile.fromProgress(
+        WatchProgress(
+          fileHash: WatchProgress.generateHash(
+            '/lib/Severance.S02E04.1080p.mkv',
+          ),
+          filePath: '/lib/Severance.S02E04.1080p.mkv',
+          showName: 'Severance',
+          showId: 95396,
+          seasonNumber: 2,
+          episodeNumber: 4,
+          posterPath: '/p.jpg',
+          position: const Duration(minutes: 20),
+          duration: const Duration(minutes: 50),
+          lastWatched: DateTime(2026, 9, 1),
+        ),
+      );
+
+      expect(file.fileName, 'Severance.S02E04.1080p.mkv');
+      expect(file.extension, 'mkv');
+      expect(file.showId, 95396);
+      expect(file.posterPath, '/p.jpg');
+      expect(file.episodeCode, 'S02E04');
+      expect(file.quality, '1080p');
+      expect(file.watchProgress, closeTo(0.4, 0.001));
     });
   });
 

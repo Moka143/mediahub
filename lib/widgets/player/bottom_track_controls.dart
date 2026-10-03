@@ -1,18 +1,20 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
+import '../../models/streaming_status.dart';
 import '../../providers/auto_download_provider.dart';
 import '../../services/app_logger.dart';
 import '../../utils/formatters.dart';
 import '../editorial/editorial.dart';
-import '../streaming_status_indicator.dart';
 import 'track_buttons.dart';
 
 /// Soft-tinted pill grouping the track-selection controls in the bottom bar:
 /// subtitles, audio, playback speed, and (for series) the per-show
-/// "Continue Watching" toggle.
+/// Next episode mode.
 ///
 /// Replaces the trio that used to crowd the top bar — modern desktop players
 /// (YouTube/Plex) anchor track-selection at the bottom near the seek bar.
@@ -23,8 +25,8 @@ class BottomTrackControls extends StatelessWidget {
   /// row. The functional controls are unchanged.
   final bool isCompact;
 
-  /// Forwarded to `ContinueWatchingToggle` so the player can kick off
-  /// the auto-download immediately when the user opts in.
+  /// Forwarded to [NextEpisodeModeToggle] so the player can fetch the next
+  /// episode immediately when the user switches it On.
   final VoidCallback? onContinueWatchingActivated;
 
   final NextEpisodePrefetch? nextEpisodePrefetch;
@@ -43,7 +45,7 @@ class BottomTrackControls extends StatelessWidget {
     final iconSize = isCompact ? AppIconSize.md : AppIconSize.lg;
 
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHigh.withValues(
           alpha: AppOpacity.medium / 255.0,
@@ -63,9 +65,10 @@ class BottomTrackControls extends StatelessWidget {
           AudioTrackButton(iconSize: iconSize),
           PlaybackSpeedButton(iconSize: iconSize),
           if (showId != null)
-            ContinueWatchingToggle(
+            NextEpisodeModeToggle(
               showId: showId!,
               iconSize: iconSize,
+              compact: isCompact,
               onActivated: onContinueWatchingActivated,
             ),
           NextEpisodePrefetchIndicator(
@@ -78,9 +81,9 @@ class BottomTrackControls extends StatelessWidget {
   }
 }
 
-/// Thin spinner (and optional episode code) that sits beside the Continue
-/// Watching pill while the next episode prefetches. Replaces the old card
-/// that sat on top of the video.
+/// Thin spinner (and optional episode code) that sits beside the Next
+/// episode pill while the next episode is fetched in the background.
+/// Replaces the old card that sat on top of the video.
 class NextEpisodePrefetchIndicator extends StatelessWidget {
   const NextEpisodePrefetchIndicator({
     super.key,
@@ -94,7 +97,7 @@ class NextEpisodePrefetchIndicator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final data = prefetch;
-    final spinnerSize = compact ? 12.0 : 14.0;
+    final spinnerSize = compact ? AppIconSize.xs - 2 : AppIconSize.xs;
 
     return AnimatedSize(
       duration: AppDuration.fast,
@@ -122,8 +125,7 @@ class NextEpisodePrefetchIndicator extends StatelessWidget {
                         const SizedBox(width: AppSpacing.xs),
                         MonoLabel(
                           data.episodeCode!,
-                          size: 9,
-                          color: Colors.white70,
+                          color: AppColors.onMediaMuted,
                           letterSpacing: 0.08,
                         ),
                       ],
@@ -136,8 +138,7 @@ class NextEpisodePrefetchIndicator extends StatelessWidget {
                             data.progress!,
                             decimals: 0,
                           ),
-                          size: 9,
-                          color: Colors.white70,
+                          color: AppColors.onMediaMuted,
                           letterSpacing: 0.04,
                           uppercase: false,
                         ),
@@ -153,18 +154,17 @@ class NextEpisodePrefetchIndicator extends StatelessWidget {
   Widget _glyph(NextEpisodePrefetch data, double size) {
     switch (data.status) {
       case StreamingStatus.searching:
-      case StreamingStatus.found:
         return CircularProgressIndicator(
           strokeWidth: 1.6,
-          color: Colors.white.withValues(alpha: 0.85),
-          backgroundColor: Colors.white.withValues(alpha: 0.2),
+          color: AppColors.onMedia.withValues(alpha: 0.85),
+          backgroundColor: AppColors.onMedia.withAlpha(AppOpacity.medium),
         );
       case StreamingStatus.buffering:
         return CircularProgressIndicator(
           strokeWidth: 1.6,
           value: data.progress,
-          color: Colors.white.withValues(alpha: 0.85),
-          backgroundColor: Colors.white.withValues(alpha: 0.2),
+          color: AppColors.onMedia.withValues(alpha: 0.85),
+          backgroundColor: AppColors.onMedia.withAlpha(AppOpacity.medium),
         );
       case StreamingStatus.ready:
         return Icon(Icons.check_rounded, size: size, color: AppColors.ok);
@@ -181,9 +181,10 @@ class NextEpisodePrefetchIndicator extends StatelessWidget {
     final prefix = data.episodeCode ?? 'Next episode';
     switch (data.status) {
       case StreamingStatus.searching:
-      case StreamingStatus.found:
-        return '$prefix · finding source';
+        return '$prefix · finding a source';
       case StreamingStatus.buffering:
+        final message = data.message;
+        if (message != null) return '$prefix · $message';
         final parts = <String>[prefix];
         if (data.progress != null && data.progress! > 0) {
           parts.add(Formatters.formatProgress(data.progress!));
@@ -191,43 +192,51 @@ class NextEpisodePrefetchIndicator extends StatelessWidget {
         if (data.downloadRateBytesPerSec > 0) {
           parts.add(Formatters.formatSpeed(data.downloadRateBytesPerSec));
         } else if (data.progress == null || data.progress! <= 0) {
-          parts.add('buffering');
+          parts.add('getting ready');
         }
         return parts.join(' · ');
       case StreamingStatus.ready:
         return '$prefix · ready';
       case StreamingStatus.error:
-        return data.message ?? '$prefix · failed';
+        return data.message ?? "$prefix · couldn't start";
     }
   }
 }
 
-/// Per-show "Continue Watching" pill in the bottom bar.
+/// Per-show "Next episode" pill in the bottom bar.
 ///
 /// Three states:
 ///   • **Auto** (default) — Up Next card near the end; you confirm. Does
-///     not cover the player. Follows Settings → Auto-Download for prefetch.
-///   • **On** — prefetch the next episode at the watch threshold (default
-///     70%, set in Settings) so it is ready, then play it only when this
-///     episode actually ends.
-///   • **Off** — never prefetch, never auto-play this show.
+///     not cover the player. Follows Settings → Auto-Download for fetching
+///     ahead.
+///   • **On** — fetch the next episode at the watch threshold (default 70%,
+///     set in Settings) so it is ready, then play it only when this episode
+///     actually ends.
+///   • **Off** — never fetch ahead, never auto-play this show.
 ///
-/// Tap cycles `Auto → On → Off → Auto`. Persisted in [AutoDownloadState]
-/// via `setShowAutoDownloadOverride`. Turning On mid-episode only starts
-/// the prefetch if playback is already past the threshold.
-class ContinueWatchingToggle extends ConsumerWidget {
+/// Click cycles `Auto → On → Off → Auto`. Persisted in [AutoDownloadState]
+/// via `setShowAutoDownloadOverride`. Turning On mid-episode only starts the
+/// fetch if playback is already past the threshold.
+///
+/// It used to read "Continue Watching", the name of the Home row of
+/// half-watched titles — two unrelated things under one label.
+class NextEpisodeModeToggle extends ConsumerWidget {
   final int showId;
   final double iconSize;
 
+  /// Narrow window: show only the mode, not "Next episode:".
+  final bool compact;
+
   /// Fired only on the `null → true` and `false → true` transitions.
   /// If playback is already past the auto-download threshold, the player
-  /// prefetches the next episode in the background without switching to it.
+  /// fetches the next episode in the background without switching to it.
   final VoidCallback? onActivated;
 
-  const ContinueWatchingToggle({
+  const NextEpisodeModeToggle({
     super.key,
     required this.showId,
     this.iconSize = AppIconSize.lg,
+    this.compact = false,
     this.onActivated,
   });
 
@@ -240,7 +249,7 @@ class ContinueWatchingToggle extends ConsumerWidget {
 
     // Visual state mapping
     final IconData icon;
-    final String label;
+    final String mode;
     final Color bgColor;
     final Color borderColor;
     final Color fgColor;
@@ -248,32 +257,34 @@ class ContinueWatchingToggle extends ConsumerWidget {
 
     if (override == true) {
       icon = Icons.playlist_play_rounded;
-      label = 'On';
+      mode = 'On';
       bgColor = scheme.primaryContainer;
       borderColor = Colors.transparent;
       fgColor = scheme.onPrimaryContainer;
       tooltip =
-          'On — prefetch at ${((state.progressThreshold) * 100).toInt()}%, play when this episode ends';
+          'Next episode: On — fetch it at '
+          '${(state.progressThreshold * 100).toInt()}% and play it when '
+          'this one ends';
     } else if (override == false) {
       icon = Icons.playlist_remove_rounded;
-      label = 'Off';
+      mode = 'Off';
       bgColor = scheme.surfaceContainerHigh;
       borderColor = Colors.transparent;
       fgColor = scheme.onSurfaceVariant;
-      tooltip = 'Off — do not prefetch the next episode';
+      tooltip = "Next episode: Off — don't fetch or play the next episode";
     } else {
       icon = Icons.playlist_play_rounded;
-      label = 'Auto';
+      mode = 'Auto';
       bgColor = Colors.transparent;
       borderColor = scheme.outlineVariant.withValues(
         alpha: AppOpacity.semi / 255.0,
       );
       fgColor = scheme.onSurfaceVariant;
-      tooltip = 'Auto — Up Next card near the end, player stays usable';
+      tooltip = 'Next episode: Auto — offer it near the end';
     }
 
     return Tooltip(
-      message: tooltip,
+      message: '$tooltip. Click to change.',
       child: InkWell(
         onTap: () {
           // Auto → On → Off → Auto
@@ -283,14 +294,17 @@ class ContinueWatchingToggle extends ConsumerWidget {
               ? false
               : null;
           AppLog.d(
-            '[ContinueWatching] tapped: showId=$showId override=$override → ${next ?? "auto"}',
+            '[NextEpisodeMode] clicked: showId=$showId override=$override → '
+            '${next ?? "auto"}',
           );
-          ref
-              .read(autoDownloadProvider.notifier)
-              .setShowAutoDownloadOverride(showId, next);
-          // Notify the player when we just opted in, so it can kick off
-          // the next-episode auto-download immediately rather than waiting
-          // for the progress threshold.
+          unawaited(
+            ref
+                .read(autoDownloadProvider.notifier)
+                .setShowAutoDownloadOverride(showId, next),
+          );
+          // Notify the player when we just opted in, so it can fetch the
+          // next episode immediately rather than waiting for the progress
+          // threshold.
           if (next == true) {
             onActivated?.call();
           }
@@ -300,7 +314,7 @@ class ContinueWatchingToggle extends ConsumerWidget {
           duration: AppDuration.normal,
           curve: Curves.easeOutCubic,
           height: iconSize + AppSpacing.md,
-          padding: EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
           decoration: BoxDecoration(
             color: bgColor,
             borderRadius: BorderRadius.circular(AppRadius.full),
@@ -315,14 +329,14 @@ class ContinueWatchingToggle extends ConsumerWidget {
                     FadeTransition(opacity: animation, child: child),
                 child: Icon(
                   icon,
-                  key: ValueKey(label),
+                  key: ValueKey(mode),
                   size: iconSize,
                   color: fgColor,
                 ),
               ),
-              SizedBox(width: AppSpacing.xs),
+              const SizedBox(width: AppSpacing.xs),
               Text(
-                label,
+                compact ? mode : 'Next episode: $mode',
                 style: theme.textTheme.labelSmall?.copyWith(
                   color: fgColor,
                   fontWeight: FontWeight.w600,

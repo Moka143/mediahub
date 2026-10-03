@@ -1,12 +1,22 @@
+/// Why an engine could not be started.
+enum EngineStartFailure {
+  /// The engine program is not installed where we looked.
+  notFound,
+
+  /// It was launched (or adopted) but never started answering.
+  didNotStart,
+
+  /// The app is closing, or the service was replaced by a newer one.
+  closing,
+}
+
 /// The engine *process*, as the rest of the app sees it.
 ///
-/// Separate from [TorrentEngine] (the API surface) because the two have
-/// different lifetimes and different failure modes: the transport can be
-/// rebuilt on every settings change, while the process it talks to is meant
-/// to outlive that — and, for qBittorrent, may not be ours to manage at all.
-///
-/// Only three members are used outside the implementations
-/// ([isRunning], [managesLocalProcess], [start]); the rest is lifecycle.
+/// Separate from `TorrentEngine` (the API surface) because the two have
+/// different lifetimes and different failure modes: the transport is rebuilt
+/// whenever its connection settings change, while the process it talks to is
+/// meant to outlive that — and, for qBittorrent, may not be ours to manage at
+/// all.
 abstract class TorrentEngineProcess {
   /// Whether this service may start and restart a local process.
   ///
@@ -20,13 +30,24 @@ abstract class TorrentEngineProcess {
   Future<bool> isRunning();
 
   /// Start the engine if it is not already up, and wait until it answers.
-  /// Returns false when it could not be started or never became ready.
+  /// Returns false when it could not be started or never became ready —
+  /// [lastStartFailure] says which.
   Future<bool> start();
 
-  /// Stop a process we started. A no-op for a process we do not manage.
+  /// Why the most recent [start] returned false. Null after a success.
+  EngineStartFailure? get lastStartFailure;
+
+  /// Check on the engine every few seconds and start it again if it dies.
+  ///
+  /// Called by whoever builds the service, so a replacement built after a
+  /// settings change watches over the engine as the original did.
+  void keepAlive();
+
+  /// Stop what this app started. Never touches an engine the user runs
+  /// themselves.
   Future<void> stop();
 
-  /// Release timers. Deliberately does *not* kill the process — see the
+  /// Release timers. Deliberately does *not* stop the process — see the
   /// implementations for why each one makes that choice.
   void dispose();
 }

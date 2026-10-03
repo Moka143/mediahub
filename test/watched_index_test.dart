@@ -95,7 +95,11 @@ void main() {
       );
     });
 
-    test('matches by name when the stored TMDB id is wrong', () {
+    test('an entry with a show id is matched by that id only', () {
+      // The name fallback used to run for keyed entries too, so every id
+      // miss went looking for a name that merely contained the other: a
+      // "Special Ops Lioness" row marked "Lioness" watched, and watching
+      // "You" marked "Young Sheldon".
       final index = WatchedIndex.fromProgress([
         _entry(
           path: '/lioness.mkv',
@@ -111,9 +115,9 @@ void main() {
           showId: 113962,
           season: 1,
           episode: 1,
-          showName: 'Lioness',
+          showName: 'Special Ops Lioness',
         ),
-        isTrue,
+        isFalse,
       );
     });
 
@@ -138,7 +142,7 @@ void main() {
           showName: 'Severance',
         ),
         isTrue,
-        reason: 'stored name should be allowed to contain the queried name',
+        reason: 'a release year on one side only is still the same show',
       );
       expect(
         index.isEpisodeWatched(
@@ -159,6 +163,35 @@ void main() {
         isFalse,
         reason: 'a different show must not match on episode code alone',
       );
+    });
+
+    test('a name containing another is a different show', () {
+      final index = WatchedIndex.fromProgress([
+        _entry(path: '/a.mkv', showName: 'You', season: 1, episode: 1),
+        _entry(path: '/b.mkv', showName: 'Dark Matter', season: 1, episode: 1),
+        _entry(
+          path: '/c.mkv',
+          showName: 'The Office US',
+          season: 2,
+          episode: 3,
+        ),
+        _entry(path: '/d.mkv', showName: '進撃の巨人', season: 1, episode: 1),
+      ]);
+
+      bool watched(String name, int s, int e) => index.isEpisodeWatched(
+        showId: 1,
+        season: s,
+        episode: e,
+        showName: name,
+      );
+
+      expect(watched('Young Sheldon', 1, 1), isFalse);
+      expect(watched('Dark', 1, 1), isFalse);
+      expect(watched('The Office UK', 2, 3), isFalse);
+      expect(watched('The Office', 2, 3), isTrue);
+      expect(watched('進撃の巨人', 1, 1), isTrue);
+      expect(watched('Attack on Titan', 1, 1), isFalse);
+      expect(watched('', 1, 1), isFalse);
     });
 
     test('name fallback requires a show name — code alone is not enough', () {
@@ -240,7 +273,6 @@ void main() {
       expect(index.isMovieWatched(329865), isTrue);
       expect(index.isMovieWatched(438631), isFalse);
       expect(index.watchedMovieIds, {550, 329865});
-      expect(index.movieCount, 2);
     });
 
     test('90%+ without the completed flag still counts as a watched movie', () {
@@ -259,7 +291,7 @@ void main() {
 
     test('a completed movie with no resolved id is not indexed', () {
       final index = WatchedIndex.fromProgress([_entry(path: '/unknown.mkv')]);
-      expect(index.movieCount, 0);
+      expect(index.watchedMovieIds, isEmpty);
       expect(index.isEmpty, isTrue);
     });
 

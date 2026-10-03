@@ -2,31 +2,88 @@ import 'package:flutter/material.dart';
 
 import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
+import '../../design/app_typography.dart';
+import '../editorial/editorial.dart';
 
+/// A season's episodes failed to load.
 class EpisodesErrorState extends StatelessWidget {
-  const EpisodesErrorState({super.key, required this.onRetry});
+  const EpisodesErrorState({
+    super.key,
+    required this.message,
+    required this.onRetry,
+  });
 
+  /// Plain-language cause — see `friendlyErrorMessage`.
+  final String message;
   final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(
-            Icons.error_outline_rounded,
-            color: Color(0xFFFB7185),
-            size: 32,
-          ),
-          const SizedBox(height: AppSpacing.md),
-          const Text(
-            'Failed to load episodes',
-            style: TextStyle(color: AppColors.fg1),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          TextButton(onPressed: onRetry, child: const Text('Retry')),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.error_outline_rounded,
+              color: AppColors.err,
+              size: 32,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              "Couldn't load episodes",
+              style: AppType.ui(
+                size: AppType.sizeLead,
+                color: AppColors.fg,
+                weight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: AppType.caption(color: AppColors.fg2),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            EditorialButton(
+              label: 'Try again',
+              icon: Icons.refresh_rounded,
+              kind: EditorialButtonKind.ghost,
+              onPressed: onRetry,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A season TMDB lists without any episodes yet — announced, not aired.
+class EpisodesEmptyState extends StatelessWidget {
+  const EpisodesEmptyState({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.event_busy_rounded,
+              color: AppColors.fg2,
+              size: 32,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              'No episodes listed for this season yet.',
+              textAlign: TextAlign.center,
+              style: AppType.ui(size: AppType.sizeBody, color: AppColors.fg1),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -49,10 +106,8 @@ class _EpisodesSkeletonState extends State<EpisodesSkeleton>
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1100),
-    )..repeat(reverse: true);
+    _controller = AnimationController(vsync: this, duration: AppDuration.pulse)
+      ..repeat(reverse: true);
   }
 
   @override
@@ -74,9 +129,9 @@ class _EpisodesSkeletonState extends State<EpisodesSkeleton>
           final alpha =
               (AppOpacity.subtle + (AppOpacity.light - AppOpacity.subtle) * t) /
               255.0;
-          final base = Colors.white.withValues(alpha: alpha);
+          final base = AppColors.glassFill.withValues(alpha: alpha);
           return Container(
-            margin: const EdgeInsets.only(bottom: 4),
+            margin: const EdgeInsets.only(bottom: AppSpacing.xs),
             padding: const EdgeInsets.all(AppSpacing.md),
             decoration: BoxDecoration(
               color: AppColors.bgSurface,

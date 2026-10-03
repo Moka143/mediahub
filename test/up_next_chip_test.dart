@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mediahub/models/episode.dart';
 import 'package:mediahub/models/local_media_file.dart';
-import 'package:mediahub/widgets/player/up_next_chip.dart';
+import 'package:mediahub/widgets/next_episode_overlay.dart';
 
-/// The Up Next chip's rules, which used to be `??` chains and inline
-/// conditionals inside `video_player_screen.dart`'s `build()`.
+/// The Up Next card's rules ([UpNextModel]), which used to be `??` chains
+/// and inline conditionals inside `video_player_screen.dart`'s `build()`.
 ///
 /// The only way to check any of this was to watch an episode to the credits
 /// with a real torrent behind it, which is why the two sources — a file
@@ -45,7 +45,7 @@ void main() {
   group('visibility', () {
     test('nothing shows while the planner is not offering', () {
       expect(
-        UpNextChip.resolve(
+        UpNextModel.resolve(
           overlayActive: false,
           downloaded: file(showName: 'Severance', season: 2, episode: 4),
           fromTmdb: tmdbEpisode(),
@@ -59,7 +59,7 @@ void main() {
       // Reached constantly: the planner offers as soon as playback passes the
       // final tenth, which is usually before the TMDB lookup has answered.
       expect(
-        UpNextChip.resolve(
+        UpNextModel.resolve(
           overlayActive: true,
           downloaded: null,
           fromTmdb: null,
@@ -72,7 +72,7 @@ void main() {
 
   group('an episode already on disk', () {
     test('plays, and counts down', () {
-      final chip = UpNextChip.resolve(
+      final chip = UpNextModel.resolve(
         overlayActive: true,
         downloaded: file(showName: 'Severance', season: 2, episode: 4),
         fromTmdb: null,
@@ -88,7 +88,7 @@ void main() {
     test('wins over a TMDB answer for the same slot', () {
       // Both are set for a moment after the prefetch resolves: the session
       // hands back a file and the TMDB episode has not been cleared yet.
-      final chip = UpNextChip.resolve(
+      final chip = UpNextModel.resolve(
         overlayActive: true,
         downloaded: file(showName: 'Severance', season: 2, episode: 4),
         fromTmdb: tmdbEpisode(),
@@ -99,7 +99,7 @@ void main() {
     });
 
     test('falls back to the file name when the show name never parsed', () {
-      final chip = UpNextChip.resolve(
+      final chip = UpNextModel.resolve(
         overlayActive: true,
         downloaded: file(name: 'unparseable.mkv', season: 1, episode: 2),
         fromTmdb: null,
@@ -111,7 +111,7 @@ void main() {
     test('carries an empty code when the file has no season or episode', () {
       // A movie-shaped file, or a download whose name defeated the parser.
       // The overlay expects '' rather than null here.
-      final chip = UpNextChip.resolve(
+      final chip = UpNextModel.resolve(
         overlayActive: true,
         downloaded: file(showName: 'Severance'),
         fromTmdb: null,
@@ -125,7 +125,7 @@ void main() {
     test('streams, and does not count down', () {
       // There is nothing to advance *to* yet — a countdown would expire on a
       // file that has not started downloading.
-      final chip = UpNextChip.resolve(
+      final chip = UpNextModel.resolve(
         overlayActive: true,
         downloaded: null,
         fromTmdb: tmdbEpisode(),
@@ -139,7 +139,7 @@ void main() {
     });
 
     test('pads the episode code to two digits', () {
-      final chip = UpNextChip.resolve(
+      final chip = UpNextModel.resolve(
         overlayActive: true,
         downloaded: null,
         fromTmdb: tmdbEpisode(season: 1, episode: 9),

@@ -1,4 +1,5 @@
 import 'cast_member.dart';
+import 'tmdb_json.dart';
 import 'video.dart';
 
 /// Represents a Movie from TMDB API
@@ -10,6 +11,8 @@ class Movie {
   final String? posterPath;
   final String? backdropPath;
   final double voteAverage;
+
+  /// How many votes [voteAverage] rests on. 0 when TMDB didn't say.
   final int voteCount;
   final String? releaseDate;
   final String? status;
@@ -17,14 +20,9 @@ class Movie {
   final String? imdbId;
   final List<String> genres;
 
-  /// TMDB genre IDs from list endpoints (`genre_ids`). Detail
-  /// endpoints return the full `genres` array instead.
+  /// Genre ids — what list endpoints return in place of [genres].
   final List<int> genreIds;
-  final int? budget;
-  final int? revenue;
   final String? tagline;
-  final bool adult;
-  final double popularity;
 
   /// Trailers / teasers from `/videos`. Populated only when the
   /// details fetch includes `append_to_response=videos`.
@@ -48,38 +46,12 @@ class Movie {
     this.imdbId,
     this.genres = const [],
     this.genreIds = const [],
-    this.budget,
-    this.revenue,
     this.tagline,
-    this.adult = false,
-    this.popularity = 0.0,
     this.videos = const [],
     this.cast = const [],
   });
 
   factory Movie.fromJson(Map<String, dynamic> json) {
-    List<Video> parseVideos() {
-      final v = json['videos'];
-      if (v is! Map<String, dynamic>) return const [];
-      final results = v['results'];
-      if (results is! List) return const [];
-      return results
-          .whereType<Map<String, dynamic>>()
-          .map(Video.fromJson)
-          .toList();
-    }
-
-    List<CastMember> parseCast() {
-      final c = json['credits'];
-      if (c is! Map<String, dynamic>) return const [];
-      final castList = c['cast'];
-      if (castList is! List) return const [];
-      return castList
-          .whereType<Map<String, dynamic>>()
-          .map(CastMember.fromJson)
-          .toList();
-    }
-
     return Movie(
       id: json['id'] as int,
       title:
@@ -89,48 +61,17 @@ class Movie {
       posterPath: json['poster_path'] as String?,
       backdropPath: json['backdrop_path'] as String?,
       voteAverage: (json['vote_average'] as num?)?.toDouble() ?? 0.0,
-      voteCount: json['vote_count'] as int? ?? 0,
+      voteCount: (json['vote_count'] as num?)?.toInt() ?? 0,
       releaseDate: json['release_date'] as String?,
       status: json['status'] as String?,
       runtime: json['runtime'] as int?,
       imdbId: json['imdb_id'] as String?,
-      genres:
-          (json['genres'] as List<dynamic>?)
-              ?.map((g) => g['name'] as String)
-              .toList() ??
-          [],
-      genreIds: (json['genre_ids'] as List<dynamic>?)?.cast<int>() ?? const [],
-      budget: json['budget'] as int?,
-      revenue: json['revenue'] as int?,
+      genres: tmdbGenreNames(json),
+      genreIds: tmdbGenreIds(json),
       tagline: json['tagline'] as String?,
-      adult: json['adult'] as bool? ?? false,
-      popularity: (json['popularity'] as num?)?.toDouble() ?? 0.0,
-      videos: parseVideos(),
-      cast: parseCast(),
+      videos: tmdbVideos(json),
+      cast: tmdbCast(json),
     );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'title': title,
-      'original_title': originalTitle,
-      'overview': overview,
-      'poster_path': posterPath,
-      'backdrop_path': backdropPath,
-      'vote_average': voteAverage,
-      'vote_count': voteCount,
-      'release_date': releaseDate,
-      'status': status,
-      'runtime': runtime,
-      'imdb_id': imdbId,
-      'genres': genres.map((g) => {'name': g}).toList(),
-      'budget': budget,
-      'revenue': revenue,
-      'tagline': tagline,
-      'adult': adult,
-      'popularity': popularity,
-    };
   }
 
   /// Get the full poster URL
@@ -156,17 +97,6 @@ class Movie {
       return '${hours}h ${minutes}m';
     }
     return '${minutes}m';
-  }
-
-  /// Get genres as comma-separated string
-  String get genresText => genres.join(', ');
-
-  /// Check if movie is released
-  bool get isReleased {
-    if (releaseDate == null) return false;
-    final date = DateTime.tryParse(releaseDate!);
-    if (date == null) return false;
-    return date.isBefore(DateTime.now());
   }
 
   @override

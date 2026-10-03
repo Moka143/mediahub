@@ -1,14 +1,18 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
 import 'editorial/editorial.dart';
+import 'media/hue_backdrop.dart';
+import 'media/media_helpers.dart';
+import 'media/poster_lookup.dart';
 
-/// Cinematic spotlight hero card used at the top of the Shows /
-/// Movies browse screens. Matches the `Spotlight` component from
-/// `screen-browse.jsx`: gradient backdrop tinted by the title's
-/// dominant hue, scattered miniature posters drifting on the right,
-/// rich metadata pills + big display title + Get / Details CTAs.
+/// Cinematic spotlight card at the top of the Shows / Movies browse
+/// screens: the feed's first title, over its backdrop, with its poster on
+/// the right and the same two actions the Home hero uses — "Stream" and
+/// "Details".
 class MediaHubSpotlight extends StatelessWidget {
   const MediaHubSpotlight({
     super.key,
@@ -18,53 +22,50 @@ class MediaHubSpotlight extends StatelessWidget {
     required this.rating,
     required this.hue,
     required this.metaSuffix,
+    required this.feedLabel,
     required this.onPrimaryTap,
     required this.onSecondaryTap,
-    this.quality,
     this.backdropUrl,
     this.posterUrl,
-    this.scatteredHues = const [200, 35, 280, 130, 10],
-    this.trending = true,
   });
 
   final String title;
   final String? year;
-  final String? genre;
-  final double rating;
 
-  /// Resolution / source-quality badge. Null when no source has been
-  /// resolved yet — TMDB metadata alone can't truthfully claim a
-  /// resolution, so we leave the badge off rather than fake it.
-  final String? quality;
+  /// The title's genre, or null when it is not known. Never a guess: the
+  /// spotlight used to print "DRAMA" for anything without one.
+  final String? genre;
+
+  /// "★ 8.4", or null to show none — see `ratingLabel`.
+  final String? rating;
   final double hue;
-  final String metaSuffix; // e.g. "2 SEASONS" or "2H 26M"
+  final String metaSuffix; // e.g. "TV SERIES" or "2H 26M"
+
+  /// Which feed this is the top of — "Trending", "Top rated · Horror". It
+  /// always said "▲ Trending", including on Popular, Top Rated, New Releases
+  /// and every genre filter.
+  final String feedLabel;
   final VoidCallback onPrimaryTap;
   final VoidCallback onSecondaryTap;
 
-  /// TMDB backdrop URL (`/t/p/original/<path>`). Renders full-bleed
-  /// behind the gradient overlays. If null we fall back to the
-  /// hue-tinted procedural gradient.
+  /// TMDB backdrop URL. Rendered full-bleed behind the gradient overlays;
+  /// without one the card falls back to a hue gradient.
   final String? backdropUrl;
 
-  /// TMDB poster URL (`/t/p/w500/<path>`). Renders as a single tall
-  /// hero poster on the right of the card (replaces the procedural
-  /// mini-posters when supplied).
+  /// TMDB poster URL, shown tall on the right of the card.
   final String? posterUrl;
-  final List<int> scatteredHues;
-  final bool trending;
+
+  /// The headline title — larger than the type ramp's top step (40).
+  static const double _titleSize = 56;
 
   @override
   Widget build(BuildContext context) {
-    // 220 is a *minimum*, not a fixed height. The title allows two lines
-    // (56px at 0.95 line-height ≈ 106px on its own), and with the badges,
-    // meta row, CTAs and 32px of vertical padding a two-line title needs
-    // ~234px. As a fixed SizedBox this overflowed by ~11px on any title
-    // long enough to wrap — "Spider-Man: Brand New Day" on the Movies tab,
-    // where it clipped the CTA row silently in release builds.
-    //
-    // The body is the only non-positioned child, so it sizes the Stack;
-    // every decorative layer is Positioned.fill behind it. One-line titles
-    // are unchanged — the card still settles at exactly 220.
+    final backdrop = tmdbResized(backdropUrl);
+    // 220 is a *minimum*, not a fixed height. A two-line title needs ~234px
+    // with the badges, meta row and CTAs; as a fixed SizedBox this clipped
+    // the CTA row of any title long enough to wrap. The body is the only
+    // non-positioned child, so it sizes the Stack; every decorative layer is
+    // Positioned.fill behind it.
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppRadius.lg),
       child: ConstrainedBox(
@@ -72,26 +73,22 @@ class MediaHubSpotlight extends StatelessWidget {
         child: Stack(
           alignment: Alignment.centerLeft,
           children: [
-            // Backdrop image when available; otherwise a hue-tinted
-            // gradient. The image is intentionally rendered "behind"
-            // the gradient + poster overlays — it provides texture and
-            // mood, not detail (which would compete with the title).
-            if (backdropUrl != null)
-              Positioned.fill(
-                child: Image.network(
-                  backdropUrl!,
-                  fit: BoxFit.cover,
-                  alignment: Alignment.center,
-                  loadingBuilder: (_, child, p) =>
-                      p == null ? child : _hueGradient(),
-                  errorBuilder: (_, _, _) => _hueGradient(),
-                ),
-              )
-            else
-              Positioned.fill(child: _hueGradient()),
-            // Light hue tint over the photo so it harmonises with the
-            // page palette. Lower opacity than the procedural fallback
-            // so the actual artwork still reads.
+            // The backdrop provides texture and mood, not detail — it sits
+            // behind the gradients and poster.
+            Positioned.fill(
+              child: backdrop != null
+                  ? CachedNetworkImage(
+                      imageUrl: backdrop,
+                      fit: BoxFit.cover,
+                      memCacheWidth: 1600,
+                      placeholder: (_, _) => HueBackdrop(hue: hue, dark: true),
+                      errorWidget: (_, _, _) =>
+                          HueBackdrop(hue: hue, dark: true),
+                    )
+                  : HueBackdrop(hue: hue, dark: true),
+            ),
+            // Light hue tint over the photo so it harmonises with the page
+            // palette; stronger over the bare gradient.
             Positioned.fill(
               child: DecoratedBox(
                 decoration: BoxDecoration(
@@ -100,7 +97,7 @@ class MediaHubSpotlight extends StatelessWidget {
                     radius: 0.9,
                     colors: [
                       HSLColor.fromAHSL(
-                        backdropUrl == null ? 0.65 : 0.25,
+                        backdrop == null ? 0.65 : 0.25,
                         (hue + 40) % 360,
                         0.6,
                         0.3,
@@ -111,8 +108,7 @@ class MediaHubSpotlight extends StatelessWidget {
                 ),
               ),
             ),
-            // Right-side hero poster — actual TMDB poster when
-            // available, otherwise the legacy scattered mini-posters.
+            // Poster on the right, fading in from the left.
             Positioned(
               right: 0,
               top: 0,
@@ -123,19 +119,16 @@ class MediaHubSpotlight extends StatelessWidget {
                   shaderCallback: (b) => const LinearGradient(
                     begin: Alignment.centerLeft,
                     end: Alignment.centerRight,
-                    colors: [Colors.transparent, Colors.black],
+                    colors: [Colors.transparent, AppColors.mediaBlack],
                     stops: [0.0, 0.45],
                   ).createShader(b),
                   blendMode: BlendMode.dstIn,
-                  child: posterUrl != null
-                      ? _HeroPoster(url: posterUrl!, fallbackHue: hue)
-                      : _ScatteredPosters(scatteredHues: scatteredHues),
+                  child: _HeroPoster(url: posterUrl, hue: hue),
                 ),
               ),
             ),
-            // Strong fade from left for text legibility — slightly
-            // heavier when a real backdrop is in play so the title
-            // doesn't fight bright artwork.
+            // Strong fade from the left for text legibility — heavier over a
+            // real backdrop so the title doesn't fight bright artwork.
             Positioned.fill(
               child: DecoratedBox(
                 decoration: BoxDecoration(
@@ -144,11 +137,11 @@ class MediaHubSpotlight extends StatelessWidget {
                     end: Alignment.centerRight,
                     stops: const [0.0, 0.45, 0.75],
                     colors: [
-                      AppColors.bgPage.withAlpha(
-                        backdropUrl == null ? 243 : 235,
-                      ),
-                      AppColors.bgPage.withAlpha(
-                        backdropUrl == null ? 128 : 168,
+                      backdrop == null
+                          ? AppColors.bgPage.withValues(alpha: 0.95)
+                          : AppColors.bgPage.withAlpha(AppOpacity.almostOpaque),
+                      AppColors.bgPage.withValues(
+                        alpha: backdrop == null ? 0.5 : 0.66,
                       ),
                       Colors.transparent,
                     ],
@@ -156,10 +149,6 @@ class MediaHubSpotlight extends StatelessWidget {
                 ),
               ),
             ),
-            // Body — pills, title, meta, CTAs. The only non-positioned
-            // child, so this is what gives the Stack its height. Full
-            // width so the Stack's centerLeft alignment only affects the
-            // vertical axis.
             SizedBox(
               width: double.infinity,
               child: Padding(
@@ -176,24 +165,9 @@ class MediaHubSpotlight extends StatelessWidget {
                       spacing: AppSpacing.xs,
                       runSpacing: AppSpacing.xs,
                       children: [
-                        if (trending)
-                          const EditorialBadge(
-                            '▲ Trending',
-                            compact: true,
-                            tone: AppColors.accentAmber,
-                          ),
-                        if (quality != null)
-                          EditorialBadge(
-                            quality!,
-                            compact: true,
-                            tone: quality!.qualityColor,
-                          ),
-                        if (rating > 0)
-                          EditorialBadge(
-                            '★ ${rating.toStringAsFixed(1)}',
-                            compact: true,
-                            tone: AppColors.warning,
-                          ),
+                        EditorialBadge(feedLabel, tone: AppColors.warn),
+                        if (rating != null)
+                          EditorialBadge(rating!, tone: AppColors.warn),
                       ],
                     ),
                     const SizedBox(height: AppSpacing.sm),
@@ -201,7 +175,7 @@ class MediaHubSpotlight extends StatelessWidget {
                       constraints: const BoxConstraints(maxWidth: 540),
                       child: SerifTitle(
                         title,
-                        size: 56,
+                        size: _titleSize,
                         height: 0.95,
                         letterSpacing: -0.02,
                         color: AppColors.fg,
@@ -210,30 +184,25 @@ class MediaHubSpotlight extends StatelessWidget {
                     ),
                     const SizedBox(height: AppSpacing.sm),
                     MonoLabel(
-                      [
-                        if (year != null) year,
-                        if (genre != null) genre!.toUpperCase(),
-                        metaSuffix,
-                      ].whereType<String>().join(' · '),
-                      color: AppColors.fg2,
+                      [?year, ?genre?.toUpperCase(), metaSuffix].join(' · '),
+                      color: AppColors.fg1,
                       letterSpacing: 0.06,
                     ),
                     const SizedBox(height: AppSpacing.md),
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        _CtaButton(
-                          label: 'Get torrent',
-                          icon: Icons.download_rounded,
-                          onTap: onPrimaryTap,
-                          primary: true,
+                        EditorialButton(
+                          label: 'Stream',
+                          icon: Icons.play_arrow_rounded,
+                          kind: EditorialButtonKind.accent,
+                          onPressed: onPrimaryTap,
                         ),
                         const SizedBox(width: AppSpacing.sm),
-                        _CtaButton(
+                        EditorialButton(
                           label: 'Details',
-                          icon: null,
-                          onTap: onSecondaryTap,
-                          primary: false,
+                          kind: EditorialButtonKind.ghost,
+                          onPressed: onSecondaryTap,
                         ),
                       ],
                     ),
@@ -248,66 +217,13 @@ class MediaHubSpotlight extends StatelessWidget {
   }
 }
 
-class _MiniPoster extends StatelessWidget {
-  const _MiniPoster({required this.hue});
-
-  final double hue;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 92,
-      height: 138,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(AppRadius.sm),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            HSLColor.fromAHSL(1, hue, 0.6, 0.4).toColor(),
-            HSLColor.fromAHSL(1, (hue + 30) % 360, 0.55, 0.18).toColor(),
-          ],
-        ),
-        border: Border.all(color: Colors.white.withAlpha(20)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha(64),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Hue-tinted procedural gradient — used as the spotlight background
-/// when no backdrop image is available, and during image load/error.
-extension on MediaHubSpotlight {
-  Widget _hueGradient() {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            HSLColor.fromAHSL(1, hue, 0.45, 0.14).toColor(),
-            HSLColor.fromAHSL(1, hue, 0.45, 0.08).toColor(),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Single tall poster anchored to the right edge — replaces the
-/// procedural mini-posters when we have a real TMDB poster URL for
-/// the trending title.
+/// The tall poster anchored to the card's right edge, or a hue stand-in
+/// when there is none.
 class _HeroPoster extends StatelessWidget {
-  const _HeroPoster({required this.url, required this.fallbackHue});
+  const _HeroPoster({required this.url, required this.hue});
 
-  final String url;
-  final double fallbackHue;
+  final String? url;
+  final double hue;
 
   @override
   Widget build(BuildContext context) {
@@ -323,10 +239,10 @@ class _HeroPoster extends StatelessWidget {
             child: Container(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(AppRadius.md),
-                border: Border.all(color: Colors.white.withAlpha(28)),
+                border: Border.all(color: AppColors.lineStrong),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withAlpha(120),
+                    color: AppColors.shadow.withValues(alpha: 0.47),
                     blurRadius: 24,
                     offset: const Offset(0, 10),
                   ),
@@ -334,110 +250,15 @@ class _HeroPoster extends StatelessWidget {
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(AppRadius.md),
-                child: Image.network(
-                  url,
-                  fit: BoxFit.cover,
-                  loadingBuilder: (_, child, p) =>
-                      p == null ? child : _MiniPoster(hue: fallbackHue),
-                  errorBuilder: (_, _, _) => _MiniPoster(hue: fallbackHue),
+                child: buildPosterImage(
+                  posterAsync: AsyncValue.data(url),
+                  hue: hue,
                 ),
               ),
             ),
           ),
         ),
       ],
-    );
-  }
-}
-
-/// Legacy decorative cluster of colored placeholder posters — kept as
-/// the fallback when no real poster URL is supplied.
-class _ScatteredPosters extends StatelessWidget {
-  const _ScatteredPosters({required this.scatteredHues});
-
-  final List<int> scatteredHues;
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        for (var i = 0; i < scatteredHues.length; i++)
-          Positioned(
-            right: AppSpacing.md + i * (92.0 + AppSpacing.sm),
-            top: i.isEven ? 24 : 40,
-            child: _MiniPoster(hue: scatteredHues[i].toDouble()),
-          ),
-      ],
-    );
-  }
-}
-
-class _CtaButton extends StatefulWidget {
-  const _CtaButton({
-    required this.label,
-    required this.icon,
-    required this.onTap,
-    required this.primary,
-  });
-
-  final String label;
-  final IconData? icon;
-  final VoidCallback onTap;
-  final bool primary;
-
-  @override
-  State<_CtaButton> createState() => _CtaButtonState();
-}
-
-class _CtaButtonState extends State<_CtaButton> {
-  bool _hover = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = AppColors.seedColor;
-    final bg = widget.primary
-        ? (_hover ? accent : accent.withAlpha(0xE6))
-        : (_hover ? Colors.white.withAlpha(28) : Colors.transparent);
-    final fg = widget.primary ? Colors.white : Colors.white;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.lg,
-            vertical: AppSpacing.sm,
-          ),
-          decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(AppRadius.md),
-            border: widget.primary
-                ? null
-                : Border.all(color: AppColors.lineStrong),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (widget.icon != null) ...[
-                Icon(widget.icon, size: 14, color: fg),
-                const SizedBox(width: 6),
-              ],
-              Text(
-                widget.label,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: fg,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

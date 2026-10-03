@@ -1,27 +1,32 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mediahub/models/episode.dart';
+import 'package:mediahub/models/eztv_torrent.dart';
 import 'package:mediahub/models/local_media_file.dart';
 import 'package:mediahub/models/show.dart';
 import 'package:mediahub/models/torrent.dart';
+import 'package:mediahub/models/torrent_file.dart';
+import 'package:mediahub/models/torrentio_stream.dart';
 import 'package:mediahub/services/auto_download_service.dart';
 import 'package:mediahub/services/eztv_api_service.dart';
 import 'package:mediahub/services/qbittorrent_api_service.dart';
 import 'package:mediahub/services/tmdb_api_service.dart';
 import 'package:mediahub/services/torrentio_api_service.dart';
 
-/// Tests for the decisions auto-download makes before it fetches anything.
+/// Tests for the decisions auto-download makes, and the engine conversation
+/// it has once it has made them.
 ///
-/// The indexer search and the qBittorrent add need a live stack and stay out
-/// of scope. What is covered is everything that decides *whether* to fetch,
-/// and it is worth covering because the failure modes are silent: an
-/// over-eager show-name match re-downloads an episode the user already has,
-/// and a wrong season-boundary answer either stops binge-watching a show that
-/// has more episodes or starts fetching a season that has not aired.
+/// The failure modes here are silent: an over-eager show-name match
+/// re-downloads (or never downloads) an episode, an early "aired" searches
+/// for a torrent that cannot exist yet, a dead torrent is picked over a
+/// healthy one, and a season pack downloads whole.
 void main() {
   LocalMediaFile downloaded({
     required String showName,
     required int season,
     required int episode,
+    int? showId,
   }) {
     final code =
         'S${season.toString().padLeft(2, '0')}'
@@ -34,121 +39,74 @@ void main() {
       showName: showName,
       seasonNumber: season,
       episodeNumber: episode,
+      showId: showId,
       extension: 'mkv',
     );
   }
 
-  Episode episode({
-    required int season,
-    required int number,
-    String? airDate,
-    String name = 'Episode',
-  }) {
+  Episode episode({required int season, required int number, String? airDate}) {
     return Episode(
       id: season * 100 + number,
       seasonNumber: season,
       episodeNumber: number,
-      name: name,
+      name: 'Episode',
       airDate: airDate,
     );
   }
+
+  /// "Now" for every date-sensitive case: mid-afternoon UTC, 3 Oct 2026.
+  final now = DateTime.utc(2026, 10, 3, 15);
 
   AutoDownloadService service({
     Show? show,
     Map<int, List<Episode>> seasons = const {},
     List<Torrent> torrents = const [],
+    bool tmdbThrows = false,
+    _FakeEngine? engine,
+    _FakeEztv? eztv,
+    _FakeTorrentio? torrentio,
+    DateTime? clock,
   }) {
     return AutoDownloadService(
-      tmdbService: _FakeTmdb(show: show, seasons: seasons),
-      eztvService: EztvApiService(),
-      qbtService: _FakeQbt(torrents),
-      torrentioService: TorrentioApiService(),
+      tmdbService: _FakeTmdb(show: show, seasons: seasons, throws: tmdbThrows),
+      eztvService: eztv ?? _FakeEztv(),
+      engine: engine ?? _FakeEngine(torrents: torrents),
+      torrentioService: torrentio ?? _FakeTorrentio(),
+      clock: () => clock ?? now,
+      metadataPollInterval: Duration.zero,
+      metadataTimeout: const Duration(milliseconds: 50),
     );
   }
-
-  String yesterday() => DateTime.now()
-      .subtract(const Duration(days: 1))
-      .toIso8601String()
-      .split('T')
-      .first;
-
-  String nextWeek() => DateTime.now()
-      .add(const Duration(days: 7))
-      .toIso8601String()
-      .split('T')
-      .first;
 
   group('isEpisodeDownloaded', () {
     final library = [
       downloaded(showName: 'Severance', season: 2, episode: 4),
       downloaded(showName: 'The Bear', season: 3, episode: 1),
+      downloaded(showName: 'Dark Matter', season: 1, episode: 1),
+      downloaded(showName: 'Young Sheldon', season: 1, episode: 1),
     ];
 
-    test('finds an episode that is already on disk', () {
-      expect(
+    bool has(String show, int s, int e, {int? showId}) =>
         service().isEpisodeDownloaded(
           downloadedFiles: library,
-          showName: 'Severance',
-          season: 2,
-          episode: 4,
-        ),
-        isTrue,
-      );
+          showName: show,
+          season: s,
+          episode: e,
+          showId: showId,
+        );
+
+    test('finds an episode that is already on disk', () {
+      expect(has('Severance', 2, 4), isTrue);
     });
 
     test('does not match a different episode of the same show', () {
-      expect(
-        service().isEpisodeDownloaded(
-          downloadedFiles: library,
-          showName: 'Severance',
-          season: 2,
-          episode: 5,
-        ),
-        isFalse,
-      );
+      expect(has('Severance', 2, 5), isFalse);
+      expect(has('Severance', 3, 4), isFalse);
     });
 
-    test('does not match the same episode number in another season', () {
-      // S03E04 and S02E04 differ only in the season, and the episode code is
-      // the whole discriminator once the show name matches.
-      expect(
-        service().isEpisodeDownloaded(
-          downloadedFiles: library,
-          showName: 'Severance',
-          season: 3,
-          episode: 4,
-        ),
-        isFalse,
-      );
-    });
-
-    test('ignores case in the show name', () {
-      expect(
-        service().isEpisodeDownloaded(
-          downloadedFiles: library,
-          showName: 'SEVERANCE',
-          season: 2,
-          episode: 4,
-        ),
-        isTrue,
-      );
-    });
-
-    test('matches across a leading article', () {
-      // The scanner parses "The Bear" from some releases and "Bear" from
-      // others; both must resolve to the same show.
-      expect(
-        service().isEpisodeDownloaded(
-          downloadedFiles: library,
-          showName: 'Bear',
-          season: 3,
-          episode: 1,
-        ),
-        isTrue,
-      );
-    });
-
-    test('matches across punctuation differences', () {
+    test('ignores case, punctuation and a leading article', () {
+      expect(has('SEVERANCE', 2, 4), isTrue);
+      expect(has('Bear', 3, 1), isTrue);
       expect(
         service().isEpisodeDownloaded(
           downloadedFiles: [
@@ -158,7 +116,7 @@ void main() {
               episode: 2,
             ),
           ],
-          showName: 'Marvel\'s Agents of S.H.I.E.L.D.',
+          showName: "Marvel's Agents of S.H.I.E.L.D.",
           season: 1,
           episode: 2,
         ),
@@ -166,21 +124,30 @@ void main() {
       );
     });
 
-    test('an empty library is never a match', () {
+    test('a show whose name merely contains another is a different show', () {
+      // "Dark Matter" S01E01 on disk used to count as "Dark" S01E01, and the
+      // real one was never fetched.
+      expect(has('Dark', 1, 1), isFalse);
+      expect(has('You', 1, 1), isFalse);
+    });
+
+    test('the TMDB id decides when both sides have one', () {
+      final tagged = [
+        downloaded(showName: 'The Office', season: 1, episode: 1, showId: 2316),
+      ];
       expect(
         service().isEpisodeDownloaded(
-          downloadedFiles: const [],
-          showName: 'Severance',
-          season: 2,
-          episode: 4,
+          downloadedFiles: tagged,
+          showName: 'The Office',
+          season: 1,
+          episode: 1,
+          showId: 2996, // the UK one
         ),
         isFalse,
       );
     });
 
     test('a file with no parsed show name is not matched by accident', () {
-      // `fileShowName` is '' for these, and '' is a substring of everything —
-      // the guard that keeps a bare `contains` from matching every show.
       final unparsed = LocalMediaFile(
         path: '/library/unknown.mkv',
         fileName: 'unknown.mkv',
@@ -198,220 +165,390 @@ void main() {
           episode: 4,
         ),
         isFalse,
-        reason: 'an unnamed file must not satisfy every show',
       );
     });
   });
 
   group('getNextEpisode', () {
+    final show = Show(id: 1, name: 'Severance', numberOfSeasons: 3);
+
     test('returns the next episode in the current season', () async {
       final result = await service(
-        show: Show(id: 1, name: 'Severance', numberOfSeasons: 2),
+        show: show,
         seasons: {
           2: [
-            episode(season: 2, number: 4, airDate: yesterday()),
-            episode(season: 2, number: 5, airDate: yesterday()),
+            episode(season: 2, number: 4, airDate: '2026-09-20'),
+            episode(season: 2, number: 5, airDate: '2026-09-27'),
           ],
         },
       ).getNextEpisode(showId: 1, currentSeason: 2, currentEpisode: 4);
 
-      expect(result.hasNextEpisode, isTrue);
       expect(result.nextEpisode!.episodeNumber, 5);
-      expect(result.isSeasonEnd, isFalse);
-      expect(result.message, isNull, reason: 'it has aired, nothing to say');
+      expect(result.hasAired, isTrue);
+      expect(result.message, isNull);
     });
 
-    test('reports an unaired next episode rather than hiding it', () async {
-      // The card still offers it so the user knows one is coming; the message
-      // is what stops auto-download from chasing a torrent that cannot exist.
-      final airs = nextWeek();
+    test('flags an unaired next episode instead of hiding it', () async {
       final result = await service(
-        show: Show(id: 1, name: 'Severance', numberOfSeasons: 2),
+        show: show,
         seasons: {
           2: [
-            episode(season: 2, number: 4, airDate: yesterday()),
-            episode(season: 2, number: 5, airDate: airs),
+            episode(season: 2, number: 4, airDate: '2026-09-27'),
+            episode(season: 2, number: 5, airDate: '2026-10-10'),
           ],
         },
       ).getNextEpisode(showId: 1, currentSeason: 2, currentEpisode: 4);
 
       expect(result.hasNextEpisode, isTrue);
-      expect(result.message, contains(airs));
+      expect(result.hasAired, isFalse);
+      expect(result.message, contains('S02E05'));
+    });
+
+    test('an episode dated today has not aired yet', () async {
+      // TMDB's date is the US broadcast date — an evening that is already
+      // the next day in UTC. Reading it as local midnight called episodes
+      // aired up to a day and a half early.
+      Future<bool> airedAt(DateTime clock) async =>
+          (await service(
+                show: show,
+                seasons: {
+                  2: [
+                    episode(season: 2, number: 4, airDate: '2026-09-27'),
+                    episode(season: 2, number: 5, airDate: '2026-10-03'),
+                  ],
+                },
+                clock: clock,
+              ).getNextEpisode(showId: 1, currentSeason: 2, currentEpisode: 4))
+              .hasAired;
+
+      expect(await airedAt(DateTime.utc(2026, 10, 3, 23, 59)), isFalse);
+      expect(await airedAt(DateTime.utc(2026, 10, 4, 0, 1)), isTrue);
     });
 
     test('rolls over to the first episode of the next season', () async {
       final result = await service(
-        show: Show(id: 1, name: 'Severance', numberOfSeasons: 3),
+        show: show,
         seasons: {
-          2: [episode(season: 2, number: 10, airDate: yesterday())],
-          3: [episode(season: 3, number: 1, airDate: yesterday())],
+          2: [episode(season: 2, number: 10, airDate: '2026-01-01')],
+          3: [episode(season: 3, number: 1, airDate: '2026-09-01')],
         },
       ).getNextEpisode(showId: 1, currentSeason: 2, currentEpisode: 10);
 
-      expect(result.isSeasonEnd, isTrue);
-      expect(result.isSeriesEnd, isFalse);
       expect(result.nextEpisode!.seasonNumber, 3);
       expect(result.nextEpisode!.episodeNumber, 1);
-      expect(result.isNextSeasonAvailable, isTrue);
-      expect(result.nextSeasonNumber, 3);
+      expect(result.hasAired, isTrue);
+      expect(result.isSeriesEnd, isFalse);
     });
-
-    test(
-      'a next season that has not aired is offered but not available',
-      () async {
-        final result = await service(
-          show: Show(id: 1, name: 'Severance', numberOfSeasons: 3),
-          seasons: {
-            2: [episode(season: 2, number: 10, airDate: yesterday())],
-            3: [episode(season: 3, number: 1, airDate: nextWeek())],
-          },
-        ).getNextEpisode(showId: 1, currentSeason: 2, currentEpisode: 10);
-
-        expect(result.hasNextEpisode, isTrue);
-        expect(result.isNextSeasonAvailable, isFalse);
-      },
-    );
 
     test('the last episode of the last season ends the series', () async {
       final result = await service(
         show: Show(id: 1, name: 'Severance', numberOfSeasons: 2),
         seasons: {
-          2: [episode(season: 2, number: 10, airDate: yesterday())],
+          2: [episode(season: 2, number: 10, airDate: '2026-01-01')],
         },
       ).getNextEpisode(showId: 1, currentSeason: 2, currentEpisode: 10);
 
       expect(result.hasNextEpisode, isFalse);
       expect(result.isSeriesEnd, isTrue);
-      expect(result.isSeasonEnd, isTrue);
+      expect(result.lookupFailed, isFalse);
     });
 
     test('an announced-but-empty next season is not a series end', () async {
-      // TMDB lists the season before it has any episode records. Answering
-      // "series ended" here would stop binge-watching an ongoing show.
       final result = await service(
-        show: Show(id: 1, name: 'Severance', numberOfSeasons: 3),
+        show: show,
         seasons: {
-          2: [episode(season: 2, number: 10, airDate: yesterday())],
+          2: [episode(season: 2, number: 10, airDate: '2026-01-01')],
           3: const [],
         },
       ).getNextEpisode(showId: 1, currentSeason: 2, currentEpisode: 10);
 
+      expect(result.hasNextEpisode, isFalse);
       expect(result.isSeriesEnd, isFalse);
-      expect(result.isNextSeasonAvailable, isFalse);
-      expect(result.nextSeasonNumber, 3);
     });
 
     test('a missing air date counts as not aired', () async {
-      // TMDB leaves airDate null for unscheduled episodes; treating null as
-      // aired would send auto-download after a torrent that cannot exist.
       final result = await service(
-        show: Show(id: 1, name: 'Severance', numberOfSeasons: 3),
+        show: show,
         seasons: {
-          2: [episode(season: 2, number: 10, airDate: yesterday())],
+          2: [episode(season: 2, number: 10, airDate: '2026-01-01')],
           3: [episode(season: 3, number: 1)],
         },
       ).getNextEpisode(showId: 1, currentSeason: 2, currentEpisode: 10);
 
-      expect(result.isNextSeasonAvailable, isFalse);
+      expect(result.hasAired, isFalse);
     });
 
-    test('a TMDB failure degrades to a message, not a throw', () async {
-      // Called from a position subscription during playback; an exception
-      // here would surface as an unhandled async error mid-episode.
-      final result = await AutoDownloadService(
-        tmdbService: _FakeTmdb(throws: true),
-        eztvService: EztvApiService(),
-        qbtService: _FakeQbt(const []),
-        torrentioService: TorrentioApiService(),
+    test('a TMDB failure is reported plainly, not thrown', () async {
+      final result = await service(
+        tmdbThrows: true,
       ).getNextEpisode(showId: 1, currentSeason: 1, currentEpisode: 1);
 
       expect(result.hasNextEpisode, isFalse);
-      expect(result.message, contains('Failed to fetch next episode'));
+      expect(result.lookupFailed, isTrue);
+      expect(result.message, isNot(contains('Error')));
     });
   });
 
   group('isEpisodeCurrentlyDownloading', () {
-    Torrent named(String name) => Torrent(
-      hash: 'h',
-      name: name,
-      size: 0,
-      progress: 0.5,
-      dlspeed: 0,
-      upspeed: 0,
-      eta: 0,
-      state: 'downloading',
-      numSeeds: 0,
-      numLeeches: 0,
-      ratio: 0,
-      addedOn: 0,
-      completionOn: 0,
-      savePath: '',
-      downloaded: 0,
-      uploaded: 0,
-      numComplete: 0,
-      numIncomplete: 0,
-      category: '',
-      tags: '',
-      priority: 0,
-      amountLeft: 0,
-      tracker: '',
-      seenComplete: 0,
-      lastActivity: 0,
-      totalSize: 0,
-      pieceSize: 0,
-      piecesNum: 0,
-      piecesHave: 0,
-      contentPath: '',
-      sequentialDownload: false,
-      firstLastPiecePriority: false,
-    );
-
-    Future<bool> check(List<Torrent> torrents, {int episode = 4}) {
-      return service(torrents: torrents).isEpisodeCurrentlyDownloading(
-        showName: 'The Bear',
+    Future<bool> check(String showName, List<String> names, {int e = 4}) {
+      return service(
+        torrents: [for (final n in names) _torrent(n)],
+      ).isEpisodeCurrentlyDownloading(
+        showName: showName,
         season: 2,
-        episode: episode,
+        episode: e,
       );
     }
 
-    test('recognises a dot-separated release name', () async {
-      expect(await check([named('The.Bear.S02E04.1080p.WEB.mkv')]), isTrue);
-    });
-
-    test('recognises a dash-separated release name', () async {
-      expect(await check([named('the-bear-s02e04-1080p.mkv')]), isTrue);
-    });
-
-    test('does not match a different episode', () async {
+    test('recognises dot- and dash-separated release names', () async {
       expect(
-        await check([named('The.Bear.S02E04.1080p.mkv')], episode: 5),
+        await check('The Bear', ['The.Bear.S02E04.1080p.WEB.mkv']),
+        isTrue,
+      );
+      expect(await check('The Bear', ['the-bear-s02e04-1080p.mkv']), isTrue);
+    });
+
+    test('recognises names with punctuation in them', () async {
+      // Spaces became dots and nothing else changed: "Mr. Robot" looked for
+      // `mr..robot` and queued a duplicate of `Mr.Robot.S02E04`.
+      expect(await check('Mr. Robot', ['Mr.Robot.S02E04.720p.mkv']), isTrue);
+      expect(
+        await check("Grey's Anatomy", ['Greys.Anatomy.S02E04.mkv']),
+        isTrue,
+      );
+    });
+
+    test('does not match a different episode or show', () async {
+      expect(await check('The Bear', ['The.Bear.S02E04.mkv'], e: 5), isFalse);
+      expect(await check('The Bear', ['Severance.S02E04.mkv']), isFalse);
+      expect(await check('Dark', ['Dark.Matter.S02E04.mkv']), isFalse);
+    });
+
+    test('an unreachable engine answers no rather than throwing', () async {
+      final result = await service(engine: _FakeEngine(throws: true))
+          .isEpisodeCurrentlyDownloading(
+            showName: 'The Bear',
+            season: 2,
+            episode: 4,
+          );
+      expect(result, isFalse);
+    });
+  });
+
+  group('pickEpisodeTorrent', () {
+    EztvTorrent? pick({
+      List<EztvTorrent> eztv = const [],
+      List<TorrentioStream> torrentio = const [],
+      String? quality,
+      int? maxSize,
+      Set<String> exclude = const {},
+    }) => AutoDownloadService.pickEpisodeTorrent(
+      eztv: eztv,
+      torrentio: torrentio,
+      season: 1,
+      episode: 5,
+      preferredQuality: quality,
+      maxSizeBytes: maxSize,
+      excludeHashes: exclude,
+    );
+
+    test('a seeded release beats a dead one of better quality', () {
+      // 720p with no seeds used to win on quality, and the stream never
+      // started.
+      final result = pick(
+        eztv: [
+          _eztv('dead', 'Show.S01E05.720p.mkv', seeds: 0),
+          _eztv('alive', 'Show.S01E05.HDTV.mkv', seeds: 40),
+        ],
+        quality: '720p',
+      );
+      expect(result!.hash, 'alive');
+    });
+
+    test('when every EZTV release is dead, Torrentio is asked', () {
+      final result = pick(
+        eztv: [_eztv('dead', 'Show.S01E05.1080p.mkv', seeds: 0)],
+        torrentio: [_stream('tio', '1080p', seeders: 25)],
+      );
+      expect(result!.hash, 'tio');
+    });
+
+    test('a dead release is still better than nothing', () {
+      // A new release often lists 0 seeds until the indexer catches up.
+      final result = pick(
+        eztv: [_eztv('fresh', 'Show.S01E05.1080p.mkv', seeds: 0)],
+        torrentio: [_stream('tio-dead', '720p', seeders: 0)],
+      );
+      expect(result!.hash, 'fresh');
+    });
+
+    test('the preferred quality wins among seeded releases', () {
+      final result = pick(
+        eztv: [
+          _eztv('uhd', 'Show.S01E05.2160p.mkv', seeds: 50),
+          _eztv('fhd', 'Show.S01E05.1080p.mkv', seeds: 10),
+        ],
+        quality: '1080P', // an older build's spelling
+      );
+      expect(result!.hash, 'fhd');
+    });
+
+    test('a download is not held to the streaming size cap', () {
+      final eztv = [
+        _eztv('big', 'Show.S01E05.1080p.mkv', seeds: 30, gb: 2.1),
+        _eztv('small', 'Show.S01E05.720p.mkv', seeds: 30, gb: 0.8),
+      ];
+      expect(pick(eztv: eztv, quality: '1080p')!.hash, 'big');
+      expect(
+        pick(
+          eztv: eztv,
+          quality: '1080p',
+          maxSize: AutoDownloadService.maxStreamingSizeBytes,
+        )!.hash,
+        'small',
+        reason: 'streaming keeps the cap',
+      );
+    });
+
+    test('never picks an excluded torrent again', () {
+      final result = pick(
+        eztv: [
+          _eztv('failed', 'Show.S01E05.1080p.mkv', seeds: 90),
+          _eztv('other', 'Show.S01E05.720p.mkv', seeds: 5),
+        ],
+        exclude: {'FAILED'},
+      );
+      expect(result!.hash, 'other');
+    });
+
+    test('Torrentio: one episode over a pack, seeded over dead', () {
+      final result = pick(
+        torrentio: [
+          _stream(
+            'pack',
+            '1080p',
+            seeders: 300,
+            title: 'Show.S01',
+            fileIdx: 4,
+            filename: 'Show.S01E05.1080p.mkv',
+          ),
+          _stream('dead-single', '1080p', seeders: 0),
+          _stream('single', '720p', seeders: 12),
+        ],
+      );
+      expect(result!.hash, 'single');
+    });
+
+    test('a Torrentio pick keeps its file index', () {
+      final result = pick(
+        torrentio: [
+          _stream(
+            'pack',
+            '1080p',
+            seeders: 30,
+            title: 'Show.S01.Complete.1080p',
+            fileIdx: 4,
+          ),
+        ],
+      );
+      expect(result!.fileIdx, 4);
+    });
+
+    test('nothing at all is null', () {
+      expect(pick(), isNull);
+    });
+  });
+
+  group('findTorrentForEpisode', () {
+    test('asks both indexers, and survives one failing', () async {
+      final eztv = _FakeEztv(throws: true);
+      final torrentio = _FakeTorrentio(
+        streams: [_stream('tio', '1080p', seeders: 20)],
+      );
+      final result = await service(
+        eztv: eztv,
+        torrentio: torrentio,
+      ).findTorrentForEpisode(imdbId: 'tt1', season: 1, episode: 5);
+
+      expect(eztv.calls, 1);
+      expect(torrentio.calls, 1);
+      expect(result!.hash, 'tio');
+    });
+  });
+
+  group('downloadNextEpisode', () {
+    List<TorrentFile> pack({double done = 0}) => [
+      for (var i = 0; i < 4; i++)
+        TorrentFile(
+          index: i,
+          name: 'Pack/E0${i + 1}.mkv',
+          size: 100,
+          progress: i == 3 ? 1 : done,
+          priority: 1,
+          isSeed: false,
+          availability: 1,
+        ),
+    ];
+
+    test('waits for the file list, then fetches one episode only', () async {
+      // The fixed two-second wait usually ended before qBittorrent had the
+      // metadata, nothing was deselected, and the whole pack downloaded.
+      final engine = _FakeEngine(filesAfter: 3, files: pack());
+      final ok = await service(engine: engine).downloadNextEpisode(
+        magnetLink: 'magnet:?xt=urn:btih:pack',
+        infoHash: 'pack',
+        fileIdx: 1,
+      );
+
+      expect(ok, isTrue);
+      expect(engine.fileListCalls, greaterThanOrEqualTo(3));
+      final skip = engine.priorityCalls.first;
+      expect(skip.ids, [0, 2], reason: 'the finished extra is left alone');
+      expect(skip.priority, 0);
+      final keep = engine.priorityCalls.last;
+      expect(keep.ids, [1]);
+      expect(keep.priority, 7);
+    });
+
+    test('reports a pack whose file list never arrives', () async {
+      final engine = _FakeEngine(filesAfter: 1 << 30, files: pack());
+      final selected = await service(
+        engine: engine,
+      ).selectEpisodeFile('pack', 1);
+      expect(selected, isFalse);
+      expect(engine.priorityCalls, isEmpty);
+    });
+
+    test('reports an engine that refuses the selection', () async {
+      final engine = _FakeEngine(files: pack(), priorityResult: false);
+      expect(
+        await service(engine: engine).selectEpisodeFile('pack', 1),
         isFalse,
       );
     });
 
-    test('does not match another show', () async {
-      expect(await check([named('Severance.S02E04.1080p.mkv')]), isFalse);
+    test('a refused add is a failure', () async {
+      final engine = _FakeEngine(addResult: false);
+      expect(
+        await service(
+          engine: engine,
+        ).downloadNextEpisode(magnetLink: 'magnet:?xt=urn:btih:x'),
+        isFalse,
+      );
+    });
+  });
+
+  group('engineTorrents', () {
+    test('an unreachable engine is no answer, not an empty list', () async {
+      // Both engines answer a failed list request with []; acting on that
+      // would release every queued download.
+      final engine = _FakeEngine(reachable: false);
+      expect(await service(engine: engine).engineTorrents(), isNull);
     });
 
-    test(
-      'an unreachable qBittorrent answers no rather than throwing',
-      () async {
-        // Answering "yes" on an error would suppress a download the user asked
-        // for; throwing would break the caller mid-playback.
-        final result =
-            await AutoDownloadService(
-              tmdbService: _FakeTmdb(),
-              eztvService: EztvApiService(),
-              qbtService: _FakeQbt(const [], throws: true),
-              torrentioService: TorrentioApiService(),
-            ).isEpisodeCurrentlyDownloading(
-              showName: 'The Bear',
-              season: 2,
-              episode: 4,
-            );
-        expect(result, isFalse);
-      },
-    );
+    test('a reachable engine with nothing in it is an empty list', () async {
+      expect(await service().engineTorrents(), isEmpty);
+    });
   });
 
   group('EpisodeTrackingInfo', () {
@@ -422,11 +559,9 @@ void main() {
         showName: 'Severance',
         season: 2,
         episode: 4,
-        airDate: '2026-01-24',
         status: EpisodeDownloadStatus.downloading,
         quality: '1080p',
         torrentHash: 'abc123',
-        magnetLink: 'magnet:?xt=urn:btih:abc123',
       );
       final restored = EpisodeTrackingInfo.fromJson(info.toJson());
 
@@ -441,8 +576,6 @@ void main() {
     });
 
     test('a missing status decodes to the first state, not a crash', () {
-      // Entries written before `status` existed, and any future enum
-      // reordering, come through this path.
       final restored = EpisodeTrackingInfo.fromJson({
         'show_id': 1,
         'show_name': 'Severance',
@@ -451,8 +584,101 @@ void main() {
       });
       expect(restored.status, EpisodeDownloadStatus.notAired);
     });
+
+    test('an older entry with retired fields still reads', () {
+      final restored = EpisodeTrackingInfo.fromJson({
+        'show_id': 1,
+        'show_name': 'Severance',
+        'season': 1,
+        'episode': 1,
+        'status': 4,
+        'air_date': '2026-01-01',
+        'magnet_link': 'magnet:?xt=urn:btih:x',
+      });
+      expect(restored.status, EpisodeDownloadStatus.downloaded);
+    });
+
+    test('an unknown status index is rejected, not mis-read', () {
+      // `values[index]` threw a RangeError that reset every show's tracking;
+      // now the one entry is rejected and the loader skips it.
+      expect(
+        () => EpisodeTrackingInfo.fromJson({
+          'show_id': 1,
+          'show_name': 'Severance',
+          'season': 1,
+          'episode': 1,
+          'status': 99,
+        }),
+        throwsFormatException,
+      );
+    });
   });
 }
+
+EztvTorrent _eztv(
+  String hash,
+  String filename, {
+  int seeds = 0,
+  double gb = 0,
+}) => EztvTorrent(
+  id: hash.hashCode,
+  hash: hash,
+  filename: filename,
+  magnetUrl: 'magnet:?xt=urn:btih:$hash',
+  title: filename,
+  seeds: seeds,
+  sizeBytes: (gb * 1024 * 1024 * 1024).round(),
+);
+
+TorrentioStream _stream(
+  String hash,
+  String quality, {
+  int seeders = 0,
+  String title = 'Show.S01E05',
+  int? fileIdx,
+  String? filename,
+}) => TorrentioStream(
+  name: 'Torrentio\n$quality',
+  title: '$title.$quality.WEB\n👤 $seeders 💾 1.2 GB ⚙️ Site',
+  infoHash: hash,
+  fileIdx: fileIdx,
+  filename: filename,
+);
+
+Torrent _torrent(String name) => Torrent(
+  hash: name.hashCode.toString(),
+  name: name,
+  size: 0,
+  progress: 0.5,
+  dlspeed: 0,
+  upspeed: 0,
+  eta: 0,
+  state: 'downloading',
+  numSeeds: 0,
+  numLeeches: 0,
+  ratio: 0,
+  addedOn: 0,
+  completionOn: 0,
+  savePath: '',
+  downloaded: 0,
+  uploaded: 0,
+  numComplete: 0,
+  numIncomplete: 0,
+  category: '',
+  tags: '',
+  priority: 0,
+  amountLeft: 0,
+  tracker: '',
+  seenComplete: 0,
+  lastActivity: 0,
+  totalSize: 0,
+  pieceSize: 0,
+  piecesNum: 0,
+  piecesHave: 0,
+  contentPath: '',
+  sequentialDownload: false,
+  firstLastPiecePriority: false,
+);
 
 class _FakeTmdb extends TmdbApiService {
   _FakeTmdb({this.show, this.seasons = const {}, this.throws = false})
@@ -464,24 +690,83 @@ class _FakeTmdb extends TmdbApiService {
 
   @override
   Future<Show> getShowDetails(int showId) async {
-    if (throws) throw StateError('TMDB unreachable');
+    if (throws) throw TmdbApiException('TMDB unreachable', isNetwork: true);
     return show ?? Show(id: showId, name: 'Unknown');
   }
 
   @override
   Future<List<Episode>> getSeasonEpisodes(int showId, int seasonNumber) async {
-    if (throws) throw StateError('TMDB unreachable');
+    if (throws) throw TmdbApiException('TMDB unreachable', isNetwork: true);
     final found = seasons[seasonNumber];
-    if (found == null) throw StateError('no such season');
+    if (found == null) {
+      throw TmdbApiException('no such season', statusCode: 404);
+    }
     return found;
   }
 }
 
-class _FakeQbt extends QBittorrentApiService {
-  _FakeQbt(this.torrents, {this.throws = false});
+class _FakeEztv extends EztvApiService {
+  _FakeEztv({this.throws = false}) : torrents = const [];
+
+  final List<EztvTorrent> torrents;
+  final bool throws;
+  int calls = 0;
+
+  @override
+  Future<List<EztvTorrent>> getTorrentsForEpisode(
+    String imdbId, {
+    int? season,
+    int? episode,
+  }) async {
+    calls++;
+    if (throws) throw EztvApiException('blocked', isTimeout: true);
+    return torrents;
+  }
+}
+
+class _FakeTorrentio extends TorrentioApiService {
+  _FakeTorrentio({this.streams = const []});
+
+  final List<TorrentioStream> streams;
+  int calls = 0;
+
+  @override
+  Future<TorrentioResponse> getSeriesStreams(
+    String imdbId, {
+    required int season,
+    required int episode,
+  }) async {
+    calls++;
+    return TorrentioResponse(streams: streams);
+  }
+}
+
+class _FakeEngine extends QBittorrentApiService {
+  _FakeEngine({
+    this.torrents = const [],
+    this.throws = false,
+    this.reachable = true,
+    this.addResult = true,
+    this.files = const [],
+    this.filesAfter = 0,
+    this.priorityResult = true,
+  });
 
   final List<Torrent> torrents;
   final bool throws;
+  final bool reachable;
+  final bool addResult;
+  final List<TorrentFile> files;
+
+  /// File-list requests answered empty before [files] (metadata arriving).
+  final int filesAfter;
+  final bool priorityResult;
+
+  int fileListCalls = 0;
+  final List<({List<int> ids, int priority})> priorityCalls = [];
+
+  @override
+  Future<bool> testConnection() async => reachable;
 
   @override
   Future<List<Torrent>> getTorrents({
@@ -494,7 +779,35 @@ class _FakeQbt extends QBittorrentApiService {
     int? offset,
     List<String>? hashes,
   }) async {
-    if (throws) throw StateError('qBittorrent unreachable');
-    return torrents;
+    if (throws) throw StateError('engine unreachable');
+    return reachable ? torrents : const [];
+  }
+
+  @override
+  Future<bool> addTorrent({
+    String? magnetLink,
+    File? torrentFile,
+    String? savePath,
+    String? category,
+    bool? paused,
+    bool? skipChecking,
+    bool? sequentialDownload,
+    bool? firstLastPiecePrio,
+  }) async => addResult;
+
+  @override
+  Future<List<TorrentFile>> getTorrentFiles(String hash) async {
+    fileListCalls++;
+    return fileListCalls > filesAfter ? files : const [];
+  }
+
+  @override
+  Future<bool> setFilePriority(
+    String hash,
+    List<int> fileIds,
+    int priority,
+  ) async {
+    priorityCalls.add((ids: fileIds, priority: priority));
+    return priorityResult;
   }
 }

@@ -7,18 +7,21 @@ import '../../design/app_colors.dart';
 /// Used in the floating top-left back button and top-right
 /// favorite/watchlist/settings cluster on details screens. Backed by
 /// `AppColors.glassFill` so the alpha matches across all 8 sites
-/// without hand-typed `Colors.white.withAlpha(20)` literals.
+/// without each one typing its own 8% white.
 class FloatingHeaderAction extends StatelessWidget {
   const FloatingHeaderAction({
     super.key,
     required this.icon,
     required this.onPressed,
     this.tooltip,
-    this.iconColor = Colors.white,
+    this.iconColor = AppColors.fg,
   });
 
   final IconData icon;
   final VoidCallback onPressed;
+
+  /// Also the button's accessible name — an icon has no text of its own, so
+  /// leave it out only when something else labels the action.
   final String? tooltip;
   final Color iconColor;
 

@@ -1,59 +1,27 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
 import '../design/app_tokens.dart';
 import '../utils/formatters.dart';
 
-/// Status types for the streaming indicator
-enum StreamingStatus { searching, found, buffering, ready, error }
-
-/// Background next-episode prefetch, shown as a stealth spinner beside
-/// the in-player Continue Watching pill — not as a card over the video.
-class NextEpisodePrefetch {
-  const NextEpisodePrefetch({
-    required this.status,
-    this.episodeCode,
-    this.progress,
-    this.message,
-    this.downloadRateBytesPerSec = 0,
-  });
-
-  final StreamingStatus status;
-  final String? episodeCode;
-  final double? progress;
-  final String? message;
-  final int downloadRateBytesPerSec;
-
-  bool get isBusy =>
-      status == StreamingStatus.searching ||
-      status == StreamingStatus.found ||
-      status == StreamingStatus.buffering;
-}
-
-/// Modern, integrated streaming status indicator for the video player.
+/// The chip at the top of the player while a stream waits for its download
+/// to catch up — "Buffering — waiting for download…", with how much of the
+/// file is down.
 ///
-/// All visual values come from `app_tokens.dart` and the M3 theme — no
-/// hard-coded colors or durations. Background containers map to
-/// `errorContainer` / `tertiaryContainer` / `surfaceContainerHighest`
-/// for the error / success / default tones; success uses the theme's
-/// **tertiary** accent (the violet palette has no green).
+/// Fed by the streaming health monitor, which only ever reports buffering
+/// and its resolution. This was a five-state status card (searching, found,
+/// ready, error) with an auto-hide timer, a close button and an episode-code
+/// line, none of which anything could reach; the next-episode prefetch that
+/// once used the other states is the spinner beside the Next episode pill.
 class StreamingStatusIndicator extends StatefulWidget {
-  final StreamingStatus status;
   final String message;
-  final String? episodeCode;
+
+  /// Fraction of the file downloaded, when known.
   final double? progress;
-  final VoidCallback? onDismiss;
-  final Duration autoHideDuration;
 
   const StreamingStatusIndicator({
     super.key,
-    required this.status,
     required this.message,
-    this.episodeCode,
     this.progress,
-    this.onDismiss,
-    this.autoHideDuration = const Duration(seconds: 5),
   });
 
   @override
@@ -63,10 +31,9 @@ class StreamingStatusIndicator extends StatefulWidget {
 
 class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
     with SingleTickerProviderStateMixin {
-  late AnimationController _animationController;
-  late Animation<Offset> _slideAnimation;
-  late Animation<double> _fadeAnimation;
-  Timer? _autoHideTimer;
+  late final AnimationController _animationController;
+  late final Animation<Offset> _slideAnimation;
+  late final Animation<double> _fadeAnimation;
 
   @override
   void initState() {
@@ -89,35 +56,10 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
     );
 
     _animationController.forward();
-    _startAutoHideTimer();
-  }
-
-  @override
-  void didUpdateWidget(StreamingStatusIndicator oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.status != oldWidget.status ||
-        widget.message != oldWidget.message) {
-      _startAutoHideTimer();
-    }
-  }
-
-  void _startAutoHideTimer() {
-    _autoHideTimer?.cancel();
-    if (widget.status == StreamingStatus.ready ||
-        widget.status == StreamingStatus.error) {
-      _autoHideTimer = Timer(widget.autoHideDuration, () {
-        if (mounted) {
-          _animationController.reverse().then((_) {
-            widget.onDismiss?.call();
-          });
-        }
-      });
-    }
   }
 
   @override
   void dispose() {
-    _autoHideTimer?.cancel();
     _animationController.dispose();
     super.dispose();
   }
@@ -126,6 +68,7 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final progress = widget.progress;
 
     return SlideTransition(
       position: _slideAnimation,
@@ -137,7 +80,9 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
             vertical: AppSpacing.md,
           ),
           decoration: BoxDecoration(
-            color: _getBackgroundColor(scheme),
+            color: scheme.surfaceContainerHighest.withValues(
+              alpha: AppOpacity.almostOpaque / 255.0,
+            ),
             borderRadius: BorderRadius.circular(AppRadius.lg),
             border: Border.all(
               color: scheme.outlineVariant.withValues(
@@ -145,64 +90,55 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
               ),
               width: AppBorderWidth.thin,
             ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: AppOpacity.semi / 255.0),
-                blurRadius: AppElevation.lg,
-                offset: const Offset(0, 4),
-              ),
-            ],
+            boxShadow: AppShadow.floating,
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(AppRadius.lg),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Progress bar for buffering / searching
-                if (widget.status == StreamingStatus.buffering &&
-                    widget.progress != null)
-                  LinearProgressIndicator(
-                    value: widget.progress,
-                    backgroundColor: scheme.primary.withValues(
-                      alpha: AppOpacity.light / 255.0,
-                    ),
-                    valueColor: AlwaysStoppedAnimation<Color>(scheme.primary),
-                    minHeight: 3,
-                  )
-                else if (widget.status == StreamingStatus.searching ||
-                    widget.status == StreamingStatus.buffering)
-                  LinearProgressIndicator(
-                    backgroundColor: scheme.primary.withValues(
-                      alpha: AppOpacity.light / 255.0,
-                    ),
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      scheme.primary.withValues(
-                        alpha: AppOpacity.heavy / 255.0,
-                      ),
-                    ),
-                    minHeight: 3,
+                LinearProgressIndicator(
+                  value: progress,
+                  backgroundColor: scheme.primary.withValues(
+                    alpha: AppOpacity.light / 255.0,
                   ),
-
-                // Content
+                  valueColor: AlwaysStoppedAnimation<Color>(scheme.primary),
+                  minHeight: 3,
+                ),
                 Padding(
                   padding: const EdgeInsets.all(AppSpacing.md),
                   child: Row(
                     children: [
-                      _buildStatusIcon(scheme),
+                      SizedBox(
+                        width: AppIconSize.xl,
+                        height: AppIconSize.xl,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              value: progress,
+                              backgroundColor: scheme.primary.withValues(
+                                alpha: AppOpacity.medium / 255.0,
+                              ),
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                scheme.primary,
+                              ),
+                            ),
+                            Icon(
+                              Icons.download_rounded,
+                              color: scheme.onSurfaceVariant,
+                              size: AppIconSize.xs,
+                            ),
+                          ],
+                        ),
+                      ),
                       const SizedBox(width: AppSpacing.sm),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            if (widget.episodeCode != null)
-                              Text(
-                                widget.episodeCode!,
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: scheme.onSurfaceVariant,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
                             Text(
                               widget.message,
                               style: theme.textTheme.bodyMedium?.copyWith(
@@ -212,12 +148,14 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                             ),
-                            if (widget.status == StreamingStatus.buffering &&
-                                widget.progress != null)
+                            if (progress != null)
                               Padding(
-                                padding: const EdgeInsets.only(top: 4),
+                                padding: const EdgeInsets.only(
+                                  top: AppSpacing.xs,
+                                ),
                                 child: Text(
-                                  '${Formatters.formatProgress(widget.progress!)} buffered',
+                                  '${Formatters.formatProgress(progress)} '
+                                  'downloaded',
                                   style: theme.textTheme.labelSmall?.copyWith(
                                     color: scheme.onSurfaceVariant,
                                   ),
@@ -226,23 +164,6 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
                           ],
                         ),
                       ),
-                      if (widget.status == StreamingStatus.error ||
-                          widget.status == StreamingStatus.ready)
-                        IconButton(
-                          onPressed: () {
-                            _animationController.reverse().then((_) {
-                              widget.onDismiss?.call();
-                            });
-                          },
-                          icon: const Icon(Icons.close_rounded),
-                          iconSize: AppIconSize.md,
-                          color: scheme.onSurfaceVariant,
-                          constraints: const BoxConstraints(
-                            minWidth: 32,
-                            minHeight: 32,
-                          ),
-                          padding: EdgeInsets.zero,
-                        ),
                     ],
                   ),
                 ),
@@ -252,101 +173,5 @@ class _StreamingStatusIndicatorState extends State<StreamingStatusIndicator>
         ),
       ),
     );
-  }
-
-  Widget _buildStatusIcon(ColorScheme scheme) {
-    switch (widget.status) {
-      case StreamingStatus.searching:
-        return SizedBox(
-          width: AppIconSize.lg,
-          height: AppIconSize.lg,
-          child: CircularProgressIndicator(
-            strokeWidth: 2.5,
-            valueColor: AlwaysStoppedAnimation<Color>(scheme.primary),
-          ),
-        );
-      case StreamingStatus.found:
-        return Container(
-          width: AppIconSize.xxl,
-          height: AppIconSize.xxl,
-          decoration: BoxDecoration(
-            color: scheme.primary.withValues(alpha: AppOpacity.medium / 255.0),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(
-            Icons.check_rounded,
-            color: scheme.primary,
-            size: AppIconSize.md,
-          ),
-        );
-      case StreamingStatus.buffering:
-        return Stack(
-          alignment: Alignment.center,
-          children: [
-            SizedBox(
-              width: AppIconSize.xl,
-              height: AppIconSize.xl,
-              child: CircularProgressIndicator(
-                strokeWidth: 2.5,
-                value: widget.progress,
-                backgroundColor: scheme.primary.withValues(
-                  alpha: AppOpacity.medium / 255.0,
-                ),
-                valueColor: AlwaysStoppedAnimation<Color>(scheme.primary),
-              ),
-            ),
-            Icon(
-              Icons.download_rounded,
-              color: scheme.onSurfaceVariant,
-              size: AppIconSize.xs,
-            ),
-          ],
-        );
-      case StreamingStatus.ready:
-        return Container(
-          width: AppIconSize.xxl,
-          height: AppIconSize.xxl,
-          decoration: BoxDecoration(
-            color: scheme.tertiary.withValues(alpha: AppOpacity.medium / 255.0),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(
-            Icons.play_arrow_rounded,
-            color: scheme.tertiary,
-            size: AppIconSize.md,
-          ),
-        );
-      case StreamingStatus.error:
-        return Container(
-          width: AppIconSize.xxl,
-          height: AppIconSize.xxl,
-          decoration: BoxDecoration(
-            color: scheme.error.withValues(alpha: AppOpacity.medium / 255.0),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(
-            Icons.error_outline_rounded,
-            color: scheme.error,
-            size: AppIconSize.md,
-          ),
-        );
-    }
-  }
-
-  Color _getBackgroundColor(ColorScheme scheme) {
-    switch (widget.status) {
-      case StreamingStatus.error:
-        return scheme.errorContainer.withValues(
-          alpha: AppOpacity.almostOpaque / 255.0,
-        );
-      case StreamingStatus.ready:
-        return scheme.tertiaryContainer.withValues(
-          alpha: AppOpacity.almostOpaque / 255.0,
-        );
-      default:
-        return scheme.surfaceContainerHighest.withValues(
-          alpha: AppOpacity.almostOpaque / 255.0,
-        );
-    }
   }
 }

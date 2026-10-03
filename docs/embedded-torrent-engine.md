@@ -1,5 +1,11 @@
 # MediaHub: codebase map, workflows, and the cost of baking in a torrent engine
 
+> **Status: historical.** This is the analysis that preceded the built-in
+> engine. The migration it argues for shipped in 0.6.0 (see
+> `rqbit-migration-plan.md` and the README's *Torrent engine* section for how
+> things work today). Line counts, file names and the call inventory below
+> describe the code as it was then.
+
 Written against `main` @ `15e70af` (local). 47,792 lines of Dart in `lib/`, 9,314 in `test/`.
 
 ---
@@ -118,8 +124,15 @@ concentrated in 8 files.
 | Global | `getPreferences`, `setPreferences`, `getTransferInfo`, `setDownloadLimit`, `setUploadLimit` | Settings |
 | **Streaming-critical** | **`getPieceStates`, `getPieceSize`, `setPiecePriority`, `toggleSequentialDownload`, `toggleFirstLastPiecePrio`** | `streaming_service`, `local_streaming_server`, `playback_health_monitor` |
 
-The last row is what rules most alternatives out. `piecePrio` is already guarded
-(`_piecePrioSupported`) because not every qBittorrent build has it.
+The last row is what rules most alternatives out.
+
+*Correction (2026-10):* `setPiecePriority` posted to `/api/v2/torrents/piecePrio`,
+an endpoint no qBittorrent version has — the Web API's priority actions are
+`filePrio`, `increasePrio`/`decreasePrio`/`topPrio`/`bottomPrio` (queue
+position) and `toggleFirstLastPiecePrio`. The `_piecePrioSupported` guard was
+therefore always tripped, and piece-level priority on qBittorrent never worked;
+the code path has since been removed. Sequential download is the only lever
+qBittorrent offers for streaming.
 
 Process side: `QBittorrentProcessService` (282 L) already finds the executable across
 6 Windows install layouts + `which`, launches it, health-checks every 5 s, and **stands down

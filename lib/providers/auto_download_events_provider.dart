@@ -1,47 +1,38 @@
-import 'dart:convert';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/auto_download_event.dart';
+import '../services/app_logger.dart';
+import '../services/json_prefs_store.dart';
 import 'settings_provider.dart';
 
 const _eventsKey = 'auto_download_events';
 const _maxEvents = 50;
 
-/// Provider for auto-download activity events
+/// The auto-download activity log, newest first.
 final autoDownloadEventsProvider =
     NotifierProvider<AutoDownloadEventsNotifier, List<AutoDownloadEvent>>(
       AutoDownloadEventsNotifier.new,
     );
 
 class AutoDownloadEventsNotifier extends Notifier<List<AutoDownloadEvent>> {
+  late JsonPrefsStore _store;
+
   @override
   List<AutoDownloadEvent> build() {
-    final prefs = ref.watch(sharedPreferencesProvider);
-    return _loadEvents(prefs);
-  }
-
-  List<AutoDownloadEvent> _loadEvents(SharedPreferences prefs) {
-    try {
-      final jsonString = prefs.getString(_eventsKey);
-      if (jsonString == null) return [];
-      final list = jsonDecode(jsonString) as List;
-      return list
-          .map((e) => AutoDownloadEvent.fromJson(e as Map<String, dynamic>))
-          .toList();
-    } catch (e) {
-      return [];
-    }
+    _store = JsonPrefsStore(ref.watch(sharedPreferencesProvider), _eventsKey);
+    // Event by event: one this build cannot read (a newer event type) used
+    // to silently empty the whole log.
+    return _store.readList(
+      (e) => AutoDownloadEvent.fromJson(e! as Map<String, dynamic>),
+    );
   }
 
   Future<void> _saveEvents() async {
     try {
-      final prefs = ref.read(sharedPreferencesProvider);
-      final json = state.map((e) => e.toJson()).toList();
-      await prefs.setString(_eventsKey, jsonEncode(json));
+      await _store.write([for (final e in state) e.toJson()]);
     } catch (e) {
-      // Silently fail — events are non-critical
+      // Non-critical: the log is a convenience, the downloads are not.
+      AppLog.w('[AutoDownload] could not save the activity log: $e');
     }
   }
 
@@ -51,17 +42,9 @@ class AutoDownloadEventsNotifier extends Notifier<List<AutoDownloadEvent>> {
     await _saveEvents();
   }
 
-  /// Clear all events
+  /// Empty the log — for a "Clear" action next to it.
   Future<void> clearEvents() async {
     state = [];
     await _saveEvents();
   }
 }
-
-/// Last 10 events for the status card
-final recentAutoDownloadEventsProvider = Provider<List<AutoDownloadEvent>>((
-  ref,
-) {
-  final events = ref.watch(autoDownloadEventsProvider);
-  return events.take(10).toList();
-});

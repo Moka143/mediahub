@@ -87,6 +87,14 @@ void main() {
       expect(searchTitleFromTorrentName('Interstellar'), 'Interstellar');
     });
 
+    test('cuts at a three-digit episode code', () {
+      expect(
+        searchTitleFromTorrentName('One.Piece.S01E105.1080p'),
+        'One Piece',
+      );
+      expect(searchTitleFromTorrentName('One.Piece.1x105.1080p'), 'One Piece');
+    });
+
     test('only drops a short trailing dot-segment as an extension', () {
       // ".mkv" is an extension; ".Something" is part of the title.
       expect(searchTitleFromTorrentName('Show.Name.mkv'), 'Show Name');
@@ -94,6 +102,68 @@ void main() {
         searchTitleFromTorrentName('Show.Name.Extended'),
         'Show Name Extended',
       );
+    });
+  });
+
+  group('movieQueryFromFileName', () {
+    test('keeps the year as a search filter', () {
+      // Dropping it is what rated whichever "Halloween" ranked first.
+      expect(movieQueryFromFileName('Halloween.1978.1080p.BluRay.mkv'), (
+        title: 'Halloween',
+        year: 1978,
+      ));
+      expect(movieQueryFromFileName('Arrival (2016) [1080p].mkv'), (
+        title: 'Arrival',
+        year: 2016,
+      ));
+    });
+
+    test('cuts at the first year, so release junk after it goes', () {
+      expect(movieQueryFromFileName('Movie.2020.WEB.H264-GRP.mkv'), (
+        title: 'Movie',
+        year: 2020,
+      ));
+    });
+
+    test('a title that is a year stays a title', () {
+      expect(movieQueryFromFileName('1917.2019.1080p.mkv'), (
+        title: '1917',
+        year: 2019,
+      ));
+    });
+
+    test('offers the reading where the year is part of the title', () {
+      expect(movieQueriesFromFileName('Wonder.Woman.1984.2020.1080p.mkv'), [
+        (title: 'Wonder Woman', year: 1984),
+        (title: 'Wonder Woman 1984', year: 2020),
+      ]);
+    });
+  });
+
+  group('showQueryFromName', () {
+    test('the show part, with its first-air year', () {
+      expect(showQueryFromName('Doctor.Who.2005.S01E01.mkv'), (
+        title: 'Doctor Who',
+        year: 2005,
+      ));
+      expect(showQueryFromName('The.Office.US.S02E03.mkv'), (
+        title: 'The Office US',
+        year: null,
+      ));
+    });
+
+    test('nothing without an episode code or a show part', () {
+      expect(showQueryFromName('Dune.2021.mkv'), isNull);
+      expect(showQueryFromName('S01E01.mkv'), isNull);
+    });
+  });
+
+  group('titlesMatchExactly', () {
+    test('a suffix must be on both sides or neither', () {
+      expect(titlesMatchExactly('Blade Runner', 'blade.runner'), isTrue);
+      expect(titlesMatchExactly('Blade Runner', 'Blade Runner 2049'), isFalse);
+      expect(titlesMatch('Blade Runner', 'Blade Runner 2049'), isTrue);
+      expect(titlesMatchExactly('The Office', 'The Office US'), isFalse);
     });
   });
 }

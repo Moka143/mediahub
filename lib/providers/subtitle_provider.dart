@@ -6,7 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/local_media_file.dart';
 import '../services/app_logger.dart';
 import '../services/opensubtitles_service.dart';
-import '../utils/formatters.dart';
+import '../utils/platform_utils.dart';
 import 'settings_provider.dart';
 
 /// Provider for OpenSubtitles service
@@ -14,7 +14,7 @@ final openSubtitlesServiceProvider = Provider<OpenSubtitlesService>((ref) {
   return OpenSubtitlesService();
 });
 
-/// Current subtitle context for fetching subtitles
+/// What to ask OpenSubtitles about: a movie, or one episode of a series.
 class SubtitleContext {
   final String imdbId;
   final int? seasonNumber;
@@ -28,20 +28,6 @@ class SubtitleContext {
     required this.isMovie,
   });
 
-  SubtitleContext copyWith({
-    String? imdbId,
-    int? seasonNumber,
-    int? episodeNumber,
-    bool? isMovie,
-  }) {
-    return SubtitleContext(
-      imdbId: imdbId ?? this.imdbId,
-      seasonNumber: seasonNumber ?? this.seasonNumber,
-      episodeNumber: episodeNumber ?? this.episodeNumber,
-      isMovie: isMovie ?? this.isMovie,
-    );
-  }
-
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
@@ -53,14 +39,14 @@ class SubtitleContext {
   }
 
   @override
-  int get hashCode =>
-      imdbId.hashCode ^
-      seasonNumber.hashCode ^
-      episodeNumber.hashCode ^
-      isMovie.hashCode;
+  int get hashCode => Object.hash(imdbId, seasonNumber, episodeNumber, isMovie);
 }
 
-/// Notifier for current subtitle context
+/// The OpenSubtitles query for the video now playing.
+///
+/// App-wide, so the player must [clear] it whenever a file opens: it used to
+/// survive from one video to the next, and a Library file — which opens with
+/// no IMDB id of its own — listed and loaded the previous movie's subtitles.
 class SubtitleContextNotifier extends Notifier<SubtitleContext?> {
   @override
   SubtitleContext? build() => null;
@@ -122,52 +108,74 @@ final availableSubtitlesProvider = FutureProvider<List<Subtitle>>((ref) async {
   }
 });
 
-/// Build a SharedPreferences key for persisting the user's chosen subtitle
-/// against a video file. Order of preference:
-///   1. `movie:<imdbId>` when we have an IMDB id and no episode info.
-///   2. `series:<imdbId>:s##e##` when we have IMDB + season + episode.
-///   3. `path:<sha1(file.path)>` as the local-only fallback. The path hash
-///      invalidates when the user moves/renames a file — acceptable v1.
-String computeSubtitleCacheKey(
-  LocalMediaFile file, {
-  String? movieImdbId,
-  String? showImdbId,
-}) {
-  if (showImdbId != null &&
-      file.seasonNumber != null &&
-      file.episodeNumber != null) {
-    final code = Formatters.episodeCode(
-      file.seasonNumber!,
-      file.episodeNumber!,
-    ).toLowerCase();
-    return 'series:$showImdbId:$code';
-  }
-  if (movieImdbId != null) return 'movie:$movieImdbId';
-  final hash = sha1.convert(utf8.encode(file.path)).toString();
-  return 'path:$hash';
+/// The key a subtitle choice is saved under: one per video file.
+///
+/// Derived from the file alone, deliberately. The choice is restored when the
+/// player opens and saved when the user picks, and the two ends used to build
+/// their keys from whichever IMDB ids each had at that moment — the player's
+/// arguments at open, the TMDB lookup's answer by the time the picker was
+/// used — so a choice was routinely saved under one key and looked up under
+/// another. The file is the one thing both ends always have. It is also the
+/// right granularity: subtitle timing belongs to a release, so a choice made
+/// for one copy of an episode should not be forced onto another.
+///
+/// Moving or renaming the file forgets the choice, which is acceptable.
+String subtitleCacheKeyFor(LocalMediaFile file) =>
+    'path:${sha1.convert(utf8.encode(file.path))}';
+
+/// A subtitle file found next to the video, in the same shape as an
+/// OpenSubtitles result so that both kinds share one selection — and so
+/// fullscreen, which re-applies the selection, re-applies it too.
+Subtitle sidecarSubtitle(String path) => Subtitle(
+  id: '$_sidecarIdPrefix$path',
+  url: path,
+  lang: '',
+  langName: basenameOf(path),
+);
+
+/// Whether [subtitle] is a file found beside the video, rather than an
+/// OpenSubtitles result.
+bool isSidecarSubtitle(Subtitle subtitle) =>
+    subtitle.id.startsWith(_sidecarIdPrefix);
+
+const _sidecarIdPrefix = 'file:';
+
+/// Subtitle files found next to the playing video, for the picker's
+/// "In this folder" section. Set by the player each time a file opens.
+class SidecarSubtitlesNotifier extends Notifier<List<Subtitle>> {
+  @override
+  List<Subtitle> build() => const [];
+
+  void set(List<Subtitle> subtitles) => state = List.unmodifiable(subtitles);
 }
 
-/// Cache key from a SubtitleContext (used at user-selection time when only
-/// the IMDB context is available — there's always an IMDB id when the menu
-/// can fetch OpenSubtitles, so the path-hash fallback isn't needed here).
-String? cacheKeyFromContext(SubtitleContext context) {
-  if (context.isMovie) return 'movie:${context.imdbId}';
-  if (context.seasonNumber == null || context.episodeNumber == null) {
-    return null;
-  }
-  final code = Formatters.episodeCode(
-    context.seasonNumber!,
-    context.episodeNumber!,
-  ).toLowerCase();
-  return 'series:${context.imdbId}:$code';
-}
+final sidecarSubtitlesProvider =
+    NotifierProvider<SidecarSubtitlesNotifier, List<Subtitle>>(
+      SidecarSubtitlesNotifier.new,
+    );
 
-/// Currently selected external subtitle (from OpenSubtitles or sidecar).
+/// The external subtitle (OpenSubtitles or a file beside the video) that is
+/// selected for the playing video, and the per-file memory of that choice.
 class CurrentExternalSubtitleNotifier extends Notifier<Subtitle?> {
   static const _prefsKeyPrefix = 'subtitle_pref:';
 
+  /// [subtitleCacheKeyFor] the playing file, set by [beginFile].
+  String? _fileKey;
+
   @override
   Subtitle? build() => null;
+
+  /// A new video is opening: forget the previous video's selection, and save
+  /// later choices against [file].
+  ///
+  /// The selection used to outlive its video. The next file's picker showed
+  /// the old track as selected, its CC icon read "on", and pressing F — which
+  /// re-applies the selection after the window changes size — loaded the old
+  /// video's subtitles onto the new one.
+  void beginFile(LocalMediaFile file) {
+    _fileKey = subtitleCacheKeyFor(file);
+    state = null;
+  }
 
   void set(Subtitle? subtitle) {
     state = subtitle;
@@ -175,6 +183,35 @@ class CurrentExternalSubtitleNotifier extends Notifier<Subtitle?> {
 
   void clear() {
     state = null;
+  }
+
+  /// The user picked [subtitle]: select it, and save it so the next playback
+  /// of the same file loads it again.
+  Future<void> choose(Subtitle subtitle) async {
+    state = subtitle;
+    final key = _fileKey;
+    if (key != null) await persist(key, subtitle);
+  }
+
+  /// The user turned subtitles off or picked an embedded track: select no
+  /// external subtitle, and stop restoring the saved one for this file — the
+  /// saved choice is whatever was picked last.
+  Future<void> chooseNone() async {
+    state = null;
+    final key = _fileKey;
+    if (key == null) return;
+    try {
+      final prefs = ref.read(sharedPreferencesProvider);
+      await prefs.remove('$_prefsKeyPrefix$key');
+    } catch (e) {
+      AppLog.e('[Subtitles] Failed to forget the choice for $key: $e');
+    }
+  }
+
+  /// The choice saved for the playing file, if there is one.
+  Subtitle? savedForCurrentFile() {
+    final key = _fileKey;
+    return key == null ? null : loadFor(key);
   }
 
   /// Persist the user's choice so we can auto-load it on the next playback
@@ -210,20 +247,4 @@ class CurrentExternalSubtitleNotifier extends Notifier<Subtitle?> {
 final currentExternalSubtitleProvider =
     NotifierProvider<CurrentExternalSubtitleNotifier, Subtitle?>(
       CurrentExternalSubtitleNotifier.new,
-    );
-
-/// Preferred subtitle language notifier
-class PreferredSubtitleLanguageNotifier extends Notifier<String?> {
-  @override
-  String? build() => null;
-
-  void set(String? language) {
-    state = language;
-  }
-}
-
-/// Preferred subtitle language setting
-final preferredSubtitleLanguageProvider =
-    NotifierProvider<PreferredSubtitleLanguageNotifier, String?>(
-      PreferredSubtitleLanguageNotifier.new,
     );

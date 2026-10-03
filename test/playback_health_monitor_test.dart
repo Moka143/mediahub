@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:mediahub/services/local_streaming_server.dart';
+import 'package:mediahub/services/piece_geometry.dart';
 import 'package:mediahub/services/playback_health_monitor.dart';
 
 void main() {
@@ -79,72 +79,6 @@ void main() {
     });
   });
 
-  group('decideBufferAction — direct-disk (seconds)', () {
-    BufferAction call({
-      required bool autoBufferPaused,
-      bool isPlaying = true,
-      required double secondsAhead,
-    }) => PlaybackHealthMonitor.decideBufferAction(
-      autoBufferPaused: autoBufferPaused,
-      isPlaying: isPlaying,
-      headroom: secondsAhead,
-      pauseBelow: PlaybackHealthMonitor.pauseBelowSecondsAhead,
-      resumeAbove: PlaybackHealthMonitor.resumeAboveSecondsAhead,
-      requirePositiveHeadroom: false,
-    );
-
-    test('leaves healthy playback alone', () {
-      expect(
-        call(autoBufferPaused: false, secondsAhead: 60),
-        BufferAction.none,
-      );
-    });
-
-    test('pauses once headroom falls below the threshold', () {
-      expect(
-        call(autoBufferPaused: false, secondsAhead: 5),
-        BufferAction.pause,
-      );
-    });
-
-    test('pauses at negative headroom too', () {
-      // Unlike proxy mode, the direct path has no separate seek-past-head
-      // handling, so falling behind the edge must still pause.
-      expect(
-        call(autoBufferPaused: false, secondsAhead: -30),
-        BufferAction.pause,
-      );
-    });
-
-    test('does not pause a player that is already stopped', () {
-      expect(
-        call(autoBufferPaused: false, isPlaying: false, secondsAhead: 1),
-        BufferAction.none,
-      );
-    });
-
-    test('resumes only past the upper threshold', () {
-      expect(
-        call(autoBufferPaused: true, secondsAhead: 25),
-        BufferAction.resume,
-      );
-      expect(
-        call(autoBufferPaused: true, secondsAhead: 24.9),
-        BufferAction.hold,
-      );
-    });
-
-    test('holds through the hysteresis band instead of flapping', () {
-      // Between 8 s and 25 s a paused player stays paused and a playing one
-      // keeps playing — that gap is the whole point of the band.
-      expect(call(autoBufferPaused: true, secondsAhead: 15), BufferAction.hold);
-      expect(
-        call(autoBufferPaused: false, secondsAhead: 15),
-        BufferAction.none,
-      );
-    });
-  });
-
   group('decideBufferAction — proxy (file fraction)', () {
     BufferAction call({
       required bool autoBufferPaused,
@@ -211,49 +145,42 @@ void main() {
     });
   });
 
-  group('secondsAheadOfPosition', () {
-    test('converts downloaded bytes ahead into seconds', () {
-      // 1 GB / 1000 s ⇒ ~1 MB per second of media. Half downloaded, playing
-      // at 25% ⇒ 25% of the file ahead ⇒ ~250 s.
-      final ahead = PlaybackHealthMonitor.secondsAheadOfPosition(
-        fileSizeBytes: 1000 * 1024 * 1024,
-        fileProgress: 0.50,
-        positionRatio: 0.25,
-        durationSeconds: 1000,
-      );
+  group('headroomAt', () {
+    const mb = 1024 * 1024;
+    const fileSize = 100 * mb;
+    const ranges = [ByteRange(0, 20 * mb - 1), ByteRange(60 * mb, 80 * mb - 1)];
 
-      expect(ahead, closeTo(250, 0.5));
+    double? at(int offset, [List<ByteRange> r = ranges]) =>
+        PlaybackHealthMonitor.headroomAt(
+          ranges: r,
+          offset: offset,
+          fileSize: fileSize,
+        );
+
+    test('is the rest of the run the playhead is in', () {
+      expect(at(10 * mb), closeTo(0.10, 1e-9));
+      expect(at(70 * mb), closeTo(0.10, 1e-9));
     });
 
-    test('is negative when playback is past the download edge', () {
-      final ahead = PlaybackHealthMonitor.secondsAheadOfPosition(
-        fileSizeBytes: 1000 * 1024 * 1024,
-        fileProgress: 0.20,
-        positionRatio: 0.60,
-        durationSeconds: 1000,
-      );
-
-      expect(ahead, lessThan(0));
+    test('a forward seek into a downloaded run resumes on what is there', () {
+      // The case overall progress got wrong: 40% downloaded overall, the
+      // playhead at 60% — but 20% of data sits right under it.
+      expect(at(60 * mb), closeTo(0.20, 1e-9));
     });
 
-    test('degrades to zero rather than dividing by zero', () {
+    test('is zero in a hole', () {
+      expect(at(40 * mb), 0);
+    });
+
+    test('is null with no piece map, so the caller falls back', () {
+      expect(at(10 * mb, const []), isNull);
       expect(
-        PlaybackHealthMonitor.secondsAheadOfPosition(
-          fileSizeBytes: 0,
-          fileProgress: 0.5,
-          positionRatio: 0.1,
-          durationSeconds: 1000,
+        PlaybackHealthMonitor.headroomAt(
+          ranges: ranges,
+          offset: 0,
+          fileSize: 0,
         ),
-        0,
-      );
-      expect(
-        PlaybackHealthMonitor.secondsAheadOfPosition(
-          fileSizeBytes: 1000,
-          fileProgress: 0.5,
-          positionRatio: 0.1,
-          durationSeconds: 0,
-        ),
-        0,
+        isNull,
       );
     });
   });
@@ -360,81 +287,6 @@ void main() {
 
     test('no piece map means no claim either way', () {
       expect(PlaybackHealthMonitor.hasDataAfter(const [], 10 * mb), isFalse);
-    });
-  });
-
-  group('seekTargetPieceIds', () {
-    const pieceSize = 4 * 1024 * 1024; // 4 MB
-    const firstPiece = 100;
-    const lastPiece = 1099; // 1000 pieces ≈ 4 GB
-
-    test('starts at the piece holding the seek target', () {
-      final ids = PlaybackHealthMonitor.seekTargetPieceIds(
-        offset: 400 * 1024 * 1024, // 100 pieces in
-        firstPiece: firstPiece,
-        lastPiece: lastPiece,
-        pieceSize: pieceSize,
-      );
-
-      expect(ids.first, firstPiece + 100);
-    });
-
-    test('covers the prefetch span and no more', () {
-      final ids = PlaybackHealthMonitor.seekTargetPieceIds(
-        offset: 0,
-        firstPiece: firstPiece,
-        lastPiece: lastPiece,
-        pieceSize: pieceSize,
-        spanBytes: 32 * 1024 * 1024,
-      );
-
-      expect(ids.length, 8); // 32 MB / 4 MB
-      expect(ids, [for (var i = 0; i < 8; i++) firstPiece + i]);
-    });
-
-    test('clamps to the end of the file', () {
-      final ids = PlaybackHealthMonitor.seekTargetPieceIds(
-        offset: 998 * pieceSize,
-        firstPiece: firstPiece,
-        lastPiece: lastPiece,
-        pieceSize: pieceSize,
-        spanBytes: 32 * 1024 * 1024,
-      );
-
-      expect(ids, [firstPiece + 998, firstPiece + 999]);
-      expect(ids.last, lastPiece);
-    });
-
-    test('a seek past the end still asks for the last piece', () {
-      final ids = PlaybackHealthMonitor.seekTargetPieceIds(
-        offset: 99999 * pieceSize,
-        firstPiece: firstPiece,
-        lastPiece: lastPiece,
-        pieceSize: pieceSize,
-      );
-
-      expect(ids, [lastPiece]);
-    });
-
-    test('unusable geometry yields nothing rather than a bad request', () {
-      expect(
-        PlaybackHealthMonitor.seekTargetPieceIds(
-          offset: 0,
-          firstPiece: firstPiece,
-          lastPiece: lastPiece,
-          pieceSize: 0,
-        ),
-        isEmpty,
-      );
-      expect(
-        PlaybackHealthMonitor.seekTargetPieceIds(
-          offset: 0,
-          firstPiece: 10,
-          lastPiece: 9,
-          pieceSize: pieceSize,
-        ),
-        isEmpty,
-      );
     });
   });
 

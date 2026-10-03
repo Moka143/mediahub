@@ -1,7 +1,13 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'design/app_colors.dart';
 import 'design/app_theme.dart';
+import 'design/app_tokens.dart';
+import 'design/app_typography.dart';
 import 'design/ui_scale.dart';
 import 'screens/splash_screen.dart';
 import 'utils/constants.dart';
@@ -52,6 +58,103 @@ class MediaHubApp extends ConsumerWidget {
       scaffoldMessengerKey: rootScaffoldMessengerKey,
       navigatorKey: rootNavigatorKey,
       home: const SplashScreen(),
+    );
+  }
+}
+
+/// What the window shows while the app is still loading its credentials.
+///
+/// `main` shows the window before the Keychain / DPAPI read rather than
+/// after it, and this is the frame it shows: the splash screen's backdrop
+/// and wordmark, so the hand-over is seamless. Deliberately nothing that
+/// needs a theme, bundled fonts, providers or a Navigator — none exist yet.
+///
+/// The read is usually instant. When it is not, it is almost always macOS
+/// asking the user — a fresh, unsigned build is a stranger to the keychain
+/// item — and that prompt can sit behind the window. After [hintDelay] the
+/// placeholder says so, rather than leaving a blank window to wonder about.
+class StartupPlaceholder extends StatefulWidget {
+  const StartupPlaceholder({super.key});
+
+  static const Duration hintDelay = Duration(seconds: 3);
+
+  @override
+  State<StartupPlaceholder> createState() => _StartupPlaceholderState();
+}
+
+class _StartupPlaceholderState extends State<StartupPlaceholder> {
+  /// Half the splash screen's wordmark, which takes over from this one.
+  static const double _wordmarkSize = 48;
+
+  Timer? _hintTimer;
+  bool _slow = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _hintTimer = Timer(StartupPlaceholder.hintDelay, () {
+      if (mounted) setState(() => _slow = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _hintTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hint = defaultTargetPlatform == TargetPlatform.macOS
+        ? 'Waiting for access to your saved passwords. If macOS asks, '
+              'allow MediaHub to use its keychain item.'
+        : 'Loading your saved credentials…';
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: DefaultTextStyle(
+        style: AppType.ui(
+          size: AppType.sizeBody,
+          color: AppColors.fg2,
+        ).copyWith(decoration: TextDecoration.none),
+        textAlign: TextAlign.center,
+        child: DecoratedBox(
+          decoration: const BoxDecoration(
+            gradient: RadialGradient(
+              center: Alignment(0, -0.2),
+              radius: 1.0,
+              colors: [AppColors.bgSurfaceHi, AppColors.bgPage],
+            ),
+          ),
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'MediaHub',
+                  style: AppType.serif(size: _wordmarkSize, height: 1.0),
+                ),
+                const SizedBox(height: AppSpacing.xxxl),
+                const SizedBox(
+                  width: AppIconSize.lg,
+                  height: AppIconSize.lg,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 1.5,
+                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.fg2),
+                  ),
+                ),
+                if (_slow)
+                  Padding(
+                    padding: const EdgeInsets.only(top: AppSpacing.xxl),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 380),
+                      child: Text(hint),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

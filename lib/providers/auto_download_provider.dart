@@ -1,16 +1,18 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-import '../models/auto_download_event.dart';
-import '../models/eztv_torrent.dart';
+import '../models/auto_download_state.dart';
+import '../models/episode_grab_result.dart';
 import '../services/app_logger.dart';
 import '../services/auto_download_service.dart';
-import '../utils/formatters.dart';
+import '../services/json_prefs_store.dart';
 import '../utils/poll_loop.dart';
+import 'auto_download/auto_download_ledger.dart';
+import 'auto_download/engine_reconciler.dart';
+import 'auto_download/episode_fetcher.dart';
+import 'auto_download/episode_grabber.dart';
 import 'auto_download_events_provider.dart';
 import 'connection_provider.dart';
 import 'eztv_provider.dart';
@@ -19,155 +21,22 @@ import 'settings_provider.dart';
 import 'shows_provider.dart';
 import 'torrentio_provider.dart';
 
+// Moved out of this file; still importable from here, as before.
+export '../models/auto_download_state.dart' show AutoDownloadState;
+export '../models/episode_grab_result.dart'
+    show EpisodeGrabOutcome, EpisodeGrabResult;
+
 const _autoDownloadStateKey = 'auto_download_state';
 
 /// Provider for AutoDownloadService
 final autoDownloadServiceProvider = Provider<AutoDownloadService>((ref) {
-  final tmdbService = ref.watch(tmdbApiServiceProvider);
-  final eztvService = ref.watch(eztvApiServiceProvider);
-  final qbtService = ref.watch(torrentEngineProvider);
-  final torrentioService = ref.watch(torrentioApiServiceProvider);
-
   return AutoDownloadService(
-    tmdbService: tmdbService,
-    eztvService: eztvService,
-    qbtService: qbtService,
-    torrentioService: torrentioService,
+    tmdbService: ref.watch(tmdbApiServiceProvider),
+    eztvService: ref.watch(eztvApiServiceProvider),
+    engine: ref.watch(torrentEngineProvider),
+    torrentioService: ref.watch(torrentioApiServiceProvider),
   );
 });
-
-/// State for auto-download feature
-class AutoDownloadState {
-  /// Whether auto-download is enabled
-  final bool enabled;
-
-  /// Default quality preference for auto-downloads
-  final String defaultQuality;
-
-  /// Whether to download next episode when current reaches threshold %
-  final bool downloadOnProgress;
-
-  /// Progress threshold to trigger download (0.0 - 1.0)
-  final double progressThreshold;
-
-  /// Map of show ID -> current quality preference (to match existing downloads)
-  final Map<int, String> showQualityPreferences;
-
-  /// Set of episode codes currently queued for download: "showId_S01E01"
-  final Set<String> downloadQueue;
-
-  /// Map of show ID -> last downloaded episode tracking
-  final Map<int, EpisodeTrackingInfo> lastDownloadedEpisodes;
-
-  /// Per-show overrides for the master `enabled` flag — `true` forces auto
-  /// download on for that show even when the global toggle is off, `false`
-  /// forces it off, missing key = follow global. `downloadOnProgress` and
-  /// `progressThreshold` stay global because the threshold model is global.
-  /// Surfaced as the in-player "Continue Watching" pill.
-  final Map<int, bool> showAutoDownloadOverrides;
-
-  /// Whether auto-download is currently processing
-  final bool isProcessing;
-
-  /// Last error message
-  final String? error;
-
-  const AutoDownloadState({
-    this.enabled = false,
-    this.defaultQuality = '1080p',
-    this.downloadOnProgress = true,
-    this.progressThreshold = 0.7,
-    this.showQualityPreferences = const {},
-    this.downloadQueue = const {},
-    this.lastDownloadedEpisodes = const {},
-    this.showAutoDownloadOverrides = const {},
-    this.isProcessing = false,
-    this.error,
-  });
-
-  /// Deliberately NOT `??`-merged: an error belongs to one update, so every
-  /// subsequent copy clears it. Pass it explicitly on any copy that must keep
-  /// it — a `finally` that only flips a loading flag will otherwise wipe the
-  /// `catch` above it.
-  AutoDownloadState copyWith({
-    bool? enabled,
-    String? defaultQuality,
-    bool? downloadOnProgress,
-    double? progressThreshold,
-    Map<int, String>? showQualityPreferences,
-    Set<String>? downloadQueue,
-    Map<int, EpisodeTrackingInfo>? lastDownloadedEpisodes,
-    Map<int, bool>? showAutoDownloadOverrides,
-    bool? isProcessing,
-    String? error,
-  }) {
-    return AutoDownloadState(
-      enabled: enabled ?? this.enabled,
-      defaultQuality: defaultQuality ?? this.defaultQuality,
-      downloadOnProgress: downloadOnProgress ?? this.downloadOnProgress,
-      progressThreshold: progressThreshold ?? this.progressThreshold,
-      showQualityPreferences:
-          showQualityPreferences ?? this.showQualityPreferences,
-      downloadQueue: downloadQueue ?? this.downloadQueue,
-      lastDownloadedEpisodes:
-          lastDownloadedEpisodes ?? this.lastDownloadedEpisodes,
-      showAutoDownloadOverrides:
-          showAutoDownloadOverrides ?? this.showAutoDownloadOverrides,
-      isProcessing: isProcessing ?? this.isProcessing,
-      error: error,
-    );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'enabled': enabled,
-      'default_quality': defaultQuality,
-      'download_on_progress': downloadOnProgress,
-      'progress_threshold': progressThreshold,
-      'show_quality_preferences': showQualityPreferences.map(
-        (k, v) => MapEntry(k.toString(), v),
-      ),
-      'download_queue': downloadQueue.toList(),
-      'last_downloaded_episodes': lastDownloadedEpisodes.map(
-        (k, v) => MapEntry(k.toString(), v.toJson()),
-      ),
-      'show_auto_download_overrides': showAutoDownloadOverrides.map(
-        (k, v) => MapEntry(k.toString(), v),
-      ),
-    };
-  }
-
-  factory AutoDownloadState.fromJson(Map<String, dynamic> json) {
-    return AutoDownloadState(
-      enabled: json['enabled'] as bool? ?? false,
-      defaultQuality: json['default_quality'] as String? ?? '1080p',
-      downloadOnProgress: json['download_on_progress'] as bool? ?? true,
-      progressThreshold:
-          (json['progress_threshold'] as num?)?.toDouble() ?? 0.7,
-      showQualityPreferences:
-          (json['show_quality_preferences'] as Map<String, dynamic>?)?.map(
-            (k, v) => MapEntry(int.parse(k), v as String),
-          ) ??
-          {},
-      downloadQueue:
-          (json['download_queue'] as List?)?.map((e) => e as String).toSet() ??
-          {},
-      lastDownloadedEpisodes:
-          (json['last_downloaded_episodes'] as Map<String, dynamic>?)?.map(
-            (k, v) => MapEntry(
-              int.parse(k),
-              EpisodeTrackingInfo.fromJson(v as Map<String, dynamic>),
-            ),
-          ) ??
-          {},
-      showAutoDownloadOverrides:
-          (json['show_auto_download_overrides'] as Map<String, dynamic>?)?.map(
-            (k, v) => MapEntry(int.parse(k), v as bool),
-          ) ??
-          const {},
-    );
-  }
-}
 
 /// Provider for auto-download state
 final autoDownloadProvider =
@@ -175,48 +44,99 @@ final autoDownloadProvider =
       AutoDownloadNotifier.new,
     );
 
+/// Auto-download tracking for one show (by TMDB id): the episode it last
+/// dealt with and where that stands, or null for a show it has never
+/// fetched for. For status indicators on Favorites and Calendar.
+final showAutoDownloadTrackingProvider =
+    Provider.family<EpisodeTrackingInfo?, int>((ref, showId) {
+      return ref.watch(
+        autoDownloadProvider.select((s) => s.lastDownloadedEpisodes[showId]),
+      );
+    });
+
 /// Notifier for auto-download functionality
+///
+/// Owns the state, saving it, and deciding when to fetch: the settings and
+/// per-show gates, the background check and the per-show lock. Whether an
+/// episode can be fetched yet is [EpisodeFetcher]'s call, fetching it is
+/// [EpisodeGrabber]'s, and keeping the record in step with the engine is
+/// [EngineReconciler]'s; they all write through [AutoDownloadLedger].
 class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
+  /// How often the background check runs.
+  static const Duration checkInterval = Duration(minutes: 5);
+
   late final PollLoop _periodicCheck = PollLoop(
     name: 'auto-download',
     onTick: checkAndDownloadNextEpisodes,
   );
 
-  // Still needed beyond PollLoop's own overlap guard: a progress-triggered
-  // run can start between two ticks, and the two must not interleave.
-  bool _isRunning = false;
+  late JsonPrefsStore _store;
+
+  /// Every write to the queue, the tracking and the activity log; each one
+  /// is saved before it returns.
+  late final AutoDownloadLedger _ledger = AutoDownloadLedger(
+    read: () => state,
+    write: (next) => state = next,
+    save: _saveState,
+    mounted: () => ref.mounted,
+    addEvent: (event) =>
+        ref.read(autoDownloadEventsProvider.notifier).addEvent(event),
+  );
+
+  late final EngineReconciler _reconciler = EngineReconciler(
+    ledger: _ledger,
+    markCompleted: markDownloadCompleted,
+  );
+
+  late final EpisodeFetcher _fetcher = EpisodeFetcher(
+    ledger: _ledger,
+    quietUntil: _quietUntil,
+    grab: _grab,
+    qualityFor: getQualityPreference,
+  );
+
+  /// One operation per show at a time — see [_withShowLock].
+  final Map<int, Completer<void>> _showLocks = {};
+
+  /// Shows the background check should not ask TMDB about again before the
+  /// given time: one waiting for an episode to air, a finished series, or
+  /// no source found yet. In memory only — a restart checks once and backs
+  /// off again.
+  final Map<int, DateTime> _quietUntil = {};
+
+  bool _periodicRunning = false;
 
   @override
   AutoDownloadState build() {
-    final prefs = ref.watch(sharedPreferencesProvider);
+    _store = JsonPrefsStore(
+      ref.watch(sharedPreferencesProvider),
+      _autoDownloadStateKey,
+    );
 
-    ref.onDispose(_periodicCheck.dispose);
+    // `stop()`, not `dispose()`: Riverpod runs onDispose before every
+    // rebuild of this same notifier instance, and a disposed PollLoop never
+    // starts again — the background check died on the first rebuild.
+    ref.onDispose(_periodicCheck.stop);
 
-    // Start periodic check if enabled
-    final loadedState = _loadState(prefs);
-    if (loadedState.enabled) {
-      _startPeriodicCheck();
-    }
-
+    final loadedState = _loadState();
+    if (_wantsPeriodicCheck(loadedState)) _startPeriodicCheck();
     return loadedState;
   }
 
-  AutoDownloadState _loadState(SharedPreferences prefs) {
-    try {
-      final jsonString = prefs.getString(_autoDownloadStateKey);
-      if (jsonString == null) return const AutoDownloadState();
-      final json = jsonDecode(jsonString) as Map<String, dynamic>;
-      return AutoDownloadState.fromJson(json);
-    } catch (e) {
-      AppLog.e('[AutoDownload] Error loading auto-download state: $e');
-      return const AutoDownloadState();
+  AutoDownloadState _loadState() {
+    final json = _store.readMap();
+    if (json == null) return const AutoDownloadState();
+    final dropped = <String>{};
+    final loaded = AutoDownloadState.fromJson(json, onDropped: dropped.add);
+    if (dropped.isNotEmpty) {
+      _store.quarantine('unreadable ${dropped.join(', ')}');
     }
+    return loaded;
   }
 
   Future<void> _saveState() async {
     try {
-      final prefs = ref.read(sharedPreferencesProvider);
-      await prefs.setString(_autoDownloadStateKey, jsonEncode(state.toJson()));
+      await _store.write(state.toJson());
     } catch (e) {
       AppLog.e('[AutoDownload] Error saving auto-download state: $e');
     }
@@ -226,12 +146,8 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
   Future<void> setEnabled(bool enabled) async {
     state = state.copyWith(enabled: enabled);
     await _saveState();
-
-    if (enabled) {
-      _startPeriodicCheck();
-    } else {
-      _periodicCheck.stop();
-    }
+    if (!ref.mounted) return;
+    _syncPeriodicCheck();
   }
 
   /// Set default quality preference
@@ -263,13 +179,14 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
   /// Key for [AutoDownloadState.downloadQueue].
   ///
   /// One producer so every writer and reader agrees byte for byte. They did
-  /// not: `onWatchProgress` guarded on a guessed `episode + 1` while
-  /// `_downloadNextEpisode` registered whatever TMDB actually resolved, so at
-  /// a season boundary the guard checked `S01E11` against a stored `S02E01`
-  /// and never matched.
+  /// not: `onWatchProgress` guarded on a guessed `episode + 1` while the
+  /// download path registered whatever TMDB actually resolved, so at a
+  /// season boundary the guard checked `S01E11` against a stored `S02E01`
+  /// and never matched. The producer is [downloadQueueKey], which the
+  /// grab and reconcile steps call; this is its name for tests.
   @visibleForTesting
   static String queueKeyFor(int showId, int season, int episode) =>
-      '${showId}_${Formatters.episodeCode(season, episode)}';
+      downloadQueueKey(showId, season, episode);
 
   /// Get quality preference for a show (falls back to default)
   String getQualityPreference(int showId) {
@@ -291,6 +208,8 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
     }
     state = state.copyWith(showAutoDownloadOverrides: overrides);
     await _saveState();
+    if (!ref.mounted) return;
+    _syncPeriodicCheck();
   }
 
   /// Whether auto-download should fire for [showId]. Resolves the per-show
@@ -303,9 +222,41 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
     return override ?? state.enabled;
   }
 
-  /// Start periodic check for next episodes
-  void _startPeriodicCheck() {
-    _periodicCheck.start(const Duration(minutes: 5));
+  /// Whether the background check covers [showId]: the per-show override, or
+  /// else the global switch.
+  bool _periodicCoversShow(int showId) =>
+      state.showAutoDownloadOverrides[showId] ?? state.enabled;
+
+  bool _wantsPeriodicCheck(AutoDownloadState s) =>
+      s.enabled || s.showAutoDownloadOverrides.containsValue(true);
+
+  void _startPeriodicCheck() => _periodicCheck.start(checkInterval);
+
+  void _syncPeriodicCheck() {
+    if (_wantsPeriodicCheck(state)) {
+      if (!_periodicCheck.isRunning) _startPeriodicCheck();
+    } else {
+      _periodicCheck.stop();
+    }
+  }
+
+  /// Run [body] for [showId] once nothing else is running for that show.
+  ///
+  /// The progress trigger, the background check and a manual grab can all
+  /// reach the same episode; between deciding "not queued" and recording the
+  /// queue key each awaited network calls, so two of them could both queue
+  /// it. Per show, so one slow lookup does not hold up every other show.
+  Future<T> _withShowLock<T>(int showId, Future<T> Function() body) async {
+    final previous = _showLocks[showId];
+    final done = Completer<void>();
+    _showLocks[showId] = done;
+    try {
+      if (previous != null) await previous.future;
+      return await body();
+    } finally {
+      done.complete();
+      if (identical(_showLocks[showId], done)) _showLocks.remove(showId);
+    }
   }
 
   /// Trigger auto-download check when watching progress reaches threshold.
@@ -331,269 +282,191 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
     }
     if (progress < state.progressThreshold) {
       AppLog.d(
-        '[AutoDownload] onWatchProgress skipped: progress=$progress < threshold=${state.progressThreshold}',
+        '[AutoDownload] onWatchProgress skipped: progress=$progress < '
+        'threshold=${state.progressThreshold}',
       );
       return;
     }
-    AppLog.d(
-      '[AutoDownload] onWatchProgress: showId=$showId $showName S${season}E$episode progress=${progress.toStringAsFixed(2)}',
-    );
 
-    // Mark the current episode as watched in tracking
-    final currentTracking = state.lastDownloadedEpisodes[showId];
-    if (currentTracking != null &&
-        currentTracking.season == season &&
-        currentTracking.episode == episode &&
-        currentTracking.status != EpisodeDownloadStatus.watched) {
-      await _updateTracking(
-        showId,
-        currentTracking.copyWith(status: EpisodeDownloadStatus.watched),
+    await _withShowLock(showId, () async {
+      // This episode is watched. Record it as the show's frontier unless the
+      // tracking is already past it, so the background check knows the next
+      // one is wanted even if fetching it now fails.
+      final tracking = state.lastDownloadedEpisodes[showId];
+      if (movesTracking(tracking, season, episode)) {
+        await _ledger.updateTracking(
+          showId,
+          EpisodeTrackingInfo(
+            showId: showId,
+            imdbId: imdbId ?? tracking?.imdbId,
+            showName: showName,
+            season: season,
+            episode: episode,
+            status: EpisodeDownloadStatus.watched,
+            quality: currentQuality,
+          ),
+        );
+      }
+      if (!ref.mounted) return;
+
+      // Update show quality preference from current episode
+      await setShowQualityPreference(showId, currentQuality);
+      if (!ref.mounted) return;
+
+      if (imdbId == null) {
+        AppLog.w(
+          '[AutoDownload] $showName: no IMDB id, nothing to search with',
+        );
+        return;
+      }
+      await _fetcher.fetchNextAfter(
+        ref.read(autoDownloadServiceProvider),
+        showId: showId,
+        imdbId: imdbId,
+        showName: showName,
+        season: season,
+        episode: episode,
+        quality: currentQuality,
+        announce: true,
       );
-    }
-
-    // Update show quality preference from current episode
-    await setShowQualityPreference(showId, currentQuality);
-
-    // No dedupe guard here on purpose. It needs the episode TMDB actually
-    // resolves, which only `_downloadNextEpisode` knows — see [_queueKeyFor].
-    await _downloadNextEpisode(
-      showId: showId,
-      imdbId: imdbId,
-      showName: showName,
-      currentSeason: season,
-      currentEpisode: episode,
-      quality: currentQuality,
-    );
+    });
   }
 
-  /// Check and download next episodes for all tracked shows
+  /// Check and download next episodes for all tracked shows.
+  ///
+  /// Only two kinds of show are acted on:
+  ///  * **watched** — the tracked episode has been watched, so the next one
+  ///    is wanted (and fetching it when it was watched did not work yet);
+  ///  * **awaitingTorrent** — the tracked episode itself is wanted and has
+  ///    no download: none was found, or the one started left Transfers.
+  ///
+  /// Everything else is left alone. The comment here always said so, but
+  /// the code only skipped `downloading`, so a `downloaded` episode counted
+  /// as "go fetch the next one" — every five minutes the next episode came
+  /// down as soon as the last finished, until the whole aired backlog had.
   Future<void> checkAndDownloadNextEpisodes() async {
-    if (!state.enabled) return;
-    // Guard against concurrent calls (timer + progress-triggered)
-    if (_isRunning || state.isProcessing) return;
-    _isRunning = true;
-
+    if (!_wantsPeriodicCheck(state)) return;
+    if (_periodicRunning) return;
+    _periodicRunning = true;
     state = state.copyWith(isProcessing: true);
     String? failure;
 
     try {
-      // Check each tracked show's last downloaded episode
-      for (final entry in state.lastDownloadedEpisodes.entries) {
+      await _reconcileWithEngine();
+      if (!ref.mounted) return;
+      final now = DateTime.now();
+      for (final entry in state.lastDownloadedEpisodes.entries.toList()) {
+        if (!ref.mounted) return;
         final showId = entry.key;
         final tracking = entry.value;
+        if (!_periodicCoversShow(showId) || tracking.imdbId == null) continue;
+        final quiet = _quietUntil[showId];
+        if (quiet != null && now.isBefore(quiet)) continue;
 
-        if (tracking.imdbId == null) continue;
-
-        // Don't chain-download: skip shows where the last tracked episode
-        // hasn't been watched yet. Only onWatchProgress() should advance
-        // downloads — the periodic check just retries failed/missing ones.
-        if (tracking.status == EpisodeDownloadStatus.downloading) continue;
-
-        // Shares the one implementation with the progress-triggered path.
-        // This loop used to carry its own copy of resolve → is-it-downloaded
-        // → find-torrent → add → update-tracking, and that copy never wrote
-        // to `downloadQueue` — so the Calendar badge and the dedupe guard
-        // only ever saw half the downloads the app started.
-        await _downloadNextEpisode(
-          showId: showId,
-          imdbId: tracking.imdbId,
-          showName: tracking.showName,
-          currentSeason: tracking.season,
-          currentEpisode: tracking.episode,
-          quality: getQualityPreference(showId),
-          // This runs every 5 minutes over every tracked show. A finished
-          // series has no next episode and never will, so logging that fact
-          // on each pass would flush the 50-entry event list — including the
-          // download-started and download-completed entries the user
-          // actually wants — within the hour.
-          announceMisses: false,
-        );
+        switch (tracking.status) {
+          case EpisodeDownloadStatus.watched:
+            await _withShowLock(
+              showId,
+              () => _fetcher.fetchNextAfter(
+                ref.read(autoDownloadServiceProvider),
+                showId: showId,
+                imdbId: tracking.imdbId!,
+                showName: tracking.showName,
+                season: tracking.season,
+                episode: tracking.episode,
+                quality: getQualityPreference(showId),
+                // Every five minutes, every show: a finished series saying
+                // so on each pass would flush the 50-entry log within the
+                // hour.
+                announce: false,
+              ),
+            );
+          case EpisodeDownloadStatus.awaitingTorrent:
+            await _withShowLock(
+              showId,
+              () => _grab(
+                EpisodeGrabRequest(
+                  showId: showId,
+                  imdbId: tracking.imdbId!,
+                  showName: tracking.showName,
+                  season: tracking.season,
+                  episode: tracking.episode,
+                  quality: getQualityPreference(showId),
+                  excludeHashes: {?tracking.torrentHash},
+                  announce: false,
+                ),
+              ),
+            );
+          case EpisodeDownloadStatus.notAired ||
+              EpisodeDownloadStatus.available ||
+              EpisodeDownloadStatus.downloading ||
+              EpisodeDownloadStatus.downloaded:
+            break;
+        }
       }
     } catch (e) {
       failure = e.toString();
       AppLog.e('[AutoDownload] periodic check failed: $e');
     } finally {
-      _isRunning = false;
+      _periodicRunning = false;
       // `error` is clear-on-copy, so it has to be carried through this last
       // copy explicitly — otherwise the `finally` wipes the `catch` above it
       // and the periodic check can fail forever with nothing to show for it.
-      state = state.copyWith(isProcessing: false, error: failure);
+      if (ref.mounted) {
+        state = state.copyWith(isProcessing: false, error: failure);
+      }
     }
   }
 
-  /// Download next episode for a specific show
-  Future<bool> _downloadNextEpisode({
+  /// Fetch [request]'s episode now: check what is already here, find a
+  /// source, add it, and record it — see [EpisodeGrabber]. Run under the
+  /// show's lock.
+  Future<EpisodeGrabResult> _grab(EpisodeGrabRequest request) async {
+    final grabber = EpisodeGrabber(
+      service: ref.read(autoDownloadServiceProvider),
+      ledger: _ledger,
+      savePath: ref.read(settingsProvider).defaultSavePath,
+      library: () => ref.read(localMediaFilesProvider).value ?? const [],
+      quietUntil: _quietUntil,
+    );
+    return grabber.grab(request);
+  }
+
+  /// Fetch [season]x[episode] of a show right now — the Calendar's button.
+  ///
+  /// The same path as auto-download, so it shares the queue, the tracking
+  /// and the duplicate checks: clicking twice does not add the torrent
+  /// twice, and an episode that is already here says so. Resolves the IMDB
+  /// id itself (from TMDB's external ids) when [imdbId] is null — a [Show]
+  /// from TMDB's plain details has none. An episode that has not aired is
+  /// not searched for.
+  Future<EpisodeGrabResult> downloadEpisodeNow({
     required int showId,
-    required String? imdbId,
     required String showName,
-    required int currentSeason,
-    required int currentEpisode,
-    required String quality,
-    bool announceMisses = true,
-  }) async {
-    AppLog.d(
-      '[AutoDownload] _downloadNextEpisode: showId=$showId imdbId=$imdbId '
-      '$showName S${currentSeason}E$currentEpisode quality=$quality',
-    );
-    if (imdbId == null) {
-      AppLog.w('[AutoDownload] aborting — no imdbId');
-      return false;
-    }
-
-    final service = ref.read(autoDownloadServiceProvider);
-    final downloadedFiles = ref.read(localMediaFilesProvider).value ?? [];
-
-    // Get next episode
-    final nextResult = await service.getNextEpisode(
-      showId: showId,
-      currentSeason: currentSeason,
-      currentEpisode: currentEpisode,
-    );
-
-    if (!nextResult.hasNextEpisode) {
-      if (!announceMisses) return false;
-      await ref
-          .read(autoDownloadEventsProvider.notifier)
-          .addEvent(
-            AutoDownloadEvent(
-              timestamp: DateTime.now(),
-              type: AutoDownloadEventType.checked,
-              showId: showId,
-              showName: showName,
-              season: currentSeason,
-              episode: currentEpisode,
-              message: nextResult.message ?? 'No next episode available',
-            ),
-          );
-      return false;
-    }
-
-    final nextEp = nextResult.nextEpisode!;
-    final queueKey = queueKeyFor(
+    String? imdbId,
+    required int season,
+    required int episode,
+  }) {
+    return _withShowLock(
       showId,
-      nextEp.seasonNumber,
-      nextEp.episodeNumber,
+      () => _fetcher.fetchNow(
+        ref.read(autoDownloadServiceProvider),
+        showId: showId,
+        showName: showName,
+        imdbId: imdbId,
+        season: season,
+        episode: episode,
+      ),
     );
-
-    if (state.downloadQueue.contains(queueKey)) {
-      AppLog.d('[AutoDownload] $queueKey already in download queue — skipping');
-      return false;
-    }
-
-    // Check if already downloaded
-    if (service.isEpisodeDownloaded(
-      downloadedFiles: downloadedFiles,
-      showName: showName,
-      season: nextEp.seasonNumber,
-      episode: nextEp.episodeNumber,
-    )) {
-      return false;
-    }
-
-    // Already in qBittorrent — e.g. queued by a previous run whose queue entry
-    // was cleared, or added by hand. Was previously checked only on the
-    // periodic path; it belongs to both.
-    if (await service.isEpisodeCurrentlyDownloading(
-      showName: showName,
-      season: nextEp.seasonNumber,
-      episode: nextEp.episodeNumber,
-    )) {
-      AppLog.d('[AutoDownload] $queueKey is already downloading — skipping');
-      return false;
-    }
-
-    // Find torrent
-    final torrent = await service.findTorrentForEpisode(
-      imdbId: imdbId,
-      season: nextEp.seasonNumber,
-      episode: nextEp.episodeNumber,
-      preferredQuality: quality,
-    );
-
-    if (torrent == null) {
-      AppLog.d(
-        '[AutoDownload] no torrent found for $showName ${nextEp.episodeCode} '
-        '(quality=$quality)',
-      );
-      if (!announceMisses) return false;
-      await ref
-          .read(autoDownloadEventsProvider.notifier)
-          .addEvent(
-            AutoDownloadEvent(
-              timestamp: DateTime.now(),
-              type: AutoDownloadEventType.torrentNotFound,
-              showId: showId,
-              showName: showName,
-              season: nextEp.seasonNumber,
-              episode: nextEp.episodeNumber,
-              quality: quality,
-              message: 'No torrent found for $showName ${nextEp.episodeCode}',
-            ),
-          );
-      return false;
-    }
-    AppLog.d(
-      '[AutoDownload] torrent found: hash=${torrent.hash} '
-      'quality=${torrent.quality}',
-    );
-
-    // Download
-    final settings = ref.read(settingsProvider);
-    final success = await service.downloadNextEpisode(
-      magnetLink: torrent.magnetUrl,
-      savePath: settings.defaultSavePath,
-      infoHash: torrent.hash,
-      fileIdx: torrent.fileIdx,
-    );
-    AppLog.d('[AutoDownload] addTorrent result: success=$success');
-
-    if (success) {
-      // Add to queue and update tracking
-      state = state.copyWith(downloadQueue: {...state.downloadQueue, queueKey});
-
-      await _updateTracking(
-        showId,
-        EpisodeTrackingInfo(
-          showId: showId,
-          imdbId: imdbId,
-          showName: showName,
-          season: nextEp.seasonNumber,
-          episode: nextEp.episodeNumber,
-          status: EpisodeDownloadStatus.downloading,
-          quality: torrent.quality,
-          torrentHash: torrent.hash,
-          magnetLink: torrent.magnetUrl,
-        ),
-      );
-
-      await ref
-          .read(autoDownloadEventsProvider.notifier)
-          .addEvent(
-            AutoDownloadEvent(
-              timestamp: DateTime.now(),
-              type: AutoDownloadEventType.downloadStarted,
-              showId: showId,
-              showName: showName,
-              season: nextEp.seasonNumber,
-              episode: nextEp.episodeNumber,
-              quality: quality,
-              message:
-                  'Started downloading $showName ${nextEp.episodeCode} in $quality',
-            ),
-          );
-    }
-
-    return success;
   }
 
-  /// Update episode tracking
-  Future<void> _updateTracking(int showId, EpisodeTrackingInfo tracking) async {
-    final newTracking = Map<int, EpisodeTrackingInfo>.from(
-      state.lastDownloadedEpisodes,
-    );
-    newTracking[showId] = tracking;
-    state = state.copyWith(lastDownloadedEpisodes: newTracking);
-    await _saveState();
+  /// Release queue keys and tracking for downloads that have left the
+  /// engine, and mark finished ones done — see [EngineReconciler].
+  Future<void> _reconcileWithEngine() async {
+    final service = ref.read(autoDownloadServiceProvider);
+    final torrents = await service.engineTorrents();
+    if (torrents == null || !ref.mounted) return; // engine down: no verdict
+    await _reconciler.reconcile(torrents);
   }
 
   /// Track a show for auto-download (call when starting to watch)
@@ -615,112 +488,16 @@ class AutoDownloadNotifier extends Notifier<AutoDownloadState> {
       quality: quality,
     );
 
-    await _updateTracking(showId, tracking);
+    await _ledger.updateTracking(showId, tracking);
+    if (!ref.mounted) return;
     await setShowQualityPreference(showId, quality);
   }
 
-  /// Remove a show from tracking
-  Future<void> untrackShow(int showId) async {
-    final newTracking = Map<int, EpisodeTrackingInfo>.from(
-      state.lastDownloadedEpisodes,
-    );
-    newTracking.remove(showId);
-    state = state.copyWith(lastDownloadedEpisodes: newTracking);
-    await _saveState();
-  }
-
-  /// Clear download queue entry when download completes
-  Future<void> clearQueueEntry(String queueKey) async {
-    final newQueue = Set<String>.from(state.downloadQueue)..remove(queueKey);
-    state = state.copyWith(downloadQueue: newQueue);
-    await _saveState();
-  }
-
-  /// Mark a tracked download as completed when its torrent finishes
+  /// Mark a tracked download as completed when its torrent finishes.
+  ///
+  /// Releases every queue key recorded for the torrent — see
+  /// [EngineReconciler.completeDownload].
   Future<void> markDownloadCompleted(String torrentHash) async {
-    for (final entry in state.lastDownloadedEpisodes.entries) {
-      final tracking = entry.value;
-      if (tracking.torrentHash == torrentHash &&
-          tracking.status == EpisodeDownloadStatus.downloading) {
-        // Update status to downloaded
-        await _updateTracking(
-          entry.key,
-          tracking.copyWith(status: EpisodeDownloadStatus.downloaded),
-        );
-
-        // Clear the queue entry — same producer as the writer above.
-        await clearQueueEntry(
-          queueKeyFor(entry.key, tracking.season, tracking.episode),
-        );
-
-        // Log the event
-        await ref
-            .read(autoDownloadEventsProvider.notifier)
-            .addEvent(
-              AutoDownloadEvent(
-                timestamp: DateTime.now(),
-                type: AutoDownloadEventType.downloadCompleted,
-                showId: tracking.showId,
-                showName: tracking.showName,
-                season: tracking.season,
-                episode: tracking.episode,
-                quality: tracking.quality,
-                message:
-                    '${tracking.showName} ${tracking.episodeCode} finished downloading',
-              ),
-            );
-        return;
-      }
-    }
+    await _reconciler.completeDownload(torrentHash);
   }
 }
-
-/// Provider for next episode info from TMDB (for a specific show/episode).
-///
-/// Distinct from [nextLocalEpisodeProvider] in `local_media_provider.dart`,
-/// which answers "is the next episode already on disk?" and returns a
-/// `LocalMediaFile?`. This one asks TMDB and carries season-end / series-end
-/// context. Both were previously named `nextEpisodeProvider`.
-final nextTmdbEpisodeProvider =
-    FutureProvider.family<
-      NextEpisodeResult,
-      ({int showId, int season, int episode})
-    >((ref, params) async {
-      final service = ref.watch(autoDownloadServiceProvider);
-      return service.getNextEpisode(
-        showId: params.showId,
-        currentSeason: params.season,
-        currentEpisode: params.episode,
-      );
-    });
-
-/// Provider to check if next episode is downloaded
-final isNextEpisodeDownloadedProvider =
-    Provider.family<bool, ({String showName, int season, int episode})>((
-      ref,
-      params,
-    ) {
-      final service = ref.watch(autoDownloadServiceProvider);
-      final downloadedFiles = ref.watch(localMediaFilesProvider).value ?? [];
-
-      return service.isEpisodeDownloaded(
-        downloadedFiles: downloadedFiles,
-        showName: params.showName,
-        season: params.season,
-        episode: params.episode,
-      );
-    });
-
-/// Provider for available torrents for an episode
-final episodeTorrentsProvider =
-    FutureProvider.family<
-      List<EztvTorrent>,
-      ({String imdbId, int season, int episode})
-    >((ref, params) async {
-      final service = ref.watch(autoDownloadServiceProvider);
-      return service.getAvailableTorrentsForEpisode(
-        imdbId: params.imdbId,
-        season: params.season,
-        episode: params.episode,
-      );
-    });

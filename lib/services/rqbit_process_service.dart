@@ -1,14 +1,15 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:process_run/process_run.dart';
 
 import '../utils/constants.dart';
-import '../utils/platform_utils.dart';
-import '../utils/poll_loop.dart';
 import 'app_logger.dart';
+import 'engine_pid_file.dart';
+import 'engine_process_support.dart';
 import 'torrent_engine_process.dart';
 
 /// Lifecycle for the bundled rqbit sidecar.
@@ -21,76 +22,94 @@ import 'torrent_engine_process.dart';
 /// notifications, no preferences dialog, and no login, because rqbit's API is
 /// unauthenticated when it listens on 127.0.0.1.
 ///
-/// From the user's side there is no second program at all.
-class RqbitProcessService implements TorrentEngineProcess {
-  /// The one sidecar this app has running, shared across instances.
-  ///
-  /// Static because the handle has to outlive the instance that opened it.
-  /// This service is rebuilt whenever settings change — a new download folder,
-  /// a new speed limit — and an instance-level handle would be dropped with
-  /// the old instance, leaving nothing able to stop the process it started.
-  /// There is only ever one sidecar, so one handle models it correctly.
-  static Process? _spawned;
-
-  /// Set once [stop] has run, and never cleared.
-  ///
-  /// The health check restarts an engine it finds dead, which is right while
-  /// the app is running and exactly wrong while it is closing: [stop] cancels
-  /// the timer but cannot cancel a tick already in flight, and that tick will
-  /// happily spawn a *new* detached rqbit moments after we killed the old one.
-  /// The app then exits and nothing is left alive that could kill it — the
-  /// orphan this whole class exists to prevent.
-  ///
-  /// Static for the same reason [_spawned] is: this service is rebuilt on
-  /// every settings change, so the instance that closes the app need not be
-  /// the instance that started the engine.
-  static bool _isStopping = false;
-  late final PollLoop _healthCheck = PollLoop(
-    name: 'rqbit-process-health',
-    onTick: _performHealthCheck,
-  );
-  bool _isStarting = false;
-
-  final int _port;
-  final String _host;
-  final String _downloadPath;
-  final int _downloadLimitBytes;
-  final int _uploadLimitBytes;
-
-  /// Explicit binary path from settings. Empty means "find it".
-  final String _configuredPath;
-
-  final void Function(bool isConnected)? onConnectionStatusChanged;
-  final void Function(String message)? onLog;
-
+/// From the user's side there is no second program at all — which is exactly
+/// why one left running after the app has gone is a bug: nothing on screen
+/// says it is there.
+///
+/// ## Ownership
+///
+/// The sidecar is launched detached, so it does not die with the app; this
+/// class is what stops it. The app owns at most one, recorded in [_owned]
+/// (static: the service instance is rebuilt when its settings change, and the
+/// record must survive that) and on disk in `rqbit.pid`, so a launch after a
+/// crash can recognise the one the crash left behind. A process is only ever
+/// stopped when that record proves this app started it.
+class RqbitProcessService extends EngineProcessSupport {
   RqbitProcessService({
-    String configuredPath = '',
-    int port = AppConstants.defaultRqbitPort,
-    String host = AppConstants.rqbitHost,
+    super.port = AppConstants.defaultRqbitPort,
     required String downloadPath,
     int downloadLimitBytes = 0,
     int uploadLimitBytes = 0,
-    this.onConnectionStatusChanged,
-    this.onLog,
-  }) : _configuredPath = configuredPath,
-       _port = port,
-       _host = host,
-       _downloadPath = downloadPath,
+  }) : _downloadPath = downloadPath,
        _downloadLimitBytes = downloadLimitBytes,
-       _uploadLimitBytes = uploadLimitBytes;
+       _uploadLimitBytes = uploadLimitBytes,
+       super(
+         engineName: 'rqbit',
+         logTag: 'RqbitProcess',
+         host: AppConstants.rqbitHost,
+       );
+
+  final String _downloadPath;
+  int _downloadLimitBytes;
+  int _uploadLimitBytes;
+
+  /// The sidecar this app is responsible for, if any.
+  static EngineLaunchRecord? _owned;
+
+  /// Set when the app starts closing, and never cleared: an engine started
+  /// after that would outlive the app with nothing left to stop it.
+  static bool _closing = false;
+
+  /// Launches and stops run one at a time, app-wide. Two service instances
+  /// exist briefly whenever settings change, and two overlapping launches
+  /// would both spawn a sidecar.
+  static Future<void> _serial = Future<void>.value();
+
+  /// How a process is looked up and signalled. Replaced in tests.
+  @visibleForTesting
+  static EngineProcessProbe probe = const SystemEngineProcessProbe();
+
+  /// Where the launch record lives. Replaced in tests.
+  @visibleForTesting
+  static Future<EnginePidFile> Function() pidFileLocator = _defaultPidFile;
+
+  /// How long a stopped sidecar gets to exit on its own before it is killed.
+  static const Duration terminateGrace = Duration(milliseconds: 1500);
+
+  @visibleForTesting
+  static void resetForTest() {
+    _owned = null;
+    _closing = false;
+    _serial = Future<void>.value();
+    probe = const SystemEngineProcessProbe();
+    pidFileLocator = _defaultPidFile;
+  }
 
   @override
-  bool get managesLocalProcess => PlatformUtils.isLocalHost(_host);
+  bool get isClosing => _closing;
 
-  @override
-  Future<bool> isRunning() => PlatformUtils.isPortInUse(_port, host: _host);
+  /// Rate limits for the next launch.
+  ///
+  /// rqbit takes them as launch flags, and the settings screen promises they
+  /// apply "when it next starts" — so a change is held here rather than
+  /// restarting an engine that may be mid-stream.
+  void setLaunchLimits({required int downloadBytes, required int uploadBytes}) {
+    _downloadLimitBytes = downloadBytes;
+    _uploadLimitBytes = uploadBytes;
+  }
+
+  static Future<T> _serialized<T>(Future<T> Function() body) {
+    final result = _serial.then((_) => body());
+    _serial = result.then<void>((_) {}, onError: (Object _) {});
+    return result;
+  }
 
   /// Where the sidecar lives once it is bundled: beside the app executable.
   ///
   /// That is `MyApp.app/Contents/MacOS/` on macOS and the install directory on
   /// Windows and Linux — the same folder Flutter's own runner sits in, which
   /// is the one place guaranteed to exist in every packaging channel
-  /// (portable zip, MSIX, .app).
+  /// (the Windows installer, MSIX, .app).
   static String bundledPath() {
     final name = Platform.isWindows ? 'rqbit.exe' : 'rqbit';
     return p.join(p.dirname(Platform.resolvedExecutable), name);
@@ -111,14 +130,12 @@ class RqbitProcessService implements TorrentEngineProcess {
     return dir.path;
   }
 
-  /// Locate the engine: the configured override, then the bundled copy, then
-  /// whatever is on `PATH` (which is how a developer runs it before Phase 4
-  /// vendors the binaries).
-  Future<String?> findExecutable() async {
-    if (_configuredPath.isNotEmpty && await File(_configuredPath).exists()) {
-      return _configuredPath;
-    }
+  static Future<EnginePidFile> _defaultPidFile() async =>
+      EnginePidFile(p.join(await statePath(), 'rqbit.pid'));
 
+  /// Locate the engine: the bundled copy, then whatever is on `PATH` (which is
+  /// how a developer runs a debug build, where nothing is bundled).
+  Future<String?> findExecutable() async {
     final bundled = bundledPath();
     if (await File(bundled).exists()) return bundled;
 
@@ -126,7 +143,7 @@ class RqbitProcessService implements TorrentEngineProcess {
       final onPath = whichSync('rqbit');
       if (onPath != null) return onPath;
     } catch (e) {
-      _log('Error looking for rqbit on PATH: $e');
+      log('Error looking for rqbit on PATH: $e');
     }
     return null;
   }
@@ -169,139 +186,242 @@ class RqbitProcessService implements TorrentEngineProcess {
     ];
   }
 
-  @override
-  Future<bool> start() async {
-    if (_isStopping) {
-      _log('app is closing — not starting rqbit');
-      return false;
-    }
-
-    if (_isStarting) {
-      _log('Already starting rqbit...');
-      return false;
-    }
-
-    if (!managesLocalProcess) {
-      _log('rqbit is remote ($_host) — not starting a local process');
-      return isRunning();
-    }
-
-    _isStarting = true;
-    try {
-      if (await isRunning()) {
-        _log('rqbit is already listening on port $_port');
-        onConnectionStatusChanged?.call(true);
-        _startHealthCheck();
-        return true;
-      }
-
-      final executable = await findExecutable();
-      if (executable == null) {
-        _log('rqbit executable not found (bundled, configured or on PATH)');
-        return false;
-      }
-
-      final persistence = await statePath();
-      final args = buildArguments(
-        host: _host,
-        port: _port,
+  EngineLaunchRecord _wanted(String executable, {int pid = 0}) =>
+      EngineLaunchRecord(
+        pid: pid,
+        executable: executable,
+        port: port,
         downloadPath: _downloadPath,
-        persistencePath: persistence,
         downloadLimitBytes: _downloadLimitBytes,
         uploadLimitBytes: _uploadLimitBytes,
       );
 
-      _log('Starting rqbit: $executable ${args.join(' ')}');
-      _spawned = await Process.start(
-        executable,
-        args,
-        // Detached: no console window on Windows, and the sidecar is not tied
-        // to this Dart isolate's stdio.
-        mode: ProcessStartMode.detached,
-      );
-      _log('rqbit started with PID: ${_spawned?.pid}');
+  @override
+  Future<bool> launch() => _serialized(_launchLocked);
 
-      final ready = await _waitForReady();
-      if (ready) {
-        _log('rqbit is ready');
-        onConnectionStatusChanged?.call(true);
-        _startHealthCheck();
-      } else {
-        _log('rqbit failed to become ready');
-        onConnectionStatusChanged?.call(false);
+  Future<bool> _launchLocked() async {
+    if (isClosing || isDisposed) return failWith(EngineStartFailure.closing);
+
+    final executable = await findExecutable();
+    final pidFile = await pidFileLocator();
+
+    // 1. The sidecar this session already launched.
+    final owned = _owned;
+    if (owned != null) {
+      final alive = await _isOurs(owned);
+      if (alive &&
+          executable == owned.executable &&
+          owned.sameEndpointAs(_wanted(owned.executable))) {
+        // Same port, same folder: keep it. Rate limits wait for its next
+        // start, as the settings screen says.
+        if (await isRunning() || await waitForReady()) {
+          log('rqbit is already running (pid ${owned.pid})');
+          return true;
+        }
+        log('rqbit (pid ${owned.pid}) stopped answering — restarting it');
+      } else if (alive) {
+        log('engine settings changed — restarting rqbit (pid ${owned.pid})');
       }
-      return ready;
-    } catch (e) {
-      _log('Error starting rqbit: $e');
-      return false;
-    } finally {
-      _isStarting = false;
+      if (alive) await _terminate(owned);
+      _owned = null;
+      await pidFile.delete();
     }
-  }
 
-  Future<bool> _waitForReady({
-    int maxAttempts = AppConstants.maxRetryAttempts,
-    Duration initialDelay = AppConstants.initialRetryDelay,
-  }) async {
-    var delay = initialDelay;
-    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
-      await Future.delayed(delay);
-      if (await isRunning()) return true;
-      delay = Duration(
-        milliseconds:
-            (delay.inMilliseconds * AppConstants.retryBackoffMultiplier)
-                .round(),
+    // 2. A sidecar an earlier run of the app left behind.
+    if (_owned == null && executable != null) {
+      final reclaimed = await reclaimOrphan(
+        pidFile: pidFile,
+        probe: probe,
+        wanted: _wanted(executable),
+        portAnswering: isRunning,
+        windows: Platform.isWindows,
       );
+      if (reclaimed != null) {
+        _owned = reclaimed;
+        log(
+          'rqbit is ready (reclaimed pid ${reclaimed.pid} from a previous run)',
+        );
+        return true;
+      }
     }
-    return false;
+
+    // 3. Something we did not start is on the port. Use it, never stop it.
+    if (await isRunning()) {
+      log(
+        'rqbit is already listening on port $port (not started by this app '
+        '— it will be left running)',
+      );
+      return true;
+    }
+
+    // 4. Launch our own.
+    if (executable == null) {
+      log('rqbit executable not found (bundled or on PATH)');
+      return failWith(EngineStartFailure.notFound);
+    }
+    if (isClosing || isDisposed) return failWith(EngineStartFailure.closing);
+
+    final args = buildArguments(
+      host: host,
+      port: port,
+      downloadPath: _downloadPath,
+      persistencePath: await statePath(),
+      downloadLimitBytes: _downloadLimitBytes,
+      uploadLimitBytes: _uploadLimitBytes,
+    );
+    log('Starting rqbit: $executable ${args.join(' ')}');
+    final process = await Process.start(
+      executable,
+      args,
+      // Detached: no console window on Windows, and the sidecar is not tied
+      // to this Dart isolate's stdio.
+      mode: ProcessStartMode.detached,
+    );
+    final record = _wanted(executable, pid: process.pid);
+    _owned = record;
+    await pidFile.write(record);
+    log('rqbit started with PID: ${process.pid}');
+
+    if (await waitForReady()) {
+      log('rqbit is ready');
+      return true;
+    }
+
+    log('rqbit failed to become ready — stopping it');
+    await _terminate(record);
+    _owned = null;
+    await pidFile.delete();
+    return failWith(EngineStartFailure.didNotStart);
   }
 
-  void _startHealthCheck() {
-    _healthCheck.start(AppConstants.connectionCheckInterval);
-  }
-
-  Future<void> _performHealthCheck() async {
-    if (_isStopping) return;
-    if (await isRunning()) return;
-    _log('rqbit health check failed — not running');
-    onConnectionStatusChanged?.call(false);
-    if (!managesLocalProcess) return;
-    _log('Attempting to restart rqbit...');
-    await start();
-  }
-
-  /// Shut the sidecar down.
+  /// Adopt or remove the sidecar a previous run of the app left behind.
   ///
-  /// Only ever kills a process *we* started: [_spawned] is null when the user
-  /// is pointed at an engine they run themselves, and taking that one down
-  /// would be well outside our remit.
+  /// Reads the launch record and asks the OS whether that process is still
+  /// running *the same binary* — a recycled process ID running anything else
+  /// is not ours and is never touched. Ours, launched the way this launch
+  /// wants and answering on the port: adopted, so it is stopped with the app
+  /// like one launched now. Ours, launched differently: stopped, so the new
+  /// settings take. Either way the record goes when the process does.
+  ///
+  /// Returns the adopted record, or null.
+  @visibleForTesting
+  static Future<EngineLaunchRecord?> reclaimOrphan({
+    required EnginePidFile pidFile,
+    required EngineProcessProbe probe,
+    required EngineLaunchRecord wanted,
+    required Future<bool> Function() portAnswering,
+    required bool windows,
+  }) async {
+    final record = await pidFile.read();
+    if (record == null) return null;
+
+    final commandLine = await probe.commandLineOf(record.pid);
+    final ours =
+        commandLine != null &&
+        isEngineCommandLine(commandLine, record.executable, windows: windows);
+    if (!ours) {
+      // Gone, or the ID now belongs to something else. Nothing to stop.
+      await pidFile.delete();
+      return null;
+    }
+
+    if (record.sameLaunchAs(wanted) && await portAnswering()) return record;
+
+    await _terminateWith(probe, record, windows: windows);
+    await pidFile.delete();
+    return null;
+  }
+
+  Future<bool> _isOurs(EngineLaunchRecord record) async {
+    final commandLine = await probe.commandLineOf(record.pid);
+    return commandLine != null &&
+        isEngineCommandLine(
+          commandLine,
+          record.executable,
+          windows: Platform.isWindows,
+        );
+  }
+
+  Future<void> _terminate(EngineLaunchRecord record) =>
+      _terminateWith(probe, record, windows: Platform.isWindows);
+
+  /// Ask [record]'s process to exit, and kill it if it has not within
+  /// [terminateGrace]. Checks it is still our binary before every signal.
+  static Future<void> _terminateWith(
+    EngineProcessProbe probe,
+    EngineLaunchRecord record, {
+    required bool windows,
+  }) async {
+    Future<bool> stillOurs() async {
+      final line = await probe.commandLineOf(record.pid);
+      return line != null &&
+          isEngineCommandLine(line, record.executable, windows: windows);
+    }
+
+    if (!await stillOurs()) return;
+    _staticLog('Stopping rqbit (PID ${record.pid})...');
+    probe.kill(record.pid, ProcessSignal.sigterm);
+
+    final deadline = DateTime.now().add(terminateGrace);
+    while (DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      if (!await stillOurs()) {
+        _staticLog('rqbit (PID ${record.pid}) stopped');
+        return;
+      }
+    }
+    if (!await stillOurs()) return;
+    _staticLog(
+      'rqbit (PID ${record.pid}) ignored SIGTERM for '
+      '${terminateGrace.inMilliseconds} ms — killing it',
+    );
+    probe.kill(record.pid, ProcessSignal.sigkill);
+  }
+
+  /// Stop the sidecar this app is responsible for, whichever service
+  /// instance — or engine — is current. Never throws.
+  ///
+  /// Static because the instance that launched it is routinely gone by the
+  /// time it has to stop: the service is rebuilt when its settings change,
+  /// and the user may have switched to qBittorrent since. [closing] makes
+  /// the stop final for this run of the app — no service may start one again.
+  static Future<void> stopOwned({bool closing = false}) {
+    if (closing) _closing = true;
+    return _serialized(() async {
+      try {
+        final pidFile = await pidFileLocator();
+        final record = _owned ?? await pidFile.read();
+        _owned = null;
+        if (record != null) {
+          await _terminateWith(probe, record, windows: Platform.isWindows);
+        }
+        await pidFile.delete();
+      } catch (e) {
+        // Never thrown at the caller: it is the shutdown, or an engine
+        // switch that does not wait. The record stays for the next launch.
+        _staticLog('could not stop rqbit: $e');
+      }
+    });
+  }
+
+  /// Stop checking on the sidecar and stop it — used when the built-in engine
+  /// is switched away from. App shutdown uses [stopOwned] directly.
   @override
   Future<void> stop() async {
-    _isStopping = true;
-    _healthCheck.stop();
-    final process = _spawned;
-    if (process != null) {
-      _log('Stopping rqbit (PID ${process.pid})...');
-      _spawned = null;
-      process.kill(ProcessSignal.sigterm);
-    }
-    onConnectionStatusChanged?.call(false);
+    stopKeepingAlive();
+    await stopOwned();
   }
 
   /// Stops the health check but leaves the process running.
   ///
-  /// This service is rebuilt on every settings change, and killing the engine
-  /// each time would interrupt whatever is streaming. The sidecar is shut
-  /// down with the app — by `main`'s close handler calling [stop] — not with
-  /// the provider. That handler is the reason [_spawned] is static: by the
-  /// time it runs, the instance that started the process is long gone.
+  /// This service is rebuilt whenever its port or download folder changes,
+  /// and the replacement decides what to do with the running sidecar when it
+  /// starts — keep it, or restart it with the new settings. Killing it here
+  /// would interrupt whatever is streaming for every rebuild.
   @override
-  void dispose() {
-    _healthCheck.dispose();
-  }
-
-  void _log(String message) {
-    AppLog.d('[RqbitProcess] $message');
-    onLog?.call(message);
-  }
+  void dispose() => super.dispose();
 }
+
+/// Log lines from the static half of [RqbitProcessService], tagged the same
+/// as the instance's.
+void _staticLog(String message) => AppLog.i('[RqbitProcess] $message');

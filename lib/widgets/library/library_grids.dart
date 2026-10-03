@@ -1,90 +1,54 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../design/app_tokens.dart';
 import '../../models/local_media_file.dart';
+import '../../models/show_with_seasons.dart';
 import '../../models/watch_progress.dart';
-import '../../providers/local_media_provider.dart';
-import '../../utils/feedback_utils.dart';
 import '../../utils/media_names.dart';
-import '../media/media.dart';
+import '../media/continue_watching_card.dart';
+import '../media/media_poster_card.dart';
+import '../media/poster_lookup.dart';
+import 'library_item_actions.dart';
+import 'library_show_drawer.dart';
 
 /// Widest a poster tile may get before the grid adds another column.
-///
-/// Shared by both grids here, and the input to the measured aspect ratio —
-/// the two must agree or the measurement describes a different card.
 const double _tileWidth = 180.0;
 
+/// Horizontal Continue Watching row.
 class ContinueWatchingStrip extends ConsumerWidget {
-  final List<WatchProgress> items;
-  final void Function(WatchProgress) onTap;
-  final void Function(WatchProgress) onRemove;
-  final void Function(LocalMediaFile)? onMarkWatched;
-  final void Function(LocalMediaFile)? onDelete;
-
   const ContinueWatchingStrip({
     super.key,
     required this.items,
-    required this.onTap,
-    required this.onRemove,
-    this.onMarkWatched,
-    this.onDelete,
+    required this.actions,
   });
 
-  /// Locate the underlying [LocalMediaFile] for a Continue-Watching entry —
-  /// needed because the mark-watched / delete actions operate on files, not
-  /// progress records. Returns null if the file is no longer on disk.
-  LocalMediaFile? _fileFor(WidgetRef ref, WatchProgress progress) {
-    final files = ref.read(localMediaFilesProvider).value ?? [];
-    for (final f in files) {
-      if (f.path == progress.filePath) return f;
-    }
-    return null;
-  }
+  final List<WatchProgress> items;
+  final LibraryActions actions;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return SizedBox(
-      // Asked of the card rather than hard-coded: these rows carry a
-      // subtitle ("48 min remaining"), and the previous fixed 190 clipped
-      // 84 px off every card.
+      // Asked of the card rather than hard-coded: these cards carry a
+      // subtitle ("48m left"), and the previous fixed 190 clipped 84 px off
+      // every card.
       height: MediaPosterCard.heightForWidth(context),
-      child: ListView.builder(
+      child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: EdgeInsets.zero,
         itemCount: items.length,
+        separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.sm),
         itemBuilder: (context, index) {
           final progress = items[index];
           return ContinueWatchingCard(
             progress: progress,
-            onTap: () => onTap(progress),
-            onRemove: () => onRemove(progress),
-            onMarkWatched: onMarkWatched == null
-                ? null
-                : () {
-                    final f = _fileFor(ref, progress);
-                    if (f != null) {
-                      onMarkWatched!(f);
-                    } else {
-                      AppSnackBar.showInfo(
-                        context,
-                        message: 'File missing on disk — rescan to clean up',
-                      );
-                    }
-                  },
-            onDelete: onDelete == null
-                ? null
-                : () {
-                    final f = _fileFor(ref, progress);
-                    if (f != null) {
-                      onDelete!(f);
-                    } else {
-                      AppSnackBar.showInfo(
-                        context,
-                        message: 'File missing on disk — rescan to clean up',
-                      );
-                    }
-                  },
+            onTap: () => actions.playProgress(progress),
+            onRemove: () => actions.removeProgress(progress),
+            onMarkWatched: () =>
+                actions.markWatched(actions.fileFor(ref, progress)),
+            onDelete: () => actions.deleteFile(actions.fileFor(ref, progress)),
           );
         },
       ),
@@ -92,149 +56,102 @@ class ContinueWatchingStrip extends ConsumerWidget {
   }
 }
 
-/// Grid of [MediaPosterCard]s for flat lists of local files (Recent / Movies).
-class LocalMediaGrid extends StatelessWidget {
-  final List<LocalMediaFile> files;
-  final void Function(LocalMediaFile) onTap;
-  final void Function(LocalMediaFile) onMarkWatched;
-  final void Function(LocalMediaFile) onMarkNotWatched;
-  final void Function(LocalMediaFile) onDelete;
+/// A lazily built grid of library cards.
+///
+/// A sliver, so only the cards on screen exist — and only they look up a
+/// poster. The shrink-wrapped GridView this replaces built every card up
+/// front, and every card fires a TMDB search: 500 files meant up to 500
+/// searches and image loads at once.
+///
+/// Rows are sized from each tile's *actual* width through
+/// [MediaPosterCard.heightForWidth]. The aspect ratio used before was
+/// measured at the widest tile only, so narrower tiles clipped their
+/// caption by a few pixels.
+class _LibraryCardGrid extends StatelessWidget {
+  const _LibraryCardGrid({required this.itemCount, required this.itemBuilder});
 
-  const LocalMediaGrid({
+  final int itemCount;
+  final IndexedWidgetBuilder itemBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    return SliverLayoutBuilder(
+      builder: (context, constraints) {
+        const spacing = AppSpacing.md;
+        final width = constraints.crossAxisExtent;
+        final columns = math.max(1, (width / (_tileWidth + spacing)).ceil());
+        final tileWidth = (width - spacing * (columns - 1)) / columns;
+        return SliverGrid(
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            mainAxisSpacing: spacing,
+            crossAxisSpacing: spacing,
+            mainAxisExtent: MediaPosterCard.heightForWidth(
+              context,
+              width: tileWidth,
+            ),
+          ),
+          delegate: SliverChildBuilderDelegate(
+            itemBuilder,
+            childCount: itemCount,
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Library files (Recent / Movies) as a sliver grid.
+class LibraryFileGrid extends StatelessWidget {
+  const LibraryFileGrid({
     super.key,
     required this.files,
-    required this.onTap,
-    required this.onMarkWatched,
-    required this.onMarkNotWatched,
-    required this.onDelete,
+    required this.actions,
   });
+
+  final List<LocalMediaFile> files;
+  final LibraryActions actions;
 
   @override
   Widget build(BuildContext context) {
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: _tileWidth,
-        mainAxisSpacing: AppSpacing.md,
-        crossAxisSpacing: AppSpacing.md,
-        // Measured, not guessed. The old hardcoded 152/272 was tuned with
-        // about zero slack at exactly a 152px tile, but this delegate hands
-        // out 90–180px tiles depending on the viewport while the caption's
-        // cost stays the same — so anything narrower clipped the title row,
-        // silently, because the striped overflow indicator is assert-guarded
-        // and a release build simply cuts the text off. heightForWidth
-        // measures through the ambient TextScaler, so this survives Windows'
-        // "Make text bigger" too.
-        childAspectRatio:
-            _tileWidth /
-            MediaPosterCard.heightForWidth(context, width: _tileWidth),
-      ),
+    return _LibraryCardGrid(
       itemCount: files.length,
-      itemBuilder: (_, index) {
-        final file = files[index];
-        return LocalMediaCard(
-          file: file,
-          onTap: () => onTap(file),
-          onMarkWatched: () => onMarkWatched(file),
-          onMarkNotWatched: () => onMarkNotWatched(file),
-          onDelete: () => onDelete(file),
-        );
-      },
+      itemBuilder: (_, i) => LocalMediaCard(file: files[i], actions: actions),
     );
   }
 }
 
-/// Grid of show cards. Tap a show → modal sheet with seasons & episodes.
-class ShowsGrid extends StatelessWidget {
-  final List<ShowWithSeasons> shows;
-  final void Function(LocalMediaFile) onFileTap;
-  final void Function(LocalMediaFile) onMarkWatched;
-  final void Function(LocalMediaFile) onMarkNotWatched;
-  final void Function(LocalMediaFile) onDelete;
-
-  const ShowsGrid({
+/// Library shows as a sliver grid; a card opens that show's episodes.
+class LibraryShowGrid extends StatelessWidget {
+  const LibraryShowGrid({
     super.key,
     required this.shows,
-    required this.onFileTap,
-    required this.onMarkWatched,
-    required this.onMarkNotWatched,
-    required this.onDelete,
+    required this.actions,
   });
+
+  final List<ShowWithSeasons> shows;
+  final LibraryActions actions;
 
   @override
   Widget build(BuildContext context) {
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: _tileWidth,
-        mainAxisSpacing: AppSpacing.md,
-        crossAxisSpacing: AppSpacing.md,
-        // Measured, not guessed. The old hardcoded 152/272 was tuned with
-        // about zero slack at exactly a 152px tile, but this delegate hands
-        // out 90–180px tiles depending on the viewport while the caption's
-        // cost stays the same — so anything narrower clipped the title row,
-        // silently, because the striped overflow indicator is assert-guarded
-        // and a release build simply cuts the text off. heightForWidth
-        // measures through the ambient TextScaler, so this survives Windows'
-        // "Make text bigger" too.
-        childAspectRatio:
-            _tileWidth /
-            MediaPosterCard.heightForWidth(context, width: _tileWidth),
-      ),
+    return _LibraryCardGrid(
       itemCount: shows.length,
-      itemBuilder: (_, index) {
-        final showData = shows[index];
-        return ShowCard(
-          showData: showData,
-          onFileTap: onFileTap,
-          onMarkWatched: onMarkWatched,
-          onMarkNotWatched: onMarkNotWatched,
-          onDelete: onDelete,
-        );
-      },
+      itemBuilder: (_, i) => ShowCard(showData: shows[i], actions: actions),
     );
   }
 }
 
-/// Single library item rendered as a poster card. Resolves its poster (show
-/// poster if it's an episode, movie poster otherwise) via the existing
-/// TMDB poster providers.
+/// One library file as a poster card.
 class LocalMediaCard extends ConsumerWidget {
+  const LocalMediaCard({super.key, required this.file, required this.actions});
+
   final LocalMediaFile file;
-  final VoidCallback onTap;
-  final VoidCallback onMarkWatched;
-  final VoidCallback onMarkNotWatched;
-  final VoidCallback onDelete;
+  final LibraryActions actions;
 
-  const LocalMediaCard({
-    super.key,
-    required this.file,
-    required this.onTap,
-    required this.onMarkWatched,
-    required this.onMarkNotWatched,
-    required this.onDelete,
-  });
-
-  AsyncValue<String?>? _resolvePoster(WidgetRef ref) {
-    if (file.showName != null &&
-        file.showName!.isNotEmpty &&
-        (file.seasonNumber != null || file.episodeNumber != null)) {
-      return ref.watch(showPosterProvider(file.showName!));
-    }
-    // For movies, strip quality/year/extension noise before searching TMDB —
-    // a raw filename like `Movie.2020.1080p.BluRay.mkv` rarely matches.
-    final movieName = file.showName ?? cleanMediaTitle(file.fileName);
-    if (movieName.isEmpty) return null;
-    return ref.watch(moviePosterProvider(movieName));
-  }
-
-  String _displayTitle() {
-    if (file.showName != null && file.showName!.isNotEmpty) {
-      return file.episodeCode != null
-          ? '${file.showName} ${file.episodeCode}'
-          : file.showName!;
+  String _title() {
+    final show = file.showName;
+    if (show != null && show.isNotEmpty) {
+      return file.episodeCode != null ? '$show ${file.episodeCode}' : show;
     }
     final cleaned = cleanMediaTitle(file.fileName);
     return cleaned.isNotEmpty ? cleaned : file.fileName;
@@ -242,88 +159,64 @@ class LocalMediaCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final actions = <MediaCardAction>[
-      if (!file.isWatched)
-        MediaCardAction(
-          icon: Icons.check_circle_outline_rounded,
-          label: 'Mark as watched',
-          onSelected: onMarkWatched,
-        ),
-      if (file.isWatched)
-        MediaCardAction(
-          icon: Icons.remove_circle_outline_rounded,
-          label: 'Mark as not watched',
-          onSelected: onMarkNotWatched,
-        ),
-      MediaCardAction(
-        icon: Icons.delete_outline_rounded,
-        label: 'Delete',
-        onSelected: onDelete,
-        destructive: true,
-      ),
-    ];
-
+    final isEpisode = file.seasonNumber != null || file.episodeNumber != null;
     return MediaPosterCard(
-      posterAsync: _resolvePoster(ref),
-      title: _displayTitle(),
-      subtitle: [
-        file.formattedSize,
-        if (file.quality != null) file.quality!,
-      ].join(' • '),
+      posterAsync: watchFilePoster(ref, file),
+      title: _title(),
+      subtitle: [file.formattedSize, ?file.quality].join(' · '),
       badge: file.episodeCode,
       progress: file.hasProgress ? file.watchProgress : null,
       isWatched: file.isWatched,
-      onTap: onTap,
-      actions: actions,
+      width: null,
+      placeholderIcon: isEpisode ? Icons.live_tv_rounded : Icons.movie_rounded,
+      onTap: () => actions.playFile(file),
+      actions: [
+        if (file.isWatched)
+          MediaCardAction(
+            icon: Icons.remove_circle_outline_rounded,
+            label: 'Mark as not watched',
+            onSelected: () => actions.markNotWatched(file),
+          )
+        else
+          MediaCardAction(
+            icon: Icons.check_circle_outline_rounded,
+            label: 'Mark as watched',
+            onSelected: () => actions.markWatched(file),
+          ),
+        MediaCardAction(
+          icon: Icons.delete_outline_rounded,
+          label: 'Delete',
+          onSelected: () => actions.deleteFile(file),
+          destructive: true,
+        ),
+      ],
     );
   }
 }
 
-/// Show-level card. Tap opens [ShowEpisodesSheet] for season/episode drill-in.
+/// A show in the library as one card; opening it lists its episodes.
 class ShowCard extends ConsumerWidget {
-  final ShowWithSeasons showData;
-  final void Function(LocalMediaFile) onFileTap;
-  final void Function(LocalMediaFile) onMarkWatched;
-  final void Function(LocalMediaFile) onMarkNotWatched;
-  final void Function(LocalMediaFile) onDelete;
+  const ShowCard({super.key, required this.showData, required this.actions});
 
-  const ShowCard({
-    super.key,
-    required this.showData,
-    required this.onFileTap,
-    required this.onMarkWatched,
-    required this.onMarkNotWatched,
-    required this.onDelete,
-  });
+  final ShowWithSeasons showData;
+  final LibraryActions actions;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final posterAsync = ref.watch(showPosterProvider(showData.showName));
-    final hasMultipleSeasons = showData.seasons.length > 1;
-    final subtitle = hasMultipleSeasons
-        ? '${showData.seasons.length} seasons • ${showData.totalEpisodes} ep'
-        : '${showData.totalEpisodes} episode'
-              '${showData.totalEpisodes > 1 ? 's' : ''}';
-
+    final seasons = showData.seasons.length;
+    final episodes = showData.totalEpisodes;
+    final episodeLabel = episodes == 1 ? '1 episode' : '$episodes episodes';
     return MediaPosterCard(
-      posterAsync: posterAsync,
+      posterAsync: watchPoster(ref, PosterQuery.show(showData.showName)),
       title: showData.showName,
-      subtitle: subtitle,
-      onTap: () => ShowEpisodesSheet.show(
+      subtitle: seasons > 1 ? '$seasons seasons · $episodeLabel' : episodeLabel,
+      width: null,
+      placeholderIcon: Icons.live_tv_rounded,
+      onTap: () => LibraryShowDrawer.open(
         context,
-        showData: showData,
-        onFileTap: (f) {
-          Navigator.of(context).maybePop();
-          onFileTap(f);
-        },
-        onMarkWatched: onMarkWatched,
-        onMarkNotWatched: onMarkNotWatched,
-        onDelete: onDelete,
+        showName: showData.showName,
+        actions: actions,
       ),
     );
   }
 }
-
-// ============================================================================
-// All Sections View
-// ============================================================================

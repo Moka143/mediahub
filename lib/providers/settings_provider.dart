@@ -9,7 +9,6 @@ import '../models/settings.dart';
 import '../services/app_logger.dart';
 import '../services/secret_store.dart';
 import '../utils/constants.dart';
-import 'local_media_provider.dart';
 
 /// Key for storing settings in SharedPreferences
 const _settingsKey = 'app_settings';
@@ -49,12 +48,17 @@ final sortAscendingProvider = NotifierProvider<SortAscendingNotifier, bool>(
   SortAscendingNotifier.new,
 );
 
+// The three notifiers below seed the Transfers screen's filter and sort from
+// the saved defaults. Each watches only its own default: they used to watch
+// the whole settings object, so changing *any* setting — a poll interval, the
+// TMDB token — rebuilt them and threw away whatever filter and sort the user
+// had picked.
+
 /// Notifier for current filter
 class CurrentFilterNotifier extends Notifier<TorrentFilter> {
   @override
-  TorrentFilter build() {
-    return ref.watch(settingsProvider).defaultFilter;
-  }
+  TorrentFilter build() =>
+      ref.watch(settingsProvider.select((s) => s.defaultFilter));
 
   void set(TorrentFilter value) => state = value;
 }
@@ -62,9 +66,8 @@ class CurrentFilterNotifier extends Notifier<TorrentFilter> {
 /// Notifier for current sort
 class CurrentSortNotifier extends Notifier<TorrentSort> {
   @override
-  TorrentSort build() {
-    return ref.watch(settingsProvider).defaultSort;
-  }
+  TorrentSort build() =>
+      ref.watch(settingsProvider.select((s) => s.defaultSort));
 
   void set(TorrentSort value) => state = value;
 }
@@ -72,9 +75,7 @@ class CurrentSortNotifier extends Notifier<TorrentSort> {
 /// Notifier for sort ascending
 class SortAscendingNotifier extends Notifier<bool> {
   @override
-  bool build() {
-    return ref.watch(settingsProvider).sortAscending;
-  }
+  bool build() => ref.watch(settingsProvider.select((s) => s.sortAscending));
 
   void set(bool value) => state = value;
   void toggle() => state = !state;
@@ -171,18 +172,24 @@ class SettingsNotifier extends Notifier<AppSettings> {
   static AppSettings freshInstallDefaults() =>
       AppSettings(engineKind: TorrentEngineKind.builtin);
 
-  /// Save current settings to SharedPreferences
+  /// Save current settings to SharedPreferences.
+  ///
+  /// The credentials are not part of [AppSettings.toJson] — they live in the
+  /// secret store. The exception is a credential an older build left in this
+  /// blob whose move into the Keychain could not be confirmed: that plaintext
+  /// is its only durable copy until a later launch manages the move, so it is
+  /// written back rather than dropped by the next unrelated save.
   Future<void> _saveSettings() async {
-    final jsonString = jsonEncode(state.toJson());
-    await _prefs.setString(_settingsKey, jsonString);
+    final json = {...state.toJson(), ..._secrets.pendingLegacySettingsFields};
+    await _prefs.setString(_settingsKey, jsonEncode(json));
   }
 
-  /// Update host
   /// Switch the torrent backend.
   ///
-  /// Both `torrentEngineProvider` and `engineProcessProvider` watch settings,
-  /// so this rebuilds the engine and its process together — they must never
-  /// disagree about which backend is live.
+  /// `torrentEngineProvider` and `engineProcessProvider` both select the
+  /// engine kind, so this rebuilds the engine and its process together — they
+  /// must never disagree about which backend is live — and the connection
+  /// follows them to the new one.
   Future<void> setEngineKind(TorrentEngineKind kind) async {
     state = state.copyWith(engineKind: kind);
     await _saveSettings();
@@ -193,11 +200,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
     await _saveSettings();
   }
 
-  Future<void> setRqbitPath(String path) async {
-    state = state.copyWith(rqbitPath: path);
-    await _saveSettings();
-  }
-
+  /// Update host
   Future<void> setHost(String host) async {
     state = state.copyWith(host: host);
     await _saveSettings();
@@ -233,15 +236,12 @@ class SettingsNotifier extends Notifier<AppSettings> {
     await _saveSettings();
   }
 
-  /// Update default save path
+  /// Update default save path.
+  ///
+  /// The library rescans on its own: its scanner is built from this path.
   Future<void> setDefaultSavePath(String path) async {
     state = state.copyWith(defaultSavePath: path);
     await _saveSettings();
-
-    // Invalidate media providers to rescan with new path
-    ref.invalidate(localMediaStreamProvider);
-    ref.invalidate(localMediaScannerProvider);
-    ref.invalidate(localMediaFilesProvider);
   }
 
   /// Update download speed limit
@@ -304,9 +304,21 @@ class SettingsNotifier extends Notifier<AppSettings> {
     await _secrets.write(Secret.tmdbReadToken, trimmed);
   }
 
-  /// Reset settings to defaults
+  /// Reset settings to what a fresh install starts with.
+  ///
+  /// [freshInstallDefaults], not `AppSettings()`: the model's own default
+  /// engine is qBittorrent (the upgrade guard — see [migrateEngine]), so a
+  /// reset used to move built-in users onto a qBittorrent they never
+  /// installed.
+  ///
+  /// The qBittorrent password and the TMDB read token are cleared from the
+  /// secret store too. Resetting only [state] blanked them for this session
+  /// and [build] put them straight back on the next launch. The TMDB account
+  /// sign-in is not a setting and is left alone; it has its own Sign out.
   Future<void> resetToDefaults() async {
-    state = AppSettings();
+    state = freshInstallDefaults();
+    await _secrets.write(Secret.qbittorrentPassword, null);
+    await _secrets.write(Secret.tmdbReadToken, null);
     await _saveSettings();
   }
 }
@@ -388,12 +400,6 @@ class OnboardingCompletedNotifier extends Notifier<bool> {
     final prefs = ref.read(sharedPreferencesProvider);
     await prefs.setBool(_onboardedKey, true);
     state = true;
-  }
-
-  Future<void> reset() async {
-    final prefs = ref.read(sharedPreferencesProvider);
-    await prefs.remove(_onboardedKey);
-    state = false;
   }
 }
 

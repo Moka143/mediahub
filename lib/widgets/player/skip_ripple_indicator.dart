@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 
+import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
+import '../../design/app_typography.dart';
 
 /// Netflix-style ±10s skip ripple shown over the video.
+///
+/// Animates once, on mount. Give each press its own key to replay it — see
+/// `PlayerOverlayStack.skipTick`.
 class SkipRippleIndicator extends StatefulWidget {
   final bool forward;
 
@@ -21,10 +26,7 @@ class _SkipRippleIndicatorState extends State<SkipRippleIndicator>
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 460),
-    );
+    _ctrl = AnimationController(vsync: this, duration: AppDuration.slow);
     _scale = Tween<double>(
       begin: 0.7,
       end: 1.15,
@@ -45,59 +47,44 @@ class _SkipRippleIndicatorState extends State<SkipRippleIndicator>
 
   @override
   Widget build(BuildContext context) {
+    final label = Text(
+      '10s',
+      style: AppType.ui(
+        size: AppType.sizeHeading,
+        color: AppColors.onMedia,
+        weight: FontWeight.w700,
+        height: 1.0,
+      ),
+    );
+    final icon = Icon(
+      widget.forward ? Icons.forward_10_rounded : Icons.replay_10_rounded,
+      color: AppColors.onMedia,
+      size: AppIconSize.xxl,
+    );
+    const gap = SizedBox(width: AppSpacing.xs);
+
     return AnimatedBuilder(
       animation: _ctrl,
-      builder: (context, _) {
+      builder: (context, child) {
         return Opacity(
           opacity: _opacity.value,
-          child: Transform.scale(
-            scale: _scale.value,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.50),
-                borderRadius: BorderRadius.circular(AppRadius.xl),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (!widget.forward) ...[
-                    Icon(
-                      Icons.replay_10_rounded,
-                      color: Colors.white,
-                      size: 34,
-                    ),
-                    const SizedBox(width: 6),
-                    const Text(
-                      '10s',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ] else ...[
-                    const Text(
-                      '10s',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Icon(
-                      Icons.forward_10_rounded,
-                      color: Colors.white,
-                      size: 34,
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
+          child: Transform.scale(scale: _scale.value, child: child),
         );
       },
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.xl,
+          vertical: AppSpacing.md,
+        ),
+        decoration: BoxDecoration(
+          color: AppColors.mediaBlack.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(AppRadius.xl),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: widget.forward ? [label, gap, icon] : [icon, gap, label],
+        ),
+      ),
     );
   }
 }

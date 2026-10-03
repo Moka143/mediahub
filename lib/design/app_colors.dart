@@ -9,6 +9,11 @@ import 'package:flutter/material.dart';
 ///   --ok: oklch(0.78 0.16 145)
 ///
 /// OKLCH values converted to sRGB and stored here as flat constants.
+///
+/// Contrast rules (WCAG 2.1, pinned by `test/design_contrast_test.dart`):
+/// text uses [fg], [fg1] or [fg2] — never [fg3] — and the status colours
+/// read as text on every surface up to [bgSurfaceHi]. Anything drawn *on* an
+/// [accent], [ok], [warn] or [err] fill uses [onAccent].
 abstract final class AppColors {
   // ==========================================================================
   // Backgrounds — warm near-black with subtle warm cast
@@ -25,7 +30,10 @@ abstract final class AppColors {
   /// Higher-elevation surface (cards, panels, hover state)
   static const Color bgSurfaceHi = Color(0xFF191714);
 
-  /// Highest-elevation surface (modal background, selected row)
+  /// Highest-elevation surface (tooltips, snackbars, switch tracks).
+  ///
+  /// Only [fg] and [fg1] are legible on it — [fg2] drops to 3.9:1 here — so
+  /// keep secondary text off this surface.
   static const Color bgSurfaceHigher = Color(0xFF272321);
 
   // ==========================================================================
@@ -37,11 +45,20 @@ abstract final class AppColors {
   /// Secondary text
   static const Color fg1 = Color(0xFFC9C3BC);
 
-  /// Tertiary text (subtitles, captions)
+  /// Tertiary text (subtitles, captions, hints, mono labels).
+  ///
+  /// The dimmest colour any text may use: 4.5:1 or better on every surface
+  /// up to [bgSurfaceHi].
   static const Color fg2 = Color(0xFF857F79);
 
-  /// Muted text (timestamps, hashes, deemphasized labels)
-  static const Color fg3 = Color(0xFF514C47);
+  /// Muted non-text marks: inactive glyphs, drag handles, idle LEDs.
+  ///
+  /// Not for text. It used to be #514C47 — 2.1–2.4:1 against the dark
+  /// surfaces — and was the default for hints, mono labels, inactive tabs
+  /// and every Settings subtitle, which were barely readable. It now clears
+  /// the 3:1 non-text minimum on [bgSurfaceHi] while staying visibly dimmer
+  /// than [fg2].
+  static const Color fg3 = Color(0xFF6E6862);
 
   // ==========================================================================
   // Hairline rules — almost invisible by design
@@ -58,14 +75,13 @@ abstract final class AppColors {
   /// Primary accent — active state, primary CTA, current row indicator
   static const Color accent = Color(0xFFFF7448);
 
-  /// Hover/pressed variant
-  static const Color accentHi = Color(0xFFFF885C);
+  /// Text and icons drawn on an [accent] fill — and on [ok], [warn] and
+  /// [err] fills. Dark, not white: white on this orange is 2.7:1 and fails
+  /// WCAG AA, white on [ok] is 1.9:1; the page colour is 7.5:1 on [accent].
+  static const Color onAccent = bgPage;
 
   /// 16% accent — soft fill (selected chip, badge background)
   static const Color accentSoft = Color(0x29FF7448);
-
-  /// 8% accent — ghost fill (subtle highlight)
-  static const Color accentGhost = Color(0x14FF7448);
 
   // ==========================================================================
   // Status — restrained. Use sparingly.
@@ -91,9 +107,6 @@ abstract final class AppColors {
   /// 8% white — base glass fill
   static const Color glassFill = Color(0x14FFFFFF);
 
-  /// 11% white — slightly stronger glass fill (hover state)
-  static const Color glassFillStrong = Color(0x1CFFFFFF);
-
   /// 15% white — glass border / emphasis stroke
   static const Color glassBorder = Color(0x26FFFFFF);
 
@@ -104,101 +117,51 @@ abstract final class AppColors {
   static const Color scrimStrong = Color(0xA0000000);
 
   // ==========================================================================
-  // Legacy aliases — kept for call sites that haven't migrated yet. Each
-  // alias has confirmed external references; the dead 45+ siblings of
-  // these were removed in the editorial consolidation. See git log for
-  // the full deletion list.
+  // Depth
   // ==========================================================================
-  static const Color seedColor = accent;
-  static const Color accentPrimary = accent;
+  /// 10% white — the unfilled part of a progress bar or slider.
+  static const Color track = Color(0x1AFFFFFF);
 
-  /// Warm amber attention accent — distinct from the primary orange
-  /// and the green ok. Used for decorative gradients and "draw the eye"
-  /// callouts (drawer header gradient, AUTO-GRAB button, calendar week
-  /// chip).
-  static const Color accentAmber = warn;
+  /// 50% black — the dimming behind a modal sheet, drawer or dialog. One
+  /// value, so every modal pushes the app back by the same amount.
+  static const Color barrier = Color(0x80000000);
 
-  static const Color success = ok;
-  static const Color warning = warn;
-  static const Color error = err;
-  static const Color info = accent;
+  /// Drop shadows under raised surfaces: pure black, at the opacity the
+  /// surface's elevation calls for.
+  static const Color shadow = Color(0xFF000000);
 
+  // ==========================================================================
+  // Media chrome — controls and text drawn over video frames and artwork.
+  // Neutral white and black rather than the warm palette: a warm tint over
+  // a picture reads as a colour cast, and these must stay legible over any
+  // frame. Scrims are [mediaBlack] at the opacity the artwork needs.
+  // ==========================================================================
+  /// Icons and text over video or artwork.
+  static const Color onMedia = Color(0xFFFFFFFF);
+
+  /// Secondary text and idle icons over video or artwork — 70% white.
+  static const Color onMediaMuted = Color(0xB3FFFFFF);
+
+  /// The letterbox behind the picture, and the base of every scrim.
+  static const Color mediaBlack = Color(0xFF000000);
+
+  // ==========================================================================
+  // Torrent states — what `torrentStateTone` maps a torrent onto. Named for
+  // the state rather than the hue so a state can be re-coloured in one place.
+  // ==========================================================================
   static const Color downloading = accent;
   static const Color seeding = ok;
-  static const Color paused = fg3;
+
+  /// [fg2], not [fg3]: it colours the state badge's *text* as well as the
+  /// row's dot and progress bar.
+  static const Color paused = fg2;
   static const Color errorState = err;
-
-  // Used by `getRatingColor`. Rating thresholds are quality-of-source
-  // signals, not status semantics — keep them mapped to the palette.
-  static const Color ratingExcellent = ok;
-  static const Color ratingGood = accent;
-  static const Color ratingFair = warn;
-  static const Color ratingPoor = err;
-
-  // Gradient preset — used by `empty_state.dart` for the error
-  // illustration backdrop.
-  static const List<Color> gradientError = [err, err];
 }
 
-/// Extension to get torrent state colors — restrained editorial mapping.
-extension TorrentStateColor on String {
-  Color get torrentStateColor {
-    switch (toLowerCase()) {
-      case 'downloading':
-      case 'dl':
-      case 'forceddl':
-        return AppColors.downloading;
-      case 'uploading':
-      case 'seeding':
-      case 'stalledup':
-      case 'forcedup':
-        return AppColors.seeding;
-      case 'pauseddl':
-      case 'pausedup':
-      case 'stoppeddl':
-      case 'stoppedup':
-      case 'paused':
-        return AppColors.paused;
-      case 'queueddl':
-      case 'queuedup':
-      case 'queued':
-        return AppColors.warn;
-      case 'checkingdl':
-      case 'checkingup':
-      case 'checkingresumedata':
-      case 'checking':
-        return AppColors.warn;
-      case 'error':
-      case 'missingfiles':
-        return AppColors.errorState;
-      default:
-        return AppColors.paused;
-    }
-  }
-}
-
-/// Extension to get quality badge colors — all neutral mono tags in the
-/// editorial design, with 4K reserved for the accent treatment.
-extension QualityColor on String {
-  Color get qualityColor {
-    final lower = toLowerCase();
-    if (lower.contains('2160') ||
-        lower.contains('4k') ||
-        lower.contains('uhd')) {
-      return AppColors.accent;
-    } else if (lower.contains('1080')) {
-      return AppColors.fg1;
-    } else if (lower.contains('720')) {
-      return AppColors.fg2;
-    } else {
-      return AppColors.fg3;
-    }
-  }
-}
-
+/// The rating colour for a 0–10 TMDB score.
 Color getRatingColor(double rating) {
-  if (rating >= 8.0) return AppColors.ratingExcellent;
-  if (rating >= 6.0) return AppColors.ratingGood;
-  if (rating >= 4.0) return AppColors.ratingFair;
-  return AppColors.ratingPoor;
+  if (rating >= 8.0) return AppColors.ok;
+  if (rating >= 6.0) return AppColors.accent;
+  if (rating >= 4.0) return AppColors.warn;
+  return AppColors.err;
 }

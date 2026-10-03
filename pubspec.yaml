@@ -36,9 +36,6 @@ dependencies:
   # Date/time formatting
   intl: ^0.20.2
   
-  # Icons
-  cupertino_icons: ^1.0.8
-
   # Cached network images for posters
   cached_network_image: ^3.4.1
 
@@ -144,6 +141,13 @@ flutter:
   #   - images/a_dot_ham.jpeg
   assets:
     - assets/icon.png
+    # Geist, Instrument Serif and JetBrains Mono, bundled so google_fonts
+    # finds them locally (it matches `<Family>-<Variant>.ttf` asset names)
+    # instead of fetching them on first launch — an offline first launch used
+    # to render fallback fonts, which also threw off every text-metric
+    # calculation. Weights not bundled are still fetched on demand. OFL.txt
+    # carries the licence the fonts ship under.
+    - assets/fonts/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

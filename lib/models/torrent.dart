@@ -1,6 +1,10 @@
 import '../utils/constants.dart';
 
-/// Represents a torrent in qBittorrent
+/// A torrent as the engine reports it.
+///
+/// Field names follow qBittorrent's Web API, which the app was first written
+/// against; `RqbitEngine.torrentFromJson` maps the built-in engine onto the
+/// same shape.
 class Torrent {
   final String hash;
   final String name;
@@ -107,43 +111,6 @@ class Torrent {
     );
   }
 
-  Map<String, dynamic> toJson() {
-    return {
-      'hash': hash,
-      'name': name,
-      'size': size,
-      'progress': progress,
-      'dlspeed': dlspeed,
-      'upspeed': upspeed,
-      'eta': eta,
-      'state': state,
-      'num_seeds': numSeeds,
-      'num_leechs': numLeeches,
-      'ratio': ratio,
-      'added_on': addedOn,
-      'completion_on': completionOn,
-      'save_path': savePath,
-      'downloaded': downloaded,
-      'uploaded': uploaded,
-      'num_complete': numComplete,
-      'num_incomplete': numIncomplete,
-      'category': category,
-      'tags': tags,
-      'priority': priority,
-      'amount_left': amountLeft,
-      'tracker': tracker,
-      'seen_complete': seenComplete,
-      'last_activity': lastActivity,
-      'total_size': totalSize,
-      'piece_size': pieceSize,
-      'pieces_num': piecesNum,
-      'pieces_have': piecesHave,
-      'content_path': contentPath,
-      'seq_dl': sequentialDownload,
-      'f_l_piece_prio': firstLastPiecePriority,
-    };
-  }
-
   /// Returns true if torrent is currently downloading
   bool get isDownloading => TorrentState.isDownloading(state);
 
@@ -208,77 +175,6 @@ class Torrent {
     }
   }
 
-  Torrent copyWith({
-    String? hash,
-    String? name,
-    int? size,
-    double? progress,
-    int? dlspeed,
-    int? upspeed,
-    int? eta,
-    String? state,
-    int? numSeeds,
-    int? numLeeches,
-    double? ratio,
-    int? addedOn,
-    int? completionOn,
-    String? savePath,
-    int? downloaded,
-    int? uploaded,
-    int? numComplete,
-    int? numIncomplete,
-    String? category,
-    String? tags,
-    int? priority,
-    int? amountLeft,
-    String? tracker,
-    int? seenComplete,
-    int? lastActivity,
-    int? totalSize,
-    int? pieceSize,
-    int? piecesNum,
-    int? piecesHave,
-    String? contentPath,
-    bool? sequentialDownload,
-    bool? firstLastPiecePriority,
-  }) {
-    return Torrent(
-      hash: hash ?? this.hash,
-      name: name ?? this.name,
-      size: size ?? this.size,
-      progress: progress ?? this.progress,
-      dlspeed: dlspeed ?? this.dlspeed,
-      upspeed: upspeed ?? this.upspeed,
-      eta: eta ?? this.eta,
-      state: state ?? this.state,
-      numSeeds: numSeeds ?? this.numSeeds,
-      numLeeches: numLeeches ?? this.numLeeches,
-      ratio: ratio ?? this.ratio,
-      addedOn: addedOn ?? this.addedOn,
-      completionOn: completionOn ?? this.completionOn,
-      savePath: savePath ?? this.savePath,
-      downloaded: downloaded ?? this.downloaded,
-      uploaded: uploaded ?? this.uploaded,
-      numComplete: numComplete ?? this.numComplete,
-      numIncomplete: numIncomplete ?? this.numIncomplete,
-      category: category ?? this.category,
-      tags: tags ?? this.tags,
-      priority: priority ?? this.priority,
-      amountLeft: amountLeft ?? this.amountLeft,
-      tracker: tracker ?? this.tracker,
-      seenComplete: seenComplete ?? this.seenComplete,
-      lastActivity: lastActivity ?? this.lastActivity,
-      totalSize: totalSize ?? this.totalSize,
-      pieceSize: pieceSize ?? this.pieceSize,
-      piecesNum: piecesNum ?? this.piecesNum,
-      piecesHave: piecesHave ?? this.piecesHave,
-      contentPath: contentPath ?? this.contentPath,
-      sequentialDownload: sequentialDownload ?? this.sequentialDownload,
-      firstLastPiecePriority:
-          firstLastPiecePriority ?? this.firstLastPiecePriority,
-    );
-  }
-
   /// Merge partial update data from sync endpoint into this torrent.
   /// Only updates fields that are present in the update map.
   Torrent mergeWith(Map<String, dynamic> update) {
@@ -319,13 +215,84 @@ class Torrent {
     );
   }
 
+  /// Value equality over every field, not just [hash].
+  ///
+  /// Identity-by-hash made two snapshots of the same torrent equal however
+  /// much they differed, so anything that compared old and new values saw no
+  /// change: a provider selecting one torrent out of the list never
+  /// notified, and Torrent Details froze on whatever it showed when it was
+  /// opened — progress, speeds and state included. Nothing keys a map or set
+  /// by [Torrent]; where a stable identity is wanted, [hash] is the key.
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is Torrent &&
-          runtimeType == other.runtimeType &&
-          hash == other.hash;
+          other.hash == hash &&
+          other.name == name &&
+          other.size == size &&
+          other.progress == progress &&
+          other.dlspeed == dlspeed &&
+          other.upspeed == upspeed &&
+          other.eta == eta &&
+          other.state == state &&
+          other.numSeeds == numSeeds &&
+          other.numLeeches == numLeeches &&
+          other.ratio == ratio &&
+          other.addedOn == addedOn &&
+          other.completionOn == completionOn &&
+          other.savePath == savePath &&
+          other.downloaded == downloaded &&
+          other.uploaded == uploaded &&
+          other.numComplete == numComplete &&
+          other.numIncomplete == numIncomplete &&
+          other.category == category &&
+          other.tags == tags &&
+          other.priority == priority &&
+          other.amountLeft == amountLeft &&
+          other.tracker == tracker &&
+          other.seenComplete == seenComplete &&
+          other.lastActivity == lastActivity &&
+          other.totalSize == totalSize &&
+          other.pieceSize == pieceSize &&
+          other.piecesNum == piecesNum &&
+          other.piecesHave == piecesHave &&
+          other.contentPath == contentPath &&
+          other.sequentialDownload == sequentialDownload &&
+          other.firstLastPiecePriority == firstLastPiecePriority;
 
   @override
-  int get hashCode => hash.hashCode;
+  int get hashCode => Object.hashAll([
+    hash,
+    name,
+    size,
+    progress,
+    dlspeed,
+    upspeed,
+    eta,
+    state,
+    numSeeds,
+    numLeeches,
+    ratio,
+    addedOn,
+    completionOn,
+    savePath,
+    downloaded,
+    uploaded,
+    numComplete,
+    numIncomplete,
+    category,
+    tags,
+    priority,
+    amountLeft,
+    tracker,
+    seenComplete,
+    lastActivity,
+    totalSize,
+    pieceSize,
+    piecesNum,
+    piecesHave,
+    contentPath,
+    sequentialDownload,
+    firstLastPiecePriority,
+  ]);
 }

@@ -12,42 +12,44 @@ import 'app_logger.dart';
 /// launches via SharedPreferences.
 ///
 /// Usage:
-///   1. `loadState()` early in `main()` to read the last-saved bounds.
+///   1. [loadStateFor] early in `main()`, with the displays' work areas, to
+///      read the last-saved bounds that still land on a connected screen.
 ///   2. Apply those bounds to `WindowOptions` / `setBounds` / `maximize` before
 ///      showing the window.
 ///   3. Register the instance as a `WindowListener` so resize/move/maximize
 ///      events persist the new state (debounced).
-///   4. `windowManager.setPreventClose(true)`, so the close-time save has
-///      somewhere to run — see [onWindowClose].
+///   4. `windowManager.setPreventClose(true)`, so a close reaches
+///      [onWindowClose] — which hands it to the app's shutdown, which calls
+///      [saveForClose] as one of its steps.
 class WindowStateService with WindowListener {
   static const _boundsKey = 'window_bounds';
   static const _maximizedKey = 'window_maximized';
 
-  /// Upper bound on how long the close-time save may take before the window
-  /// is destroyed anyway.
-  static const Duration closeSaveTimeout = Duration(seconds: 2);
-
   final SharedPreferences _prefs;
   Timer? _saveDebouncer;
 
+  /// Set once the close-time save has started. After that no event — the
+  /// blur and resize that hiding the window fires — may schedule another:
+  /// it would land after the shutdown and save the hidden window's state.
+  bool _closing = false;
+
   /// The close-time save, once one has been started.
   ///
-  /// [_saveThenClose] stops *waiting* on this after [closeSaveTimeout], but the
-  /// write itself carries on — and the teardown that follows now ends in
-  /// `exit()` on Windows, which would cut it off mid-file. Exposed so the
-  /// shutdown path can give it one last moment to land. Never completes with an
-  /// error: the failure is logged where it happens.
+  /// The shutdown stops *waiting* on [saveForClose] after its budget, but the
+  /// write itself carries on — and on Windows the teardown ends in `exit()`,
+  /// which would cut it off mid-file. Exposed so the shutdown can give it one
+  /// last moment to land. Never completes with an error: the failure is
+  /// logged where it happens.
   Future<void>? _inFlightSave;
 
   /// The close-time save, or an already-completed future when none ran.
   Future<void> get pendingSave => _inFlightSave ?? Future<void>.value();
 
-  /// How to finish closing once the state is written. Injected so a test can
-  /// observe it, and so this file need not decide the app's exit semantics.
-  final Future<void> Function() onClosed;
+  /// What a close of the window starts: the app's shutdown, which saves the
+  /// window state as one of its steps and then ends the app.
+  final Future<void> Function() onCloseRequested;
 
-  WindowStateService(this._prefs, {Future<void> Function()? onClosed})
-    : onClosed = onClosed ?? windowManager.destroy;
+  WindowStateService(this._prefs, {required this.onCloseRequested});
 
   /// Load the last-saved window state. Returns `(null, false)` when nothing
   /// has been saved yet.
@@ -188,6 +190,34 @@ class WindowStateService with WindowListener {
     return Rect.fromLTWH(left, top, width, height);
   }
 
+  /// A display's work area, as screen_retriever reports it, expressed in the
+  /// units window_manager uses for the window's bounds — so the two can be
+  /// compared at all.
+  ///
+  /// On Windows they are not the same units on a desktop that mixes display
+  /// scales: screen_retriever divides each display's rectangle by *that
+  /// display's* scale, while window_manager divides the window's by the scale
+  /// of the display the window is on. Multiplying the area back out to
+  /// physical pixels and dividing by the window's scale puts both in the
+  /// window's space — the frame `WindowFitService` already compares in.
+  ///
+  /// macOS has one global coordinate space of points across every display,
+  /// so there `main` passes 1 for both scales and the area is unchanged.
+  static Rect toWindowSpace(
+    Rect area, {
+    required double displayScale,
+    required double windowScale,
+  }) {
+    if (displayScale <= 0 || windowScale <= 0) return area;
+    final factor = displayScale / windowScale;
+    return Rect.fromLTWH(
+      area.left * factor,
+      area.top * factor,
+      area.width * factor,
+      area.height * factor,
+    );
+  }
+
   /// [loadState], with saved bounds discarded when they no longer land on a
   /// connected display.
   ///
@@ -210,6 +240,11 @@ class WindowStateService with WindowListener {
   /// overwrite the last "restored" bounds while the window is maximized, so
   /// unmaximizing on next launch returns to the user's preferred size.
   Future<void> saveNow() async {
+    if (_closing) return;
+    await _save();
+  }
+
+  Future<void> _save() async {
     if (await windowManager.isFullScreen()) return;
 
     final maximized = await windowManager.isMaximized();
@@ -230,8 +265,19 @@ class WindowStateService with WindowListener {
   }
 
   void _debouncedSave() {
+    if (_closing) return;
     _saveDebouncer?.cancel();
-    _saveDebouncer = Timer(const Duration(milliseconds: 500), saveNow);
+    _saveDebouncer = Timer(const Duration(milliseconds: 500), _saveQuietly);
+  }
+
+  /// [saveNow] for the event handlers, which have nobody to report a failure
+  /// to: a window position that did not save is a log line, not a crash.
+  void _saveQuietly() {
+    unawaited(
+      saveNow().catchError((Object e) {
+        AppLog.w('[WindowState] could not save the window state: $e');
+      }),
+    );
   }
 
   // ── Why so many hooks ──────────────────────────────────────────────────
@@ -272,71 +318,34 @@ class WindowStateService with WindowListener {
   void onWindowBlur() => _debouncedSave();
 
   @override
-  void onWindowMaximize() => saveNow();
+  void onWindowMaximize() => _saveQuietly();
 
   @override
-  void onWindowUnmaximize() => saveNow();
+  void onWindowUnmaximize() => _saveQuietly();
 
-  /// Save synchronously-ish, then let the window go.
+  /// The window was asked to close: by its close button, ⌘W, Alt+F4 or the
+  /// taskbar.
   ///
-  /// This only works because `main` sets `setPreventClose(true)`. Without it
-  /// the native side emits `close` and destroys the window in the same
-  /// message, so this method's first `await` never resumes and nothing is
-  /// ever written — which is why a change made just before quitting was lost
-  /// even when it had fired a resize event.
-  ///
-  /// [onClosed] performs the actual teardown. It runs whatever happens: a
-  /// failed or slow save must never leave a window the user cannot close.
+  /// This only reaches us because `main` sets `setPreventClose(true)`; the
+  /// close itself — saving included — is the shutdown's job from here, so
+  /// that every way of leaving the app runs the same teardown once.
   @override
   void onWindowClose() {
-    unawaited(_saveThenClose());
+    unawaited(onCloseRequested());
   }
 
-  Future<void> _saveThenClose() async {
+  /// The close-time save. Called once, by the shutdown, after the window has
+  /// been hidden: bounds come from `GetWindowRect` / the window's frame and
+  /// maximized from `IsZoomed` / `isZoomed`, none of which care whether the
+  /// window is visible.
+  ///
+  /// Never throws. The shutdown bounds how long it waits, and hands
+  /// [pendingSave] a last moment before the process ends.
+  Future<void> saveForClose() {
+    _closing = true;
     _saveDebouncer?.cancel();
-
-    // Acknowledge the click before doing anything that can take time.
-    //
-    // Everything after this line — the save, killing the sidecar, tearing down
-    // providers, and on Windows the whole of native engine teardown — happens
-    // with the window still on screen and no longer repainting, because
-    // closing is what stopped the frames. `windowManager.destroy()` on Windows
-    // is only `PostQuitMessage(0)`; the HWND is not touched until after every
-    // destructor has run. That is the entire "it freezes for fifteen seconds
-    // when I close it" report. One `ShowWindow(SW_HIDE)` moves all of it out
-    // of sight, and it does not disturb the save: bounds come from
-    // `GetWindowRect` and maximized from `IsZoomed`, neither of which cares
-    // whether the window is visible.
-    try {
-      await windowManager.hide().timeout(const Duration(milliseconds: 250));
-    } catch (_) {
-      // A hide that will not answer is not a reason to stop closing.
-    }
-
-    // Held in a field so [pendingSave] can hand it to the shutdown if the
-    // timeout below gives up on it. `catchError` first, so the future we stop
-    // listening to cannot resurface as an unhandled async error.
-    final save = saveNow().catchError((Object e) {
+    return _inFlightSave ??= _save().catchError((Object e) {
       AppLog.w('[WindowState] close-time save failed: $e');
     });
-    _inFlightSave = save;
-
-    try {
-      await save.timeout(closeSaveTimeout);
-    } on TimeoutException {
-      // Disk busy, prefs locked, a window_manager call that never answered —
-      // none of it is a reason to trap the user in the app. The write is still
-      // running; the shutdown gives it a little longer before exiting.
-      AppLog.w(
-        '[WindowState] close-time save overran '
-        '${closeSaveTimeout.inSeconds}s — carrying on',
-      );
-    } finally {
-      await onClosed();
-    }
-  }
-
-  void dispose() {
-    _saveDebouncer?.cancel();
   }
 }

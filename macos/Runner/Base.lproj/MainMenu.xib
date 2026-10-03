@@ -66,6 +66,18 @@
                         </items>
                     </menu>
                 </menuItem>
+                <menuItem title="File" id="Fl3-Mn-u7A">
+                    <modifierMask key="keyEquivalentModifierMask"/>
+                    <menu key="submenu" title="File" id="Fl3-Sb-m8B">
+                        <items>
+                            <menuItem title="Close Window" keyEquivalent="w" id="Fl3-Cw-k9C">
+                                <connections>
+                                    <action selector="performClose:" target="-1" id="Fl3-Pc-a1D"/>
+                                </connections>
+                            </menuItem>
+                        </items>
+                    </menu>
+                </menuItem>
                 <menuItem title="Edit" id="5QF-Oa-p0T">
                     <modifierMask key="keyEquivalentModifierMask"/>
                     <menu key="submenu" title="Edit" id="W48-6f-4Dl">

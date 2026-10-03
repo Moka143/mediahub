@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
+import '../../design/app_typography.dart';
+import 'hub_pressable.dart';
 
 /// Compact search pill used in the Movies / TV Shows browse filter rows.
 ///
@@ -15,9 +17,14 @@ class BrowseSearchPill extends StatelessWidget {
     required this.onChanged,
     this.hint = 'Search…',
     this.width = 220,
+    this.focusNode,
   });
 
   final TextEditingController controller;
+
+  /// Lets the owner keep focus and caret across rebuilds that would
+  /// otherwise recreate the field (the Transfers screen needs this).
+  final FocusNode? focusNode;
   final ValueChanged<String> onChanged;
   final String hint;
 
@@ -31,7 +38,7 @@ class BrowseSearchPill extends StatelessWidget {
       width: width,
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.sm,
-        vertical: 4,
+        vertical: AppSpacing.xs,
       ),
       decoration: BoxDecoration(
         color: AppColors.bgSurface,
@@ -45,9 +52,18 @@ class BrowseSearchPill extends StatelessWidget {
           Expanded(
             child: TextField(
               controller: controller,
+              focusNode: focusNode,
               onChanged: onChanged,
-              cursorColor: AppColors.seedColor,
-              style: const TextStyle(fontSize: 12, color: AppColors.fg),
+              cursorColor: AppColors.accent,
+              // Height and tracking are the ones the field inherited from the
+              // theme's body style, spelled out: the line height is what sets
+              // the pill's height.
+              style: AppType.ui(
+                size: AppType.sizeCaption,
+                color: AppColors.fg,
+                height: 1.5,
+                letterSpacing: 0.5,
+              ),
               decoration: InputDecoration(
                 isDense: true,
                 contentPadding: EdgeInsets.zero,
@@ -55,20 +71,28 @@ class BrowseSearchPill extends StatelessWidget {
                 enabledBorder: InputBorder.none,
                 focusedBorder: InputBorder.none,
                 hintText: hint,
-                hintStyle: const TextStyle(fontSize: 12, color: AppColors.fg3),
+                hintStyle: AppType.ui(
+                  size: AppType.sizeCaption,
+                  color: AppColors.fg2,
+                  height: 1.5,
+                  letterSpacing: 0.5,
+                ),
                 filled: false,
               ),
             ),
           ),
           if (controller.text.isNotEmpty)
-            GestureDetector(
+            HubPressable(
+              tooltip: 'Clear search',
               onTap: () {
                 controller.clear();
                 onChanged('');
               },
-              behavior: HitTestBehavior.opaque,
-              child: const Padding(
-                padding: EdgeInsets.only(left: 4),
+              // 24×24 hit target around a 12px glyph — the bare icon was
+              // about 16×12 and easy to miss.
+              child: const SizedBox(
+                width: 24,
+                height: 24,
                 child: Icon(
                   Icons.close_rounded,
                   size: 12,

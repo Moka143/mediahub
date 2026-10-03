@@ -329,43 +329,6 @@ void main() {
     });
   });
 
-  group('transferInfoFromStats', () {
-    // Captured from a live rqbit 9.0.1 `GET /stats`. The shape is asymmetric
-    // and the asymmetry is the trap: speeds at the root, byte totals nested
-    // under `counters`. Reading the totals from the root returns zero with no
-    // error, so the session looks like it has transferred nothing forever.
-    const live = {
-      'counters': {
-        'fetched_bytes': 132759415,
-        'uploaded_bytes': 4096,
-        'blocked_incoming': 0,
-        'blocked_outgoing': 0,
-      },
-      'download_speed': {'mbps': 5.5, 'human_readable': '5.50 MiB/s'},
-      'upload_speed': {'mbps': 0.0, 'human_readable': '0.00 MiB/s'},
-      'peers': {'live': 0, 'seen': 677},
-      'uptime_seconds': 52,
-    };
-
-    test('reads byte totals from counters, not the root', () {
-      final info = RqbitEngine.transferInfoFromStats(live);
-      expect(info['dl_info_data'], 132759415);
-      expect(info['up_info_data'], 4096);
-    });
-
-    test('reads speeds from the root and converts to bytes/s', () {
-      final info = RqbitEngine.transferInfoFromStats(live);
-      expect(info['dl_info_speed'], (5.5 * 1024 * 1024).round());
-      expect(info['up_info_speed'], 0);
-    });
-
-    test('a payload with no counters yields zeros, not a crash', () {
-      final info = RqbitEngine.transferInfoFromStats(const {});
-      expect(info['dl_info_data'], 0);
-      expect(info['up_info_speed'], 0);
-    });
-  });
-
   group('capabilities', () {
     late RqbitEngine engine;
     setUp(() => engine = RqbitEngine(port: 1));
@@ -375,7 +338,9 @@ void main() {
       final caps = engine.capabilities;
       expect(caps.trackers, isFalse, reason: 'no tracker table in the API');
       expect(caps.deltaSync, isFalse);
-      expect(caps.globalPreferences, isFalse);
+      expect(caps.rankedFilePriorities, isFalse, reason: 'include/exclude');
+      expect(caps.seedsAndPeersSplit, isFalse);
+      expect(caps.peerDetails, isFalse);
       expect(caps.liveSpeedLimits, isFalse, reason: 'they are launch flags');
       expect(caps.pieceLevelControl, isFalse);
       expect(caps.maintenanceActions, isFalse);

@@ -3,27 +3,24 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../app.dart';
 import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
+import '../models/local_media_file.dart';
 import '../models/movie.dart';
 import '../models/torrentio_stream.dart';
-import '../providers/connection_provider.dart' as connection_provider;
 import '../providers/favorites_provider.dart';
 import '../providers/local_media_provider.dart';
 import '../providers/movies_provider.dart';
-import '../providers/navigation_provider.dart';
 import '../providers/torrentio_provider.dart';
 import '../providers/watch_progress_provider.dart';
 import '../providers/watchlist_provider.dart';
-import '../services/library_actions.dart';
+import '../utils/error_messages.dart';
 import '../utils/feedback_utils.dart';
-import '../widgets/common/floating_header_action.dart';
-import '../widgets/common/loading_state.dart';
 import '../widgets/details/detail_shell.dart';
-import '../widgets/details/show_detail_sections.dart';
-import '../widgets/editorial/serif_title.dart';
-import '../widgets/media/cast_row.dart';
+import '../widgets/details/details_page.dart';
+import '../widgets/editorial/editorial.dart';
+import '../widgets/media/hue_backdrop.dart';
+import '../widgets/media/local_playback.dart';
 import '../widgets/media/media_poster_card.dart';
 import '../widgets/mediahub_backdrop_hero.dart';
 import '../widgets/mediahub_torrent_drawer.dart';
@@ -31,13 +28,13 @@ import '_details_playback_controller.dart';
 import 'settings_screen.dart';
 import 'video_player_screen.dart';
 
-/// Screen for displaying movie details
+/// A movie: the hero with Play (when it is on disk) and its sources,
+/// overview, cast and similar movies.
 class MovieDetailsScreen extends ConsumerStatefulWidget {
   final Movie movie;
 
-  /// When true, the torrent picker fires automatically as soon as the
-  /// full movie record (with imdbId) resolves. Used by the browse
-  /// spotlight's "Get torrent" CTA.
+  /// When true, the source picker opens as soon as the full movie record
+  /// (with its IMDb id) has loaded. Used by the browse spotlight's "Stream".
   final bool autoOpenTorrentPicker;
 
   const MovieDetailsScreen({
@@ -52,12 +49,9 @@ class MovieDetailsScreen extends ConsumerStatefulWidget {
 
 class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
     with DetailsPlaybackController<MovieDetailsScreen> {
-  bool _isLoadingStreams = false;
+  bool _loadingSources = false;
   bool _isStreaming = false;
   bool _autoPickerFired = false;
-  // Streaming overlay + subscription lifecycle (streamingOverlay,
-  // streamingOverlayData, monitorSubscription) lives on
-  // DetailsPlaybackController; tear down via disposePlaybackController().
 
   @override
   void dispose() {
@@ -65,162 +59,98 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
     super.dispose();
   }
 
-  Future<void> _onDownloadTap(Movie movieDetails) async {
-    if (movieDetails.imdbId == null) {
+  void _openSettings() => unawaited(
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const SettingsScreen())),
+  );
+
+  /// The copy on disk is matched on title *and* year: "Dune" (2021) must not
+  /// play `Dune.1984.mkv`.
+  static ({String title, int? year}) _onDisk(Movie movie) =>
+      (title: movie.title, year: int.tryParse(movie.year ?? ''));
+
+  /// Look up the movie's sources and open the picker.
+  Future<void> _openSources(Movie movie) async {
+    final imdbId = movie.imdbId;
+    if (imdbId == null) {
       AppSnackBar.showError(
         context,
-        message: 'IMDB ID not available for this movie',
+        message:
+            "Sources can't be looked up for this movie — TMDB doesn't link "
+            'it to IMDb.',
+      );
+      return;
+    }
+    if (_loadingSources) return;
+    setState(() => _loadingSources = true);
+
+    // Straight to the service: the cached provider retries a failure for
+    // ~40 s before reporting it, which read as a button that did nothing.
+    final torrentio = ref.read(torrentioApiServiceProvider);
+    List<TorrentioStream>? streams;
+    Object? failure;
+    try {
+      streams = (await torrentio.getMovieStreams(imdbId)).streams;
+    } catch (e) {
+      failure = e;
+    }
+    if (!mounted) return;
+    setState(() => _loadingSources = false);
+
+    if (failure != null) {
+      AppSnackBar.showError(
+        context,
+        message: friendlyErrorMessage(failure, subject: 'sources'),
+      );
+      return;
+    }
+    if (streams == null || streams.isEmpty) {
+      AppSnackBar.showInfo(
+        context,
+        message: 'No sources found for this movie yet.',
       );
       return;
     }
 
-    setState(() => _isLoadingStreams = true);
-
-    try {
-      final response = await ref.read(
-        movieStreamsProvider(movieDetails.imdbId!).future,
-      );
-
-      if (response.streams.isEmpty) {
-        if (mounted) {
-          AppSnackBar.showInfo(
-            context,
-            message: 'No streams available for this movie',
-          );
-        }
-        return;
-      }
-
-      if (mounted) {
-        await MediaHubTorrentDrawer.show(
-          context: context,
-          title: movieDetails.title,
-          subtitle: movieDetails.year,
-          streams: response.streams,
-          onSelect: (stream, isStreaming) =>
-              _downloadStream(stream, movieDetails, isStreaming: isStreaming),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        AppSnackBar.showError(context, message: 'Failed to load streams: $e');
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoadingStreams = false);
-      }
-    }
+    await MediaHubTorrentDrawer.show(
+      context: context,
+      title: movie.title,
+      subtitle: movie.year,
+      streams: streams,
+      onSelect: (stream, isStreaming) {
+        if (mounted) unawaited(_play(stream, movie, isStreaming: isStreaming));
+      },
+    );
   }
 
-  Future<void> _downloadStream(
+  /// What the picker's choice does — stream or download — through the flow
+  /// the show page shares ([startDetailsDownload]).
+  Future<void> _play(
     TorrentioStream stream,
     Movie movie, {
-    bool isStreaming = false,
-  }) async {
-    final connectionState = ref.read(connection_provider.connectionProvider);
-
-    // Use the global ScaffoldMessenger
-    final messenger = rootScaffoldMessengerKey.currentState;
-    if (messenger == null) return;
-
-    try {
-      if (!connectionState.isConnected) {
-        AppSnackBar.showOn(
-          messenger,
-          message: 'Not connected to the torrent engine',
-          kind: AppSnackBarKind.warning,
-        );
-        return;
-      }
-
-      // Store ref for the SnackBar action callback
-      final containerRef = ProviderScope.containerOf(context);
-
-      // Hide any existing SnackBar first
-      messenger.hideCurrentSnackBar();
-
-      if (isStreaming) {
-        // Local-first: skip the streaming dance entirely if the movie is
-        // already on disk. qBit doesn't always know about a previously-
-        // downloaded file that was removed from its session, so re-adding
-        // the magnet would either start a fresh download or a full
-        // re-hash-check — and the "Preparing" modal would hang waiting
-        // for the buffer threshold either way.
-        final localFile = ref.read(movieLocalFileProvider(movie.title));
-        if (localFile != null && await isFileCompleteOnDisk(ref, localFile)) {
-          rootNavigatorKey.currentState?.push(
-            MaterialPageRoute(
-              builder: (_) =>
-                  VideoPlayerScreen(file: localFile, movieImdbId: movie.imdbId),
-            ),
-          );
-          return;
-        }
-
-        await _startStreamingSession(stream, movie);
-      } else {
-        // Regular download
-        final apiService = ref.read(connection_provider.torrentEngineProvider);
-        final success = await apiService.addTorrent(
-          magnetLink: stream.magnetUri,
-          sequentialDownload: false,
-          firstLastPiecePrio: false,
-        );
-        if (!success) {
-          AppSnackBar.showOn(
-            messenger,
-            message: 'Failed to start download',
-            kind: AppSnackBarKind.error,
-          );
-          return;
-        }
-        AppSnackBar.showOn(
-          messenger,
-          message: 'Started downloading "${movie.title}"',
-          kind: AppSnackBarKind.success,
-          actionLabel: 'View Downloads',
-          onAction: () {
-            messenger.hideCurrentSnackBar();
-            containerRef.read(currentTabIndexProvider.notifier).set(1);
-            rootNavigatorKey.currentState?.popUntil((route) => route.isFirst);
-          },
-        );
-      }
-    } catch (e) {
-      AppSnackBar.showOn(
-        messenger,
-        message: 'Failed to start download: $e',
-        kind: AppSnackBarKind.error,
-      );
-    }
-  }
-
-  /// Start a streaming session with the floating progress overlay.
-  ///
-  /// Everything below the [DetailsStreamTarget] is shared with
-  /// `show_details_screen.dart` via [DetailsPlaybackController].
-  Future<void> _startStreamingSession(
-    TorrentioStream stream,
-    Movie movie,
-  ) async {
-    setState(() => _isStreaming = true);
-    await startDetailsStream(
+    required bool isStreaming,
+  }) {
+    // The Play button stands in for the copy on disk while a stream of it
+    // starts.
+    if (isStreaming) setState(() => _isStreaming = true);
+    return startDetailsDownload(
       stream: stream,
+      isStreaming: isStreaming,
+      // Nothing has checked the copy on disk on the way here: a finished
+      // one plays instead of re-adding the torrent.
+      localFile: ref.read(localMovieFileProvider(_onDisk(movie))),
       movieImdbId: movie.imdbId,
       target: DetailsStreamTarget(
         label: '"${movie.title}"',
         onSettled: () {
           if (mounted) setState(() => _isStreaming = false);
         },
-        openPlayer: (file, session) => VideoPlayerScreen(
+        onTryAnotherSource: () => unawaited(_openSources(movie)),
+        openPlayer: (file, session) => VideoPlayerScreen.fromSession(
           file: file,
+          session: session,
           movieImdbId: movie.imdbId,
-          isStreaming: session != null,
-          streamingTorrentHash: session?.torrentHash,
-          streamingFileIndex: session?.selectedFileIndex,
-          streamingProxyUrl: session?.streamUrl,
-          initialBufferedRatio: session?.bufferProgress,
-          streamingSessionId: session?.id,
         ),
       ),
     );
@@ -228,352 +158,171 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
 
   @override
   Widget build(BuildContext context) {
-    final movieDetails = ref.watch(movieDetailsProvider(widget.movie.id));
+    final movieAsync = ref.watch(movieDetailsProvider(widget.movie.id));
 
-    // When opened from the browse spotlight, fire the torrent picker
-    // automatically as soon as the full movie record (with imdbId) lands.
-    if (widget.autoOpenTorrentPicker && !_autoPickerFired) {
-      movieDetails.whenData((m) {
-        if (_autoPickerFired) return;
-        _autoPickerFired = true;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _onDownloadTap(m);
-        });
+    // From the browse spotlight: open the picker once the full record —
+    // with its IMDb id — is in.
+    final loaded = movieAsync.value;
+    if (widget.autoOpenTorrentPicker && !_autoPickerFired && loaded != null) {
+      _autoPickerFired = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_openSources(loaded));
       });
     }
 
-    return Scaffold(
-      body: movieDetails.when(
-        data: (movie) => _buildContent(movie),
-        loading: () => const LoadingIndicator(),
-        error: (error, _) => Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.error_outline,
-                size: 64,
-                color: Theme.of(context).colorScheme.error,
-              ),
-              SizedBox(height: AppSpacing.md),
-              Text('Failed to load movie details'),
-              SizedBox(height: AppSpacing.md),
-              FilledButton(
-                onPressed: () =>
-                    ref.invalidate(movieDetailsProvider(widget.movie.id)),
-                child: const Text('Retry'),
-              ),
-            ],
+    return DetailsPageScaffold<Movie>(
+      value: movieAsync,
+      subject: 'this movie',
+      onRetry: () => ref.invalidate(movieDetailsProvider(widget.movie.id)),
+      onOpenSettings: _openSettings,
+      headerActions: (movie) => Consumer(
+        builder: (context, ref, _) => DetailsHeaderActions(
+          isFavorite: ref.watch(isMovieFavoriteProvider(movie.id)),
+          onToggleFavorite: () => unawaited(
+            ref
+                .read(favoritesProvider.notifier)
+                .toggleMovieFavorite(movie.id, movie: movie),
           ),
+          isOnWatchlist: ref.watch(isMovieOnWatchlistProvider(movie.id)),
+          onToggleWatchlist: () => unawaited(
+            ref.read(watchlistProvider.notifier).toggleMovie(movie.id),
+          ),
+          onOpenSettings: _openSettings,
         ),
       ),
+      builder: (context, movie) => _content(movie),
     );
   }
 
-  Widget _buildContent(Movie movie) {
-    final similarMovies = ref.watch(similarMoviesProvider(movie.id));
-    // Don't show as "in library" while actively streaming
+  Widget _content(Movie movie) {
+    final similar =
+        ref.watch(similarMoviesProvider(movie.id)).value ?? const <Movie>[];
+    // Not "on disk" while a stream of it is starting.
     final localFile = _isStreaming
         ? null
-        : ref.watch(movieLocalFileProvider(movie.title));
-
-    // Watched flag — surfaced as a green "WATCHED" pill next to the
-    // runtime / rating row so the user knows at-a-glance that they've
-    // seen this movie, even when it's not currently downloaded.
+        : ref.watch(localMovieFileProvider(_onDisk(movie)));
     final isWatched = ref.watch(isMovieWatchedProvider(movie.id));
+    final rating = ratingLabel(movie.voteAverage, voteCount: movie.voteCount);
 
-    return Stack(
-      children: [
-        CustomScrollView(
-          slivers: [
-            // Cinematic MediaHub backdrop hero — replaces the previous
-            // SliverAppBar + duplicated poster/title row. Provides full-
-            // bleed backdrop, big display title, mono metadata pills, and
-            // the primary Get-torrent CTA.
-            SliverToBoxAdapter(
-              child: MediaHubBackdropHero(
-                title: movie.title,
-                year: movie.year,
-                posterUrl: movie.posterUrl,
-                backdropUrl: movie.backdropUrl,
-                fallbackHue: (movie.id * 53 % 360).toDouble(),
-                description:
-                    (movie.tagline != null && movie.tagline!.isNotEmpty)
-                    ? movie.tagline
-                    : movie.overview,
-                metaPills: [
-                  if (isWatched)
-                    const MediaHubMetaPill(
-                      label: 'WATCHED',
-                      color: Color(0xFF10B981),
-                      icon: Icons.check_circle_rounded,
-                    ),
-                  if (movie.runtimeFormatted != null)
-                    MediaHubMetaPill(
-                      label: movie.runtimeFormatted!,
-                      color: AppColors.fg1,
-                    ),
-                  if (movie.voteAverage > 0)
-                    MediaHubMetaPill(
-                      label: '★ ${movie.voteAverage.toStringAsFixed(1)}',
-                      color: getRatingColor(movie.voteAverage),
-                    ),
-                  ...movie.genres
-                      .take(3)
-                      .map(
-                        (g) => MediaHubMetaPill(
-                          label: g,
-                          color: AppColors.accentPrimary,
-                        ),
-                      ),
-                ],
-                primaryAction: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (localFile != null) ...[
-                      FilledButton.icon(
-                        onPressed: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (context) => VideoPlayerScreen(
-                                file: localFile,
-                                movieImdbId: movie.imdbId,
-                                startPosition: localFile.hasProgress
-                                    ? localFile.progress?.position
-                                    : null,
-                              ),
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.play_arrow_rounded),
-                        label: Text(
-                          localFile.hasProgress && !localFile.isWatched
-                              ? 'Continue'
-                              : 'Resume',
-                        ),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: Colors.black,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: AppSpacing.xl,
-                            vertical: AppSpacing.md,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.sm),
-                    ],
-                    FilledButton.icon(
-                      onPressed: _isLoadingStreams
-                          ? null
-                          : () => _onDownloadTap(movie),
-                      icon: _isLoadingStreams
-                          ? const SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Icon(Icons.download_rounded, size: 16),
-                      label: Text(_isLoadingStreams ? 'Loading…' : 'Get'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppColors.seedColor,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.xl,
-                          vertical: AppSpacing.md,
-                        ),
-                      ),
-                    ),
-                    if (bestTrailer(movie.videos) != null) ...[
-                      const SizedBox(width: AppSpacing.sm),
-                      TrailerButton(videos: movie.videos),
-                    ],
-                  ],
+    return CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(
+          child: MediaHubBackdropHero(
+            title: movie.title,
+            year: movie.year,
+            posterUrl: movie.posterUrl,
+            backdropUrl: movie.backdropUrl,
+            fallbackHue: hueForId(movie.id),
+            description: (movie.tagline != null && movie.tagline!.isNotEmpty)
+                ? movie.tagline
+                : movie.overview,
+            metaPills: [
+              if (isWatched)
+                const MediaHubMetaPill(
+                  label: 'Watched',
+                  color: AppColors.ok,
+                  icon: Icons.check_circle_rounded,
                 ),
-              ),
-            ),
-
-            // Everything below the hero, compact.
-            //
-            // Overview, then cast behind a fold, then suggestions. The hero
-            // already answers "what is this and do I want it"; the rest is
-            // reference, and reference should be reachable without filling
-            // three screens of scroll on the way past it.
-            if (movie.overview != null && movie.overview!.isNotEmpty)
-              SliverToBoxAdapter(
-                child: Align(
-                  alignment: Alignment.topLeft,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 1080),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(
-                        AppSpacing.detailPadding,
-                        AppSpacing.xl,
-                        AppSpacing.detailPadding,
-                        0,
-                      ),
-                      child: InfoSection(
-                        title: 'Overview',
-                        child: Text(
-                          movie.overview!,
-                          style: const TextStyle(
-                            color: AppColors.fg1,
-                            fontSize: 14,
-                            height: 1.6,
-                          ),
-                        ),
-                      ),
-                    ),
+              if (movie.runtimeFormatted != null)
+                MediaHubMetaPill(
+                  label: movie.runtimeFormatted!,
+                  color: AppColors.fg1,
+                ),
+              if (rating != null)
+                MediaHubMetaPill(
+                  label: rating,
+                  color: getRatingColor(movie.voteAverage),
+                ),
+              ...movie.genres
+                  .take(3)
+                  .map(
+                    (g) => MediaHubMetaPill(label: g, color: AppColors.accent),
                   ),
-                ),
-              ),
-
-            // Cast — folded away by default.
-            if (movie.cast.isNotEmpty)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.only(top: AppSpacing.md),
-                  child: FoldableSection(
-                    title: 'Cast',
-                    count:
-                        '${movie.cast.length > 12 ? '12+' : movie.cast.length} '
-                        'CREDITS',
-                    child: CastRow(cast: movie.cast, showHeader: false),
-                  ),
-                ),
-              ),
-
-            // Suggestions — peripheral by design: dimmed until pointed at.
-            similarMovies.maybeWhen(
-              data: (movies) => movies.isEmpty
-                  ? const SliverToBoxAdapter(child: SizedBox.shrink())
-                  : SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: AppSpacing.lg),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Padding(
-                              padding: EdgeInsets.fromLTRB(
-                                AppSpacing.detailPadding,
-                                0,
-                                AppSpacing.detailPadding,
-                                AppSpacing.md,
-                              ),
-                              child: SerifTitle(
-                                'More like this',
-                                size: 22,
-                                height: 1.0,
-                              ),
-                            ),
-                            HoverScrollRow(
-                              height: 196,
-                              itemCount: movies.length,
-                              itemBuilder: (context, index) {
-                                final similar = movies[index];
-                                return MediaPosterCard(
-                                  title: similar.title,
-                                  width: 124,
-                                  posterAsync: AsyncValue.data(
-                                    similar.posterUrl,
-                                  ),
-                                  titleStyle: CardTitleStyle.overlay,
-                                  overlayYear: similar.year,
-                                  overlayRating: similar.voteAverage > 0
-                                      ? '★ ${similar.voteAverage.toStringAsFixed(1)}'
-                                      : null,
-                                  overlayRatingTone: similar.voteAverage >= 8
-                                      ? AppColors.accent
-                                      : null,
-                                  onTap: () => Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) =>
-                                          MovieDetailsScreen(movie: similar),
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-              orElse: () => const SliverToBoxAdapter(child: SizedBox.shrink()),
-            ),
-
-            const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.xl)),
-          ],
-        ),
-        // Floating back button — overlaid in the top-left.
-        // Stays pinned regardless of scroll position.
-        Positioned(
-          top: AppSpacing.lg,
-          left: AppSpacing.xxl,
-          child: SafeArea(
-            child: FloatingHeaderAction(
-              icon: Icons.arrow_back_rounded,
-              tooltip: 'Back',
-              onPressed: () => Navigator.of(context).pop(),
-            ),
+            ],
+            primaryAction: _actions(movie, localFile),
           ),
         ),
-        // Floating top-right actions: favorite, watchlist, settings.
-        Positioned(
-          top: AppSpacing.lg,
-          right: AppSpacing.xxl,
-          child: SafeArea(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Consumer(
-                  builder: (context, ref, _) {
-                    final fav = ref.watch(isMovieFavoriteProvider(movie.id));
-                    return FloatingHeaderAction(
-                      icon: fav
-                          ? Icons.favorite_rounded
-                          : Icons.favorite_outline_rounded,
-                      iconColor: fav ? Colors.redAccent : Colors.white,
-                      tooltip: fav
-                          ? 'Remove from favorites'
-                          : 'Add to favorites',
-                      onPressed: () => ref
-                          .read(favoritesProvider.notifier)
-                          .toggleMovieFavorite(movie.id, movie: movie),
-                    );
-                  },
-                ),
-                const SizedBox(width: AppSpacing.xs),
-                Consumer(
-                  builder: (context, ref, _) {
-                    final wl = ref.watch(isMovieOnWatchlistProvider(movie.id));
-                    return FloatingHeaderAction(
-                      icon: wl
-                          ? Icons.bookmark_rounded
-                          : Icons.bookmark_outline_rounded,
-                      iconColor: wl ? Colors.amberAccent : Colors.white,
-                      tooltip: wl
-                          ? 'Remove from watchlist'
-                          : 'Add to watchlist',
-                      onPressed: () => ref
-                          .read(watchlistProvider.notifier)
-                          .toggleMovie(movie.id),
-                    );
-                  },
-                ),
-                const SizedBox(width: AppSpacing.xs),
-                FloatingHeaderAction(
-                  icon: Icons.settings_outlined,
-                  tooltip: 'Settings',
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const SettingsScreen()),
+        DetailsOverviewSliver(overview: movie.overview),
+        DetailsCastSliver(cast: movie.cast),
+        DetailsSimilarSliver(
+          itemCount: similar.length,
+          itemBuilder: (context, index) {
+            final other = similar[index];
+            return Consumer(
+              builder: (context, ref, _) => MediaPosterCard.movie(
+                other,
+                width: DetailsSimilarSliver.cardWidth,
+                isWatched: ref.watch(isMovieWatchedProvider(other.id)),
+                onTap: () => unawaited(
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => MovieDetailsScreen(movie: other),
+                    ),
                   ),
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         ),
+        const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.xl)),
       ],
+    );
+  }
+
+  /// Play (when the movie is on disk), its sources, and the trailer.
+  Widget _actions(Movie movie, LocalMediaFile? localFile) {
+    final sourcesLabel = _loadingSources
+        ? 'Finding sources…'
+        : (localFile == null ? 'Stream' : 'Sources');
+    return Wrap(
+      spacing: AppSpacing.sm,
+      runSpacing: AppSpacing.sm,
+      children: [
+        if (localFile != null) _playButton(movie, localFile),
+        EditorialButton(
+          label: sourcesLabel,
+          icon: localFile == null
+              ? Icons.play_arrow_rounded
+              : Icons.list_rounded,
+          kind: localFile == null
+              ? EditorialButtonKind.accent
+              : EditorialButtonKind.ghost,
+          large: true,
+          onPressed: _loadingSources
+              ? null
+              : () => unawaited(_openSources(movie)),
+        ),
+        if (bestTrailer(movie.videos) != null)
+          TrailerButton(videos: movie.videos),
+      ],
+    );
+  }
+
+  /// Play / Continue / Rewatch for the copy on disk.
+  ///
+  /// It said "Resume" for a file never opened, and for a finished one it
+  /// passed the saved position — 90%+ in — dropping the viewer into the
+  /// credits. A finished movie now starts from the top; one in progress
+  /// opens on the player's own resume prompt.
+  Widget _playButton(Movie movie, LocalMediaFile localFile) {
+    final watched = localFile.isWatched;
+    final inProgress = localFile.hasProgress && !watched;
+    final label = watched ? 'Rewatch' : (inProgress ? 'Continue' : 'Play');
+    return EditorialButton(
+      label: label,
+      icon: watched ? Icons.replay_rounded : Icons.play_arrow_rounded,
+      kind: EditorialButtonKind.accent,
+      large: true,
+      onPressed: () => unawaited(
+        openLocalFile(
+          context,
+          ref,
+          localFile,
+          // Zero skips the resume prompt; null lets the player offer it.
+          startPosition: watched ? Duration.zero : null,
+          movieImdbId: movie.imdbId,
+        ),
+      ),
     );
   }
 }

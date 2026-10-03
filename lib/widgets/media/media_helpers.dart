@@ -2,166 +2,43 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../design/app_theme.dart';
+import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
+import 'hue_backdrop.dart';
 
-// ============================================================================
-// Shared Media Helpers
-// ============================================================================
+/// Card surface shared by the poster cards.
+///
+/// The app is dark-only (app.dart pins the theme), so the light-theme shadow
+/// branch this used to carry could never run.
+BoxDecoration mediaCardDecoration() => BoxDecoration(
+  color: AppColors.bgSurface,
+  borderRadius: BorderRadius.circular(AppRadius.lg),
+  border: Border.all(color: AppColors.line),
+);
 
-/// Shared gradient placeholder for media thumbnails
-Widget buildMediaPlaceholder(
-  ThemeData theme, {
-  String? initial,
-  double iconSize = 40,
-}) {
-  return Container(
-    decoration: BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          theme.colorScheme.primaryContainer,
-          theme.colorScheme.secondaryContainer,
-        ],
-      ),
-    ),
-    child: Center(
-      child: initial != null
-          ? Text(
-              initial.toUpperCase(),
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: theme.colorScheme.secondary,
-                fontSize: iconSize * 0.45,
-              ),
-            )
-          : Icon(
-              Icons.movie_rounded,
-              size: iconSize,
-              color: theme.colorScheme.onPrimaryContainer.withValues(
-                alpha: 0.5,
-              ),
-            ),
-    ),
-  );
-}
+/// Decoded width for a poster thumbnail. A w500 TMDB poster decoded at full
+/// size costs ~1 MB of the image cache per card; a grid card is never wider
+/// than ~180 logical px, so twice that covers a 2× display.
+const int posterMemCacheWidth = 400;
 
-/// Shared card decoration used across watch screen components
-BoxDecoration mediaCardDecoration(
-  BuildContext context, {
-  bool includeShadow = true,
-}) {
-  final theme = Theme.of(context);
-  final appColors = context.appColors;
-  final isDark = theme.brightness == Brightness.dark;
-
-  return BoxDecoration(
-    color: appColors.cardBackground,
-    borderRadius: BorderRadius.circular(AppRadius.lg),
-    border: Border.all(
-      color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
-    ),
-    boxShadow: [
-      if (includeShadow && !isDark)
-        BoxShadow(
-          color: theme.colorScheme.shadow.withValues(alpha: 0.1),
-          blurRadius: 12,
-          offset: const Offset(0, 4),
-        ),
-    ],
-  );
-}
-
-/// Quality badge widget used across episode/file listings
-Widget buildQualityBadge(ThemeData theme, String quality) {
-  return Container(
-    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs, vertical: 1),
-    decoration: BoxDecoration(
-      color: theme.colorScheme.primary.withValues(alpha: 0.18),
-      borderRadius: BorderRadius.circular(AppRadius.xs),
-    ),
-    child: Text(
-      quality,
-      style: TextStyle(
-        fontSize: 10,
-        fontWeight: FontWeight.bold,
-        color: theme.colorScheme.primary,
-      ),
-    ),
-  );
-}
-
-/// Circular progress indicator with percentage text
-Widget buildCircularProgress(double progress, ThemeData theme) {
-  return SizedBox(
-    width: 40,
-    height: 40,
-    child: Stack(
-      alignment: Alignment.center,
-      children: [
-        CircularProgressIndicator(
-          value: progress,
-          strokeWidth: 3,
-          color: theme.colorScheme.primary,
-        ),
-        Text(
-          '${(progress * 100).toInt()}%',
-          style: const TextStyle(fontSize: 10),
-        ),
-      ],
-    ),
-  );
-}
-
-/// Poster image with loading/error states
+/// A poster image with a [HueBackdrop] while it loads, when it fails, and
+/// when there is none.
 Widget buildPosterImage({
-  required ThemeData theme,
-  AsyncValue<String?>? posterAsync,
-  String? fallbackInitial,
+  required AsyncValue<String?>? posterAsync,
+  required double hue,
+  IconData placeholderIcon = Icons.movie_rounded,
   double iconSize = 40,
 }) {
-  if (posterAsync == null) {
-    return buildMediaPlaceholder(
-      theme,
-      initial: fallbackInitial,
-      iconSize: iconSize,
-    );
-  }
+  Widget placeholder() =>
+      HueBackdrop(hue: hue, icon: placeholderIcon, iconSize: iconSize);
 
-  return posterAsync.when(
-    data: (posterUrl) {
-      if (posterUrl != null && posterUrl.isNotEmpty) {
-        return CachedNetworkImage(
-          imageUrl: posterUrl,
-          fit: BoxFit.cover,
-          placeholder: (_, _) => buildMediaPlaceholder(
-            theme,
-            initial: fallbackInitial,
-            iconSize: iconSize,
-          ),
-          errorWidget: (_, _, _) => buildMediaPlaceholder(
-            theme,
-            initial: fallbackInitial,
-            iconSize: iconSize,
-          ),
-        );
-      }
-      return buildMediaPlaceholder(
-        theme,
-        initial: fallbackInitial,
-        iconSize: iconSize,
-      );
-    },
-    loading: () => buildMediaPlaceholder(
-      theme,
-      initial: fallbackInitial,
-      iconSize: iconSize,
-    ),
-    error: (_, _) => buildMediaPlaceholder(
-      theme,
-      initial: fallbackInitial,
-      iconSize: iconSize,
-    ),
+  final url = posterAsync?.value;
+  if (url == null || url.isEmpty) return placeholder();
+  return CachedNetworkImage(
+    imageUrl: url,
+    fit: BoxFit.cover,
+    memCacheWidth: posterMemCacheWidth,
+    placeholder: (_, _) => placeholder(),
+    errorWidget: (_, _, _) => placeholder(),
   );
 }

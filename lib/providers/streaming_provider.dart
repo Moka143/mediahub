@@ -7,15 +7,14 @@ import '../models/torrentio_stream.dart';
 import '../services/streaming_service.dart';
 import 'connection_provider.dart';
 
-/// Provider for the streaming service
+/// The streaming service, bound to the current engine.
+///
+/// Rebuilt — ending every session it runs — only when the engine itself is
+/// replaced, which since the engine provider selects its settings means the
+/// engine kind or its address changed.
 final streamingServiceProvider = Provider<StreamingService>((ref) {
-  final qbtService = ref.watch(torrentEngineProvider);
-  final service = StreamingService(qbtService);
-
-  ref.onDispose(() {
-    service.dispose();
-  });
-
+  final service = StreamingService(ref.watch(torrentEngineProvider));
+  ref.onDispose(service.dispose);
   return service;
 });
 
@@ -47,9 +46,6 @@ class StreamingSessionsState {
 
   StreamingSession? get activeSession =>
       activeSessionId != null ? sessions[activeSessionId] : null;
-
-  List<StreamingSession> get activeSessions =>
-      sessions.values.where((s) => s.isActive).toList();
 }
 
 /// Notifier for managing streaming sessions
@@ -58,13 +54,13 @@ class StreamingSessionsNotifier extends Notifier<StreamingSessionsState> {
 
   @override
   StreamingSessionsState build() {
-    ref.onDispose(() {
-      _activeSubscription?.cancel();
-    });
+    ref.onDispose(() => unawaited(_activeSubscription?.cancel()));
     return const StreamingSessionsState();
   }
 
-  /// Start a new streaming session from a Torrentio stream.
+  /// Start a new streaming session from a Torrentio stream — the browse →
+  /// pick-a-source path. The one place a [TorrentioStream] becomes a
+  /// [StreamRequest].
   Future<StreamingSession?> startStreaming({
     required TorrentioStream stream,
     String? showImdbId,
@@ -111,7 +107,6 @@ class StreamingSessionsNotifier extends Notifier<StreamingSessionsState> {
   }) async {
     final streamingService = ref.read(streamingServiceProvider);
 
-    // Start the session
     final session = await streamingService.startStreamingRequest(
       request: request,
       showImdbId: showImdbId,
@@ -124,7 +119,11 @@ class StreamingSessionsNotifier extends Notifier<StreamingSessionsState> {
       allowSlowBuffer: allowSlowBuffer,
     );
 
-    // Add to state
+    // Cancelled while it was starting: the caller has already let it go.
+    if (!ref.mounted || session.state == StreamingState.cancelled) {
+      return session;
+    }
+
     final newSessions = Map<String, StreamingSession>.from(state.sessions);
     newSessions[session.id] = session;
 
@@ -138,6 +137,7 @@ class StreamingSessionsNotifier extends Notifier<StreamingSessionsState> {
       _activeSubscription = streamingService
           .getSessionStream(session.id)
           ?.listen((updatedSession) {
+            if (!ref.mounted) return;
             final updated = Map<String, StreamingSession>.from(state.sessions);
             updated[updatedSession.id] = updatedSession;
             state = state.copyWith(sessions: updated);
@@ -162,6 +162,7 @@ class StreamingSessionsNotifier extends Notifier<StreamingSessionsState> {
     }
 
     await ref.read(streamingServiceProvider).cancelSession(sessionId);
+    if (!ref.mounted) return;
 
     final newSessions = Map<String, StreamingSession>.from(state.sessions);
     newSessions.remove(sessionId);
@@ -175,9 +176,6 @@ class StreamingSessionsNotifier extends Notifier<StreamingSessionsState> {
   void clearActiveSession() {
     state = state.copyWith(clearActive: true);
   }
-
-  /// Get session by ID
-  StreamingSession? getSession(String sessionId) => state.sessions[sessionId];
 }
 
 /// Provider for streaming sessions notifier
@@ -191,37 +189,3 @@ final activeStreamingSessionProvider = Provider<StreamingSession?>((ref) {
   final state = ref.watch(streamingSessionsProvider);
   return state.activeSession;
 });
-
-/// Provider for all active streaming sessions
-final activeStreamingSessionsProvider = Provider<List<StreamingSession>>((ref) {
-  final state = ref.watch(streamingSessionsProvider);
-  return state.activeSessions;
-});
-
-/// Check if a specific torrent is currently streaming
-final isStreamingTorrentProvider = Provider.family<bool, String>((
-  ref,
-  infoHash,
-) {
-  final state = ref.watch(streamingSessionsProvider);
-  return state.sessions.values.any(
-    (s) =>
-        s.request.infoHash.toLowerCase() == infoHash.toLowerCase() &&
-        s.isActive,
-  );
-});
-
-/// Helper provider to get sorted streams for streaming (single-file first)
-final sortedStreamsForStreamingProvider =
-    Provider.family<List<TorrentioStream>, List<TorrentioStream>>((
-      ref,
-      streams,
-    ) {
-      return streams.sortForStreaming();
-    });
-
-/// Helper provider to get the best stream for streaming
-final bestStreamForStreamingProvider =
-    Provider.family<TorrentioStream?, List<TorrentioStream>>((ref, streams) {
-      return streams.getBestForStreaming();
-    });

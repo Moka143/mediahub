@@ -4,15 +4,61 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
+import '../../design/app_typography.dart';
 import '../../providers/player_provider.dart';
 import '../../services/playback_health_monitor.dart';
 import '../../utils/formatters.dart';
 
+/// [SeekBar] fed from the player.
+///
+/// The position, duration and buffer are watched here rather than by the
+/// controls overlay around it. mpv reports position about once a frame, and
+/// watching it at the top of the overlay rebuilt every control in the bar —
+/// even while they were faded out — to move one thumb.
+class PlayerSeekBar extends ConsumerWidget {
+  const PlayerSeekBar({
+    super.key,
+    this.streamingDownloadedRatio,
+    this.bufferedSpans = const [],
+  });
+
+  /// The file's download fraction while streaming, which overrides mpv's
+  /// demuxer cache for the buffered track. mpv's cache reflects what the
+  /// demuxer has read, which from a sparse torrent file may include
+  /// zero-region over-reads — useless as a seek hint.
+  final double? streamingDownloadedRatio;
+
+  /// Where the downloaded bytes are, from the torrent's piece map. Takes
+  /// precedence over [streamingDownloadedRatio] when non-empty.
+  final List<BufferedSpan> bufferedSpans;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final position = ref.watch(playbackPositionProvider).value ?? Duration.zero;
+    final duration = ref.watch(playbackDurationProvider).value ?? Duration.zero;
+    final buffered = ref.watch(playbackBufferProvider).value ?? Duration.zero;
+
+    final ratio = streamingDownloadedRatio;
+    final bufferedRatio = ratio != null
+        ? ratio.clamp(0.0, 1.0)
+        : duration.inMilliseconds > 0
+        ? (buffered.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0)
+        : 0.0;
+
+    return SeekBar(
+      position: position,
+      duration: duration,
+      bufferedRatio: bufferedRatio,
+      bufferedSpans: bufferedSpans,
+    );
+  }
+}
+
 /// Seek bar with a piece-accurate buffered track.
 ///
-/// Two things it has to get right, neither of which the earlier inline
-/// version did:
+/// Three things it has to get right, none of which the earlier versions did:
 ///
 /// **Seek once, on release.** `Slider.onChanged` fires continuously during a
 /// drag, and it used to call `seek()` on every one of those callbacks —
@@ -23,6 +69,13 @@ import '../../utils/formatters.dart';
 /// follows the pointer locally and exactly one seek is issued, on release.
 ///
 /// **Draw where the bytes are, not just how many.** See [BufferedSpan].
+///
+/// **Click where it is drawn.** The grey track and the buffered runs span the
+/// bar's full width, but a default [Slider] insets its own track by the
+/// thumb's overlay radius and maps clicks onto that narrower range. Clicking
+/// the visible end of a 0–90% buffered run on a wide bar seeked to 91% — a
+/// minute and more past the downloaded edge of a film, straight into a
+/// stall. The slider here has no padding, so its track is the bar.
 class SeekBar extends ConsumerStatefulWidget {
   const SeekBar({
     super.key,
@@ -55,6 +108,11 @@ class _SeekBarState extends ConsumerState<SeekBar> {
   /// Stop waiting for the seek to land after this, so one that never
   /// completes doesn't pin the thumb to a stale target forever.
   static const Duration _seekSettleTimeout = Duration(seconds: 15);
+
+  static const double _barHeight = 24;
+  static const double _trackHeight = 4;
+  static const double _thumbRadius = 6;
+  static const double _overlayRadius = 12;
 
   /// Slider value while the pointer is down. Null when not dragging.
   double? _dragValue;
@@ -95,9 +153,11 @@ class _SeekBarState extends ConsumerState<SeekBar> {
     _pendingTimer = Timer(_seekSettleTimeout, () {
       if (mounted) setState(() => _pendingValue = null);
     });
-    ref
-        .read(playerServiceProvider)
-        .seek(Duration(milliseconds: (value * durationMs).round()));
+    unawaited(
+      ref
+          .read(playerServiceProvider)
+          .seek(Duration(milliseconds: (value * durationMs).round())),
+    );
   }
 
   @override
@@ -117,26 +177,30 @@ class _SeekBarState extends ConsumerState<SeekBar> {
     final spans = widget.bufferedSpans.isNotEmpty
         ? widget.bufferedSpans
         : [BufferedSpan(0, widget.bufferedRatio)];
+    final timeStyle = AppType.mono(
+      size: AppType.sizeCaption,
+      color: AppColors.onMedia,
+    );
 
     return Row(
       children: [
         Text(
           Formatters.formatPlaybackDuration(displayPosition),
-          style: const TextStyle(color: Colors.white, fontSize: 12),
+          style: timeStyle,
         ),
-        SizedBox(width: AppSpacing.sm),
+        const SizedBox(width: AppSpacing.sm),
         Expanded(
           child: SizedBox(
-            height: 24,
+            height: _barHeight,
             child: Stack(
               alignment: Alignment.center,
               children: [
                 // Inactive track (full width, darkened)
                 Container(
-                  height: 4,
+                  height: _trackHeight,
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.22),
-                    borderRadius: BorderRadius.circular(2),
+                    color: AppColors.onMedia.withAlpha(AppOpacity.medium),
+                    borderRadius: BorderRadius.circular(_trackHeight / 2),
                   ),
                 ),
                 // Buffered runs — lighter, behind the slider.
@@ -144,24 +208,26 @@ class _SeekBarState extends ConsumerState<SeekBar> {
                   child: CustomPaint(
                     painter: _BufferedTrackPainter(
                       spans: spans,
-                      color: Colors.white.withValues(alpha: 0.45),
+                      color: AppColors.onMedia.withValues(alpha: 0.45),
                     ),
                   ),
                 ),
-                // Slider — transparent tracks so the buffered layer shows
-                // through.
+                // Slider — transparent inactive track so the layers above
+                // show through, and no padding so its track is the same
+                // full width they are drawn across (see the class doc).
                 SliderTheme(
                   data: SliderTheme.of(context).copyWith(
-                    trackHeight: 4,
+                    trackHeight: _trackHeight,
+                    padding: EdgeInsets.zero,
                     thumbShape: const RoundSliderThumbShape(
-                      enabledThumbRadius: 6,
+                      enabledThumbRadius: _thumbRadius,
                     ),
                     overlayShape: const RoundSliderOverlayShape(
-                      overlayRadius: 12,
+                      overlayRadius: _overlayRadius,
                     ),
                     activeTrackColor: theme.colorScheme.primary,
                     inactiveTrackColor: Colors.transparent,
-                    thumbColor: Colors.white,
+                    thumbColor: AppColors.onMedia,
                   ),
                   child: Slider(
                     value: value,
@@ -177,10 +243,10 @@ class _SeekBarState extends ConsumerState<SeekBar> {
             ),
           ),
         ),
-        SizedBox(width: AppSpacing.sm),
+        const SizedBox(width: AppSpacing.sm),
         Text(
           Formatters.formatPlaybackDuration(widget.duration),
-          style: const TextStyle(color: Colors.white, fontSize: 12),
+          style: timeStyle,
         ),
       ],
     );
@@ -215,7 +281,7 @@ class _BufferedTrackPainter extends CustomPainter {
       canvas.drawRRect(
         RRect.fromRectAndRadius(
           Rect.fromLTWH(left, top, width, _trackHeight),
-          const Radius.circular(2),
+          const Radius.circular(_trackHeight / 2),
         ),
         paint,
       );

@@ -2,10 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
 import '../utils/formatters.dart';
+import 'editorial/editorial.dart';
 
 /// Data that can change while the overlay stays on screen.
+@immutable
 class StreamingOverlayData {
   final String title;
   final String? subtitle;
@@ -20,32 +23,34 @@ class StreamingOverlayData {
   });
 }
 
-/// A modern, floating streaming progress overlay.
+/// The floating card shown while a stream gets ready to play.
 ///
-/// When [dataNotifier] is provided the overlay rebuilds its text/progress
-/// in-place without replaying the entrance animation.
+/// Rebuilds its text and progress in place from [dataNotifier], without
+/// replaying the entrance animation.
+///
+/// It offers two distinct ways out because one ✕ meant two things. The ✕
+/// only hid the card: the torrent kept downloading and the player pushed
+/// itself on top of whatever the user had moved on to — or, if they had
+/// meant "stop", it played anyway. Now [onHide] keeps preparing in the
+/// background and [onCancel] stops.
 class StreamingProgressOverlay extends StatefulWidget {
-  final String title;
-  final String? subtitle;
-  final double? progress;
-  final bool isIndeterminate;
-  final bool showClose;
-  final VoidCallback? onClose;
-  final VoidCallback? onViewDownloads;
-  final Color? accentColor;
-  final ValueNotifier<StreamingOverlayData>? dataNotifier;
+  final ValueNotifier<StreamingOverlayData> dataNotifier;
+
+  /// Keep preparing out of sight; the player opens when it is ready.
+  final VoidCallback? onHide;
+
+  /// Stop preparing this stream.
+  final VoidCallback? onCancel;
+
+  /// Keep preparing and go to the Transfers screen.
+  final VoidCallback? onViewTransfers;
 
   const StreamingProgressOverlay({
     super.key,
-    required this.title,
-    this.subtitle,
-    this.progress,
-    this.isIndeterminate = true,
-    this.showClose = false,
-    this.onClose,
-    this.onViewDownloads,
-    this.accentColor,
-    this.dataNotifier,
+    required this.dataNotifier,
+    this.onHide,
+    this.onCancel,
+    this.onViewTransfers,
   });
 
   @override
@@ -55,9 +60,18 @@ class StreamingProgressOverlay extends StatefulWidget {
 
 class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
     with SingleTickerProviderStateMixin {
-  late AnimationController _animationController;
-  late Animation<double> _scaleAnimation;
-  late Animation<double> _opacityAnimation;
+  static const double _maxWidth = 360;
+  static const double _iconRingSize = 48;
+  static const double _spinnerSize = 36;
+  static const double _progressBarHeight = 6;
+
+  late final AnimationController _animationController;
+  late final Animation<double> _scaleAnimation;
+  late final Animation<double> _opacityAnimation;
+
+  /// Set once Hide or Cancel is pressed, so a second click during the exit
+  /// animation does not run the action twice.
+  bool _leaving = false;
 
   @override
   void initState() {
@@ -84,41 +98,19 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
     super.dispose();
   }
 
-  Future<void> _animateOut() async {
+  /// Play the exit animation, then [action]. Not run at all if the card is
+  /// taken down first — the session reaching a terminal state does that.
+  Future<void> _leaveThen(VoidCallback? action) async {
+    if (_leaving || action == null) return;
+    _leaving = true;
     await _animationController.reverse();
-    widget.onClose?.call();
+    if (mounted) action();
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final accentColor = widget.accentColor ?? theme.colorScheme.primary;
-
-    // Wrap content in ValueListenableBuilder when a notifier is provided so
-    // the text/progress updates in-place without replaying the entrance anim.
-    Widget content;
-    if (widget.dataNotifier != null) {
-      content = ValueListenableBuilder<StreamingOverlayData>(
-        valueListenable: widget.dataNotifier!,
-        builder: (context, data, _) => _buildContent(
-          theme,
-          accentColor,
-          title: data.title,
-          subtitle: data.subtitle,
-          progress: data.progress,
-          isIndeterminate: data.isIndeterminate,
-        ),
-      );
-    } else {
-      content = _buildContent(
-        theme,
-        accentColor,
-        title: widget.title,
-        subtitle: widget.subtitle,
-        progress: widget.progress,
-        isIndeterminate: widget.isIndeterminate,
-      );
-    }
+    final accentColor = theme.colorScheme.primary;
 
     return ScaleTransition(
       scale: _scaleAnimation,
@@ -127,22 +119,26 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
         child: Center(
           child: Container(
             margin: const EdgeInsets.all(AppSpacing.xl),
-            constraints: const BoxConstraints(maxWidth: 320),
+            constraints: const BoxConstraints(maxWidth: _maxWidth),
             decoration: BoxDecoration(
               color: theme.colorScheme.surface,
               borderRadius: BorderRadius.circular(AppRadius.lg),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.25),
-                  blurRadius: 24,
-                  offset: const Offset(0, 8),
+                  color: AppColors.shadow.withValues(alpha: 0.25),
+                  blurRadius: AppSpacing.xxl,
+                  offset: const Offset(0, AppSpacing.sm),
                 ),
               ],
               border: Border.all(
                 color: theme.colorScheme.outline.withValues(alpha: 0.1),
               ),
             ),
-            child: content,
+            child: ValueListenableBuilder<StreamingOverlayData>(
+              valueListenable: widget.dataNotifier,
+              builder: (context, data, _) =>
+                  _buildContent(theme, accentColor, data),
+            ),
           ),
         ),
       ),
@@ -151,27 +147,22 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
 
   Widget _buildContent(
     ThemeData theme,
-    Color accentColor, {
-    required String title,
-    String? subtitle,
-    double? progress,
-    required bool isIndeterminate,
-  }) {
+    Color accentColor,
+    StreamingOverlayData data,
+  ) {
+    final progress = data.progress;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Header with close button
         Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.lg,
-            AppSpacing.md,
-            AppSpacing.sm,
-            0,
+          padding: const EdgeInsets.only(
+            left: AppSpacing.lg,
+            top: AppSpacing.lg,
+            right: AppSpacing.lg,
           ),
           child: Row(
             children: [
-              // Animated loading icon
               _buildAnimatedIcon(accentColor),
               const SizedBox(width: AppSpacing.md),
               Expanded(
@@ -179,21 +170,21 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      title,
+                      data.title,
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    if (subtitle != null)
+                    if (data.subtitle != null)
                       Padding(
-                        padding: const EdgeInsets.only(top: 4),
+                        padding: const EdgeInsets.only(top: AppSpacing.xs),
                         child: Text(
-                          subtitle,
+                          data.subtitle!,
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: theme.colorScheme.onSurface.withValues(
-                              alpha: 0.6,
+                              alpha: 0.7,
                             ),
                           ),
                           maxLines: 1,
@@ -203,16 +194,6 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
                   ],
                 ),
               ),
-              if (widget.showClose)
-                IconButton(
-                  onPressed: _animateOut,
-                  icon: const Icon(Icons.close_rounded, size: 20),
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                  constraints: const BoxConstraints(
-                    minWidth: 36,
-                    minHeight: 36,
-                  ),
-                ),
             ],
           ),
         ),
@@ -222,30 +203,18 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
           padding: const EdgeInsets.all(AppSpacing.lg),
           child: Column(
             children: [
-              // Progress bar
               ClipRRect(
                 borderRadius: BorderRadius.circular(AppRadius.full),
                 child: SizedBox(
-                  height: 6,
-                  child: isIndeterminate
-                      ? LinearProgressIndicator(
-                          backgroundColor: accentColor.withValues(alpha: 0.15),
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            accentColor,
-                          ),
-                        )
-                      : LinearProgressIndicator(
-                          value: progress ?? 0,
-                          backgroundColor: accentColor.withValues(alpha: 0.15),
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            accentColor,
-                          ),
-                        ),
+                  height: _progressBarHeight,
+                  child: LinearProgressIndicator(
+                    value: data.isIndeterminate ? null : (progress ?? 0),
+                    backgroundColor: AppColors.accentSoft,
+                    valueColor: AlwaysStoppedAnimation<Color>(accentColor),
+                  ),
                 ),
               ),
-
-              // Progress percentage
-              if (progress != null && !isIndeterminate)
+              if (progress != null && !data.isIndeterminate)
                 Padding(
                   padding: const EdgeInsets.only(top: AppSpacing.sm),
                   child: Text(
@@ -260,32 +229,64 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
           ),
         ),
 
-        // Action buttons
-        if (widget.onViewDownloads != null)
-          Container(
-            decoration: BoxDecoration(
-              border: Border(
-                top: BorderSide(
-                  color: theme.colorScheme.outline.withValues(alpha: 0.1),
-                ),
+        // Actions
+        Container(
+          decoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(
+                color: theme.colorScheme.outline.withValues(alpha: 0.1),
               ),
             ),
-            padding: const EdgeInsets.all(AppSpacing.md),
-            child: TextButton.icon(
-              onPressed: widget.onViewDownloads,
-              icon: const Icon(Icons.download_rounded, size: 18),
-              label: const Text('View Downloads'),
-              style: TextButton.styleFrom(foregroundColor: accentColor),
-            ),
           ),
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Wrap(
+            alignment: WrapAlignment.end,
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: [
+              if (widget.onViewTransfers != null)
+                Tooltip(
+                  message:
+                      'Keep preparing in the background and open '
+                      'Transfers',
+                  child: EditorialButton(
+                    label: 'View transfers',
+                    icon: Icons.download_rounded,
+                    kind: EditorialButtonKind.ghost,
+                    onPressed: () => widget.onViewTransfers?.call(),
+                  ),
+                ),
+              if (widget.onHide != null)
+                Tooltip(
+                  message:
+                      'Keep preparing in the background — the player opens '
+                      "when it's ready",
+                  child: EditorialButton(
+                    label: 'Hide',
+                    kind: EditorialButtonKind.ghost,
+                    onPressed: () => unawaited(_leaveThen(widget.onHide)),
+                  ),
+                ),
+              if (widget.onCancel != null)
+                Tooltip(
+                  message: 'Stop preparing this stream',
+                  child: EditorialButton(
+                    label: 'Cancel',
+                    kind: EditorialButtonKind.subtle,
+                    onPressed: () => unawaited(_leaveThen(widget.onCancel)),
+                  ),
+                ),
+            ],
+          ),
+        ),
       ],
     );
   }
 
   Widget _buildAnimatedIcon(Color accentColor) {
     return Container(
-      width: 48,
-      height: 48,
+      width: _iconRingSize,
+      height: _iconRingSize,
       decoration: BoxDecoration(
         color: accentColor.withValues(alpha: 0.1),
         shape: BoxShape.circle,
@@ -294,99 +295,48 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
         alignment: Alignment.center,
         children: [
           SizedBox(
-            width: 36,
-            height: 36,
+            width: _spinnerSize,
+            height: _spinnerSize,
             child: CircularProgressIndicator(
               strokeWidth: 3,
               valueColor: AlwaysStoppedAnimation<Color>(accentColor),
             ),
           ),
-          Icon(Icons.stream_rounded, size: 18, color: accentColor),
+          Icon(Icons.stream_rounded, size: AppIconSize.sm, color: accentColor),
         ],
       ),
     );
   }
 }
 
-/// Show the streaming progress as an overlay
-OverlayEntry? showStreamingOverlay(
-  BuildContext context, {
-  required String title,
-  String? subtitle,
-  double? progress,
-  bool isIndeterminate = true,
-  bool showClose = false,
-  VoidCallback? onClose,
-  VoidCallback? onViewDownloads,
-  Color? accentColor,
-}) {
-  final overlay = Overlay.of(context);
-  OverlayEntry? entry;
-
-  entry = OverlayEntry(
-    builder: (context) => Material(
-      color: Colors.black.withValues(alpha: 0.3),
-      child: StreamingProgressOverlay(
-        title: title,
-        subtitle: subtitle,
-        progress: progress,
-        isIndeterminate: isIndeterminate,
-        showClose: showClose,
-        onClose: () {
-          entry?.remove();
-          onClose?.call();
-        },
-        onViewDownloads: onViewDownloads,
-        accentColor: accentColor,
-      ),
-    ),
-  );
-
-  overlay.insert(entry);
-  return entry;
-}
-
 /// Show an updatable streaming overlay.
 ///
 /// Returns the [OverlayEntry] and a [ValueNotifier] you can update to change
 /// title/subtitle/progress without recreating the widget (avoids animation
-/// flicker).
+/// flicker). The caller owns both: it removes the entry and disposes the
+/// notifier, including after [onHide] and [onCancel], which do neither.
 ({OverlayEntry entry, ValueNotifier<StreamingOverlayData> data})
 showUpdatableStreamingOverlay(
   BuildContext context, {
   required String title,
   String? subtitle,
-  double? progress,
-  bool isIndeterminate = true,
-  bool showClose = false,
-  VoidCallback? onClose,
-  VoidCallback? onViewDownloads,
-  Color? accentColor,
+  VoidCallback? onHide,
+  VoidCallback? onCancel,
+  VoidCallback? onViewTransfers,
 }) {
   final overlay = Overlay.of(context);
   final dataNotifier = ValueNotifier<StreamingOverlayData>(
-    StreamingOverlayData(
-      title: title,
-      subtitle: subtitle,
-      progress: progress,
-      isIndeterminate: isIndeterminate,
-    ),
+    StreamingOverlayData(title: title, subtitle: subtitle),
   );
 
-  OverlayEntry? entry;
-  entry = OverlayEntry(
+  final entry = OverlayEntry(
     builder: (context) => Material(
-      color: Colors.black.withValues(alpha: 0.3),
+      color: AppColors.scrimSoft,
       child: StreamingProgressOverlay(
-        title: title,
         dataNotifier: dataNotifier,
-        showClose: showClose,
-        onClose: () {
-          entry?.remove();
-          onClose?.call();
-        },
-        onViewDownloads: onViewDownloads,
-        accentColor: accentColor,
+        onHide: onHide,
+        onCancel: onCancel,
+        onViewTransfers: onViewTransfers,
       ),
     ),
   );

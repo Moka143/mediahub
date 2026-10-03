@@ -312,115 +312,6 @@ void main() {
     });
   });
 
-  group('availableRanges', () {
-    // 10 pieces of 1 MB covering a 10 MB file starting at piece 100.
-    const pieceSize = 1024 * 1024;
-    const firstPiece = 100;
-    const lastPiece = 109;
-    const fileSize = 10 * pieceSize;
-
-    List<ByteRange> ranges(List<int> fileStates) {
-      // Pad the leading pieces that belong to earlier files in the torrent.
-      final states = [...List<int>.filled(firstPiece, 0), ...fileStates];
-      return LocalStreamingServer.availableRanges(
-        pieceStates: states,
-        firstPiece: firstPiece,
-        lastPiece: lastPiece,
-        pieceSize: pieceSize,
-        fileSize: fileSize,
-      );
-    }
-
-    test('a fully downloaded file is one run covering every byte', () {
-      expect(ranges(List<int>.filled(10, 2)), [
-        const ByteRange(0, fileSize - 1),
-      ]);
-    });
-
-    test('an empty file has no runs', () {
-      expect(ranges(List<int>.filled(10, 0)), isEmpty);
-    });
-
-    test('a sequential prefix is a single run from zero', () {
-      expect(ranges([2, 2, 2, 0, 0, 0, 0, 0, 0, 0]), [
-        const ByteRange(0, 3 * pieceSize - 1),
-      ]);
-    });
-
-    test('scattered pieces produce separate runs', () {
-      // The case the scalar progress fraction cannot express: 50% downloaded,
-      // but the first 50% of the file is *not* what is on disk.
-      expect(ranges([2, 2, 0, 0, 2, 2, 0, 0, 2, 2]), [
-        const ByteRange(0, 2 * pieceSize - 1),
-        ByteRange(4 * pieceSize, 6 * pieceSize - 1),
-        ByteRange(8 * pieceSize, fileSize - 1),
-      ]);
-    });
-
-    test('a downloading piece (state 1) is not available', () {
-      expect(ranges([2, 1, 2, 0, 0, 0, 0, 0, 0, 0]), [
-        const ByteRange(0, pieceSize - 1),
-        ByteRange(2 * pieceSize, 3 * pieceSize - 1),
-      ]);
-    });
-
-    test('the final run is clamped to the file size', () {
-      // The last piece of a file usually runs past its end into the next
-      // file; the run must stop at the file boundary.
-      const shortFile = fileSize - 512 * 1024;
-      final result = LocalStreamingServer.availableRanges(
-        pieceStates: [
-          ...List<int>.filled(firstPiece, 0),
-          ...List.filled(10, 2),
-        ],
-        firstPiece: firstPiece,
-        lastPiece: lastPiece,
-        pieceSize: pieceSize,
-        fileSize: shortFile,
-      );
-
-      expect(result, [ByteRange(0, shortFile - 1)]);
-    });
-
-    test('a truncated piece-state array stops at what it has', () {
-      // qBittorrent occasionally returns fewer entries than the piece range
-      // implies; walking past the end would throw.
-      final result = LocalStreamingServer.availableRanges(
-        pieceStates: [...List<int>.filled(firstPiece, 0), 2, 2],
-        firstPiece: firstPiece,
-        lastPiece: lastPiece,
-        pieceSize: pieceSize,
-        fileSize: fileSize,
-      );
-
-      expect(result, [const ByteRange(0, 2 * pieceSize - 1)]);
-    });
-
-    test('unusable inputs yield no runs rather than a wrong answer', () {
-      expect(ranges(const []), isEmpty);
-      expect(
-        LocalStreamingServer.availableRanges(
-          pieceStates: List<int>.filled(110, 2),
-          firstPiece: firstPiece,
-          lastPiece: lastPiece,
-          pieceSize: 0,
-          fileSize: fileSize,
-        ),
-        isEmpty,
-      );
-      expect(
-        LocalStreamingServer.availableRanges(
-          pieceStates: List<int>.filled(110, 2),
-          firstPiece: firstPiece,
-          lastPiece: lastPiece,
-          pieceSize: pieceSize,
-          fileSize: 0,
-        ),
-        isEmpty,
-      );
-    });
-  });
-
   group('isTailProbeStart', () {
     const hundredMb = 100 * 1024 * 1024;
 
@@ -524,167 +415,93 @@ void main() {
   });
 
   group('looksLikeContainerHeader', () {
+    bool sniff(List<int> bytes) =>
+        LocalStreamingServer.looksLikeContainerHeader(bytes);
+    List<int> atom(String type) => [0x00, 0x00, 0x00, 0x20, ...type.codeUnits];
+
     test('accepts Matroska EBML magic', () {
-      expect(
-        LocalStreamingServer.looksLikeContainerHeader([
-          0x1A,
-          0x45,
-          0xDF,
-          0xA3,
-          0x01,
-          0x00,
-        ]),
-        isTrue,
-      );
+      expect(sniff([0x1A, 0x45, 0xDF, 0xA3, 0x01, 0x00]), isTrue);
     });
 
     test('rejects qBittorrent sparse zeros', () {
-      expect(
-        LocalStreamingServer.looksLikeContainerHeader([0, 0, 0, 0, 0, 0, 0, 0]),
-        isFalse,
-      );
+      expect(sniff([0, 0, 0, 0, 0, 0, 0, 0]), isFalse);
+      expect(sniff(const []), isFalse);
     });
 
     test('accepts an MP4 ftyp box', () {
+      expect(sniff(atom('ftyp')), isTrue);
+    });
+
+    test('accepts QuickTime files that open with another atom', () {
+      // These used to re-read their first bytes every 400 ms forever.
+      for (final type in ['moov', 'mdat', 'wide', 'free', 'skip']) {
+        expect(sniff(atom(type)), isTrue, reason: type);
+      }
+    });
+
+    test('accepts an MPEG transport stream', () {
+      expect(sniff([0x47, 0x40, 0x00, 0x10]), isTrue);
+    });
+
+    test('accepts Blu-ray M2TS, sync byte after a 4-byte timestamp', () {
+      expect(sniff([0x00, 0x00, 0x00, 0x00, 0x47, 0x40, 0x00, 0x10]), isTrue);
+    });
+
+    test('accepts an MPEG program stream pack header', () {
+      expect(sniff([0x00, 0x00, 0x01, 0xBA, 0x44, 0x00]), isTrue);
+      expect(sniff([0x00, 0x00, 0x01, 0xB3, 0x14, 0x00]), isTrue);
+    });
+
+    test('accepts ASF (WMV)', () {
       expect(
-        LocalStreamingServer.looksLikeContainerHeader([
+        sniff([0x30, 0x26, 0xB2, 0x75, 0x8E, 0x66, 0xCF, 0x11, 0xA6, 0xD9]),
+        isTrue,
+      );
+    });
+
+    test('accepts FLV', () {
+      expect(sniff([...'FLV'.codeUnits, 0x01, 0x05]), isTrue);
+    });
+
+    test('accepts AVI, whose type marker sits at offset 8', () {
+      expect(
+        sniff([
+          ...'RIFF'.codeUnits,
+          0x10,
           0x00,
           0x00,
           0x00,
-          0x20,
-          ...'ftyp'.codeUnits,
+          ...'AVI '.codeUnits,
         ]),
         isTrue,
       );
     });
-  });
 
-  group('pieceRangeForFile', () {
-    test('maps the middle file of a season pack onto its pieces', () {
-      // 32 MB pieces, three files: 40 MB, 100 MB, 60 MB.
-      const piece = 32 * 1024 * 1024;
-      final sizes = [40 * 1024 * 1024, 100 * 1024 * 1024, 60 * 1024 * 1024];
-
-      expect(
-        LocalStreamingServer.pieceRangeForFile(
-          fileSizes: sizes,
-          fileIndex: 1,
-          pieceSize: piece,
-        ),
-        (1, 4),
-      );
-    });
-
-    test('returns null when piece size or index is unusable', () {
-      expect(
-        LocalStreamingServer.pieceRangeForFile(
-          fileSizes: [100],
-          fileIndex: 0,
-          pieceSize: 0,
-        ),
-        isNull,
-      );
-      expect(
-        LocalStreamingServer.pieceRangeForFile(
-          fileSizes: [100],
-          fileIndex: 3,
-          pieceSize: 16,
-        ),
-        isNull,
-      );
+    test('accepts Ogg', () {
+      expect(sniff([...'OggS'.codeUnits, 0x00, 0x02]), isTrue);
     });
   });
 
-  group('prefixPiecesReady', () {
-    // Deliberately takes no piece size and no byte threshold: one complete
-    // leading piece is the whole condition. It used to accept both and read
-    // neither, so the signature described a function that did not exist.
-    test('is false until the leading pieces are fully downloaded', () {
-      // File starts at piece 10. 36% of the file can be state-2 while
-      // piece 10 is still empty — that must not look ready.
-      final states = List<int>.filled(20, 0);
-      for (var i = 12; i < 18; i++) {
-        states[i] = 2;
-      }
-
+  group('looksLikeRealData', () {
+    test('an unknown container is still served', () {
+      // Only zero-fill means "not written yet"; a format the sniffer does
+      // not know must not be held back for ever.
       expect(
-        LocalStreamingServer.prefixPiecesReady(
-          pieceStates: states,
-          firstPiece: 10,
-          lastPiece: 19,
-        ),
+        LocalStreamingServer.looksLikeRealData([0x12, 0x34, 0x56, 0x78]),
+        isTrue,
+      );
+    });
+
+    test('all zeros is padding, not data', () {
+      expect(
+        LocalStreamingServer.looksLikeRealData(List.filled(64, 0)),
         isFalse,
       );
     });
 
-    test('is true once the first piece of the file is downloaded', () {
-      final states = List<int>.filled(20, 0);
-      states[10] = 2;
-
-      expect(
-        LocalStreamingServer.prefixPiecesReady(
-          pieceStates: states,
-          firstPiece: 10,
-          lastPiece: 19,
-        ),
-        isTrue,
-      );
-    });
-
-    test('does not wait for a second piece that may never complete', () {
-      // The regression this shape exists for: sequential had finished piece
-      // 1613 while 1614 never completed, and an 8 MB run requirement sat
-      // there until 99%.
-      final states = List<int>.filled(20, 0);
-      states[10] = 2;
-
-      expect(
-        LocalStreamingServer.prefixPiecesReady(
-          pieceStates: states,
-          firstPiece: 10,
-          lastPiece: 19,
-        ),
-        isTrue,
-      );
-    });
-
-    test('a downloading first piece (state 1) is not ready', () {
-      final states = List<int>.filled(5, 1);
-      expect(
-        LocalStreamingServer.prefixPiecesReady(
-          pieceStates: states,
-          firstPiece: 0,
-          lastPiece: 4,
-        ),
-        isFalse,
-      );
-    });
-
-    test(
-      'prefixPieceIds still returns leading pieces when piece size is unknown',
-      () {
-        expect(
-          LocalStreamingServer.prefixPieceIds(
-            firstPiece: 10,
-            lastPiece: 19,
-            pieceSize: 0,
-          ),
-          [10, 11, 12, 13],
-        );
-      },
-    );
-
-    test('a later gap in the file does not hold the open back', () {
-      final states = List<int>.filled(20, 0);
-      states[10] = 2;
-      expect(
-        LocalStreamingServer.prefixPiecesReady(
-          pieceStates: states,
-          firstPiece: 10,
-          lastPiece: 19,
-        ),
-        isTrue,
-      );
+    test('a non-zero byte anywhere in the first sixteen counts', () {
+      final bytes = List<int>.filled(64, 0)..[15] = 1;
+      expect(LocalStreamingServer.looksLikeRealData(bytes), isTrue);
     });
   });
 }

@@ -14,17 +14,17 @@ class EditorialDialogShell extends StatelessWidget {
     super.key,
     required this.child,
     this.maxWidth = 540,
-    this.contentPadding = const EdgeInsets.fromLTRB(
-      AppSpacing.xxl,
-      AppSpacing.xl,
-      AppSpacing.xxl,
-      AppSpacing.lg,
-    ),
   });
 
   final Widget child;
   final double maxWidth;
-  final EdgeInsetsGeometry contentPadding;
+
+  static const EdgeInsets _contentPadding = EdgeInsets.fromLTRB(
+    AppSpacing.xxl,
+    AppSpacing.xl,
+    AppSpacing.xxl,
+    AppSpacing.lg,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -38,7 +38,7 @@ class EditorialDialogShell extends StatelessWidget {
       ),
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: maxWidth),
-        child: Padding(padding: contentPadding, child: child),
+        child: Padding(padding: _contentPadding, child: child),
       ),
     );
   }

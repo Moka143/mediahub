@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -22,14 +24,22 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   late Animation<double> _scaleAnimation;
   late Animation<double> _fadeAnimation;
 
+  /// The logo's elastic entrance. The splash leaves when it ends, so this is
+  /// also how long the splash is on screen — not just an animation speed.
+  static const Duration _entranceDuration = Duration(milliseconds: 1200);
+
+  /// A beat with the logo at rest before leaving, so it is seen settled.
+  static const Duration _holdDuration = Duration(milliseconds: 400);
+
+  /// The wordmark is the splash's only content — above the type ramp's top
+  /// step, `AppType.sizeDisplay`.
+  static const double _wordmarkSize = 96;
+
   @override
   void initState() {
     super.initState();
 
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    );
+    _controller = AnimationController(vsync: this, duration: _entranceDuration);
 
     _scaleAnimation = Tween<double>(
       begin: 0.6,
@@ -46,32 +56,36 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     // Navigate as soon as the entrance animation finishes + a short hold so
     // users actually see the logo in its final state. Previously we waited a
     // fixed 2.5 s regardless of animation progress, which felt sluggish.
-    _controller.forward().whenComplete(() async {
-      await Future.delayed(const Duration(milliseconds: 400));
-      if (!mounted) return;
-      // Routing rules:
-      //   - If the user is already TMDB-signed-in (from a previous version
-      //     or session), skip onboarding regardless of the flag — they've
-      //     clearly been past the sign-in invitation before.
-      //   - Else, show onboarding when there's no key OR when the user
-      //     hasn't been past it yet (so existing users with just an API
-      //     key get the one-time sign-in invitation).
-      //   - Otherwise, home.
-      final isSignedIn = ref.read(isTmdbSignedInProvider);
-      final hasOnboarded = ref.read(hasCompletedOnboardingProvider);
-      final hasKey = ref.read(hasTmdbApiKeyProvider);
-      final goHome = isSignedIn || (hasOnboarded && hasKey);
+    unawaited(_controller.forward().whenComplete(_leave));
+  }
+
+  Future<void> _leave() async {
+    await Future<void>.delayed(_holdDuration);
+    if (!mounted) return;
+    // Routing rules:
+    //   - If the user is already TMDB-signed-in (from a previous version
+    //     or session), skip onboarding regardless of the flag — they've
+    //     clearly been past the sign-in invitation before.
+    //   - Else, show onboarding when there's no key OR when the user
+    //     hasn't been past it yet (so existing users with just an API
+    //     key get the one-time sign-in invitation).
+    //   - Otherwise, home.
+    final isSignedIn = ref.read(isTmdbSignedInProvider);
+    final hasOnboarded = ref.read(hasCompletedOnboardingProvider);
+    final hasKey = ref.read(hasTmdbApiKeyProvider);
+    final goHome = isSignedIn || (hasOnboarded && hasKey);
+    unawaited(
       Navigator.of(context).pushReplacement(
-        PageRouteBuilder(
+        PageRouteBuilder<void>(
           pageBuilder: (context, animation, secondaryAnimation) =>
               goHome ? const MainNavigationScreen() : const OnboardingScreen(),
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
             return FadeTransition(opacity: animation, child: child);
           },
-          transitionDuration: const Duration(milliseconds: 500),
+          transitionDuration: AppDuration.slow,
         ),
-      );
-    });
+      ),
+    );
   }
 
   @override
@@ -89,7 +103,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
           gradient: RadialGradient(
             center: Alignment(0, -0.2),
             radius: 1.0,
-            colors: [Color(0xFF1F1B17), AppColors.bgPage],
+            colors: [AppColors.bgSurfaceHi, AppColors.bgPage],
           ),
         ),
         child: Center(
@@ -109,24 +123,25 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
               children: [
                 const SerifTitle(
                   'MediaHub',
-                  size: 96,
+                  size: _wordmarkSize,
                   height: 1.0,
                   letterSpacing: -0.03,
                   color: AppColors.fg,
                 ),
                 const SizedBox(height: AppSpacing.md),
                 const MonoLabel(
-                  '— STREAM · DOWNLOAD · LIBRARY —',
+                  '— Stream · Download · Library —',
                   color: AppColors.accent,
                   letterSpacing: 0.18,
                 ),
                 const SizedBox(height: AppSpacing.huge),
-                SizedBox(
+                const SizedBox(
                   width: 24,
                   height: 24,
                   child: CircularProgressIndicator(
                     strokeWidth: 1.5,
-                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.fg3),
+                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.fg2),
+                    semanticsLabel: 'Starting',
                   ),
                 ),
               ],

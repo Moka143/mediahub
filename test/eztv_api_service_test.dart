@@ -25,49 +25,56 @@ EztvTorrent _torrent({
 );
 
 void main() {
-  group('parseSeasonEpisodeFromFilename', () {
-    test('parses the standard SxxExx form', () {
+  group('filterForEpisode', () {
+    test("trusts the API's own season and episode fields", () {
+      final torrents = [
+        _torrent(id: 1, filename: 'Show.mkv', season: 1, episode: 2),
+        _torrent(id: 2, filename: 'Show.mkv', season: 1, episode: 3),
+      ];
       expect(
-        EztvApiService.parseSeasonEpisodeFromFilename('Show.S01E02.1080p.mkv'),
-        (1, 2),
+        EztvApiService.filterForEpisode(
+          torrents,
+          season: 1,
+          episode: 2,
+        ).map((t) => t.id),
+        [1],
       );
     });
 
-    test('is case-insensitive and accepts single digits', () {
-      expect(EztvApiService.parseSeasonEpisodeFromFilename('show.s1e2.mkv'), (
-        1,
-        2,
-      ));
-    });
-
-    test('parses season and episode zero', () {
-      expect(EztvApiService.parseSeasonEpisodeFromFilename('Show.S00E00'), (
-        0,
-        0,
-      ));
-    });
-
-    test('returns a null pair when there is no match', () {
+    test('reads the filename when the fields are missing', () {
+      final torrents = [
+        _torrent(id: 1, filename: 'Show.S01E02.1080p.mkv'),
+        _torrent(id: 2, filename: 'show.s1e2.720p.mkv'),
+        _torrent(id: 3, filename: 'Show.S01E20.mkv'),
+        _torrent(id: 4, filename: 'Movie.2024.1080p.mkv'),
+      ];
       expect(
-        EztvApiService.parseSeasonEpisodeFromFilename('Movie.2024.1080p.mkv'),
-        (null, null),
+        EztvApiService.filterForEpisode(
+          torrents,
+          season: 1,
+          episode: 2,
+        ).map((t) => t.id),
+        [1, 2],
       );
     });
 
-    test('takes the first match when several are present', () {
+    test('keeps three-digit episodes whole', () {
+      // The private parser stopped at two digits: `S01E123` was episode 12,
+      // and a search for episode 12 returned it.
+      final torrents = [_torrent(id: 1, filename: 'Show.S01E123.mkv')];
       expect(
-        EztvApiService.parseSeasonEpisodeFromFilename('Show.S01E02.S03E04'),
-        (1, 2),
+        EztvApiService.filterForEpisode(torrents, season: 1, episode: 12),
+        isEmpty,
+      );
+      expect(
+        EztvApiService.filterForEpisode(torrents, season: 1, episode: 123),
+        hasLength(1),
       );
     });
 
-    test('reads at most two episode digits', () {
-      // The regex is capped at two digits, so a three-digit episode number
-      // truncates rather than failing.
-      expect(EztvApiService.parseSeasonEpisodeFromFilename('Show.S01E123'), (
-        1,
-        12,
-      ));
+    test('asks for nothing in particular: returns everything', () {
+      final torrents = [_torrent(id: 1), _torrent(id: 2)];
+      expect(EztvApiService.filterForEpisode(torrents), hasLength(2));
     });
   });
 
@@ -112,166 +119,6 @@ void main() {
         _torrent(id: 2, filename: 'Show.HDTV.WEB-DL.mkv').quality,
         'WEB-DL',
       );
-    });
-  });
-
-  group('filterByQuality', () {
-    test('matches the derived quality exactly', () {
-      final torrents = [
-        _torrent(id: 1, filename: 'Show.1080p.mkv'),
-        _torrent(id: 2, filename: 'Show.720p.mkv'),
-        _torrent(id: 3, filename: 'Show.1080p.WEB-DL.mkv'),
-      ];
-
-      expect(
-        EztvApiService.filterByQuality(torrents, '1080p').map((t) => t.id),
-        [1, 3],
-      );
-    });
-
-    test('is case-insensitive and tolerates legacy spellings', () {
-      final torrents = [
-        _torrent(id: 1, filename: 'Show.1080p.mkv'),
-        _torrent(id: 2, filename: 'Show.2160p.mkv'),
-      ];
-
-      // `1080P` is exactly what LocalMediaFile used to persist, and is what
-      // made the per-show quality preference a silent no-op on this path.
-      expect(EztvApiService.filterByQuality(torrents, '1080P').single.id, 1);
-      expect(EztvApiService.filterByQuality(torrents, '4K').single.id, 2);
-    });
-
-    test('returns an empty list for empty input', () {
-      expect(EztvApiService.filterByQuality(const [], '1080p'), isEmpty);
-    });
-  });
-
-  group('sorting', () {
-    test('sortBySeeds orders descending', () {
-      final torrents = [
-        _torrent(id: 1, seeds: 10),
-        _torrent(id: 2, seeds: 300),
-        _torrent(id: 3, seeds: 50),
-      ];
-
-      expect(EztvApiService.sortBySeeds(torrents).map((t) => t.id), [2, 3, 1]);
-    });
-
-    test('sortBySeeds does not mutate the input', () {
-      final torrents = [
-        _torrent(id: 1, seeds: 10),
-        _torrent(id: 2, seeds: 300),
-      ];
-
-      EztvApiService.sortBySeeds(torrents);
-
-      expect(torrents.map((t) => t.id), [1, 2]);
-    });
-
-    test('sortBySize ascends by default', () {
-      final torrents = [
-        _torrent(id: 1, sizeBytes: 900),
-        _torrent(id: 2, sizeBytes: 100),
-        _torrent(id: 3, sizeBytes: 500),
-      ];
-
-      expect(EztvApiService.sortBySize(torrents).map((t) => t.id), [2, 3, 1]);
-    });
-
-    test('sortBySize descends when asked', () {
-      final torrents = [
-        _torrent(id: 1, sizeBytes: 900),
-        _torrent(id: 2, sizeBytes: 100),
-        _torrent(id: 3, sizeBytes: 500),
-      ];
-
-      expect(
-        EztvApiService.sortBySize(torrents, ascending: false).map((t) => t.id),
-        [1, 3, 2],
-      );
-    });
-
-    test('sortByQuality puts the best release first', () {
-      final torrents = [
-        _torrent(id: 1, filename: 'Show.720p.mkv'),
-        _torrent(id: 2, filename: 'Show.2160p.mkv'),
-        _torrent(id: 3, filename: 'Show.1080p.mkv'),
-      ];
-
-      expect(EztvApiService.sortByQuality(torrents).map((t) => t.id), [
-        2,
-        3,
-        1,
-      ]);
-    });
-  });
-
-  group('getAvailableQualities', () {
-    test('collects the distinct derived qualities', () {
-      final torrents = [
-        _torrent(id: 1, filename: 'Show.1080p.mkv'),
-        _torrent(id: 2, filename: 'Show.720p.mkv'),
-        _torrent(id: 3, filename: 'Show.1080p.mkv'),
-      ];
-
-      expect(EztvApiService.getAvailableQualities(torrents), {'1080p', '720p'});
-    });
-
-    test('unparseable filenames collapse to Unknown', () {
-      expect(EztvApiService.getAvailableQualities([_torrent(id: 1)]), {'HDTV'});
-      expect(
-        EztvApiService.getAvailableQualities([
-          _torrent(id: 1, filename: 'Show.mkv'),
-        ]),
-        {'Unknown'},
-      );
-    });
-
-    test('returns an empty set for empty input', () {
-      expect(EztvApiService.getAvailableQualities(const []), isEmpty);
-    });
-  });
-
-  group('grouping', () {
-    test('groupBySeason drops entries without a season', () {
-      final torrents = [
-        _torrent(id: 1, season: 1),
-        _torrent(id: 2, season: 2),
-        _torrent(id: 3),
-        _torrent(id: 4, season: 1),
-      ];
-
-      final grouped = EztvApiService.groupBySeason(torrents);
-
-      expect(grouped.keys, [1, 2]);
-      expect(grouped[1]!.map((t) => t.id), [1, 4]);
-      expect(grouped[2]!.map((t) => t.id), [2]);
-    });
-
-    test('groupByEpisode drops entries without an episode', () {
-      final torrents = [
-        _torrent(id: 1, episode: 1),
-        _torrent(id: 2),
-        _torrent(id: 3, episode: 2),
-      ];
-
-      final grouped = EztvApiService.groupByEpisode(torrents);
-
-      expect(grouped.keys, [1, 2]);
-    });
-
-    test('groupByEpisode does not separate seasons', () {
-      // Documented behaviour: episode 1 of two different seasons lands in the
-      // same bucket. Callers are expected to filter by season first.
-      final torrents = [
-        _torrent(id: 1, season: 1, episode: 1),
-        _torrent(id: 2, season: 2, episode: 1),
-      ];
-
-      expect(EztvApiService.groupByEpisode(torrents)[1]!.map((t) => t.id), [
-        1,
-        2,
-      ]);
     });
   });
 }

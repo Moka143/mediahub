@@ -8,7 +8,9 @@ import 'app_logger.dart';
 
 /// Result of [loadPrefsSafe]: the usable [SharedPreferences] instance, plus a
 /// flag indicating whether the previous file was unreadable and got reset.
-/// Callers can use [recovered] to surface a one-time toast on first frame.
+///
+/// `main` hands [recovered] to the UI through `prefsWereResetProvider`, which
+/// shows a one-time notice so the reset does not go unexplained.
 class PrefsLoadResult {
   PrefsLoadResult(this.prefs, {required this.recovered});
 
@@ -36,38 +38,6 @@ Future<PrefsLoadResult> loadPrefsSafe() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
     return PrefsLoadResult(prefs, recovered: true);
-  }
-}
-
-/// Copy a single unreadable preferences value aside before the caller falls
-/// back to an empty default.
-///
-/// The failure mode this exists for: a corrupt JSON blob throws on decode, the
-/// caller substitutes an empty collection, and the very next successful save
-/// overwrites the only copy of the user's favourites or watchlist. Writing the
-/// raw string out first makes a bad parse cost a session rather than the data.
-///
-/// Best-effort and fire-and-forget — callers run inside synchronous provider
-/// `build()` methods and cannot block on disk I/O.
-void quarantinePrefsValue(String key, String? raw, Object error) {
-  AppLog.e(
-    '[Prefs] Unreadable value for "$key", falling back to empty: $error',
-  );
-  if (raw == null || raw.isEmpty) return;
-  unawaited(_writeQuarantine(key, raw));
-}
-
-Future<void> _writeQuarantine(String key, String raw) async {
-  try {
-    final dir = await getApplicationSupportDirectory();
-    final quarantine = Directory('${dir.path}/corrupted');
-    await quarantine.create(recursive: true);
-    final stamp = DateTime.now().millisecondsSinceEpoch;
-    final file = File('${quarantine.path}/$key-$stamp.json');
-    await file.writeAsString(raw);
-    AppLog.w('[Prefs] Quarantined unreadable "$key" to ${file.path}');
-  } catch (e) {
-    AppLog.e('[Prefs] Failed to quarantine "$key": $e');
   }
 }
 

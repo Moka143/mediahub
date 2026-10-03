@@ -97,6 +97,18 @@ class Formatters {
   static String? episodeCodeOrNull(int? season, int? episode) =>
       season == null || episode == null ? null : episodeCode(season, episode);
 
+  /// Whole calendar days from [from]'s date to [to]'s date.
+  ///
+  /// Tomorrow is 1 whatever the time of day, and a daylight-saving change in
+  /// between does not shave a day off — both of which `difference().inDays`
+  /// on local timestamps gets wrong (an episode airing tomorrow read "Today"
+  /// every evening). Negative when [to] is earlier.
+  static int calendarDaysBetween(DateTime from, DateTime to) {
+    final a = DateTime.utc(from.year, from.month, from.day);
+    final b = DateTime.utc(to.year, to.month, to.day);
+    return b.difference(a).inDays;
+  }
+
   /// Format progress (0.0 to 1.0) to percentage string
   static String formatProgress(double progress, {int decimals = 1}) {
     return '${(progress * 100).toStringAsFixed(decimals)}%';
@@ -138,11 +150,5 @@ class Formatters {
   static String formatRatio(double ratio) {
     if (ratio < 0) return '∞';
     return ratio.toStringAsFixed(2);
-  }
-
-  /// Truncate string with ellipsis if too long
-  static String truncate(String text, int maxLength) {
-    if (text.length <= maxLength) return text;
-    return '${text.substring(0, maxLength - 3)}...';
   }
 }

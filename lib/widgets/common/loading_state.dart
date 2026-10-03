@@ -1,43 +1,32 @@
 import 'package:flutter/material.dart';
 
-import '../../design/app_theme.dart';
+import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
+import '../../design/app_typography.dart';
 
 /// A centered loading indicator with optional message.
 class LoadingIndicator extends StatelessWidget {
-  const LoadingIndicator({
-    super.key,
-    this.message,
-    this.size = 36.0,
-    this.strokeWidth = 4.0,
-  });
+  const LoadingIndicator({super.key, this.message});
 
   final String? message;
-  final double size;
-  final double strokeWidth;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final appColors = context.appColors;
-
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         mainAxisSize: MainAxisSize.min,
         children: [
-          SizedBox(
-            width: size,
-            height: size,
-            child: CircularProgressIndicator(strokeWidth: strokeWidth),
+          const SizedBox(
+            width: 32,
+            height: 32,
+            child: CircularProgressIndicator(strokeWidth: 3),
           ),
           if (message != null) ...[
             const SizedBox(height: AppSpacing.lg),
             Text(
               message!,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: appColors.mutedText,
-              ),
+              style: AppType.body(color: AppColors.fg2),
               textAlign: TextAlign.center,
             ),
           ],
@@ -81,10 +70,8 @@ class _ShimmerLoadingState extends State<_ShimmerLoading>
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1500),
-    )..repeat();
+    _controller = AnimationController(vsync: this, duration: AppDuration.pulse)
+      ..repeat();
   }
 
   @override
@@ -100,10 +87,20 @@ class _ShimmerLoadingState extends State<_ShimmerLoading>
       builder: (context, child) {
         return ShaderMask(
           shaderCallback: (bounds) {
+            // A translucent highlight sweeping over the skeleton, which is
+            // drawn in the warm surface tones. The old shader was opaque
+            // Material grey: srcATop then repainted the whole card one flat
+            // cool colour, boxes and all. The ends are the same white made
+            // clear, not Colors.transparent: fading through clear black
+            // would grey the highlight's edges.
             return LinearGradient(
               begin: Alignment.centerLeft,
               end: Alignment.centerRight,
-              colors: [Colors.grey[800]!, Colors.grey[700]!, Colors.grey[800]!],
+              colors: [
+                AppColors.glassFill.withValues(alpha: 0),
+                AppColors.glassFill,
+                AppColors.glassFill.withValues(alpha: 0),
+              ],
               stops: [0.0, _controller.value, 1.0],
             ).createShader(bounds);
           },
@@ -128,7 +125,7 @@ class _SkeletonBox extends StatelessWidget {
       width: width,
       height: height,
       decoration: BoxDecoration(
-        color: Colors.grey[800],
+        color: AppColors.bgSurfaceHigher,
         borderRadius: borderRadius ?? BorderRadius.circular(AppRadius.xs),
       ),
     );
@@ -147,8 +144,9 @@ class _SkeletonTorrentItem extends StatelessWidget {
       ),
       padding: const EdgeInsets.all(AppSpacing.lg),
       decoration: BoxDecoration(
-        color: Colors.grey[850],
+        color: AppColors.bgSurface,
         borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: AppColors.line),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

@@ -1,23 +1,23 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
 import '../design/app_typography.dart';
-import '../services/app_logger.dart';
 import 'editorial/editorial.dart';
+import 'media/hue_backdrop.dart';
+import 'media/media_helpers.dart';
+import 'media/poster_lookup.dart';
 
 /// Cinematic backdrop hero for the Show / Movie detail screens.
 ///
 /// Renders:
-///   * a full-bleed background image (or hue gradient fallback) at
-///     480–520px tall,
+///   * a full-bleed background image (or hue gradient fallback),
 ///   * stacked gradient overlays (top → black bottom + left fade for
 ///     text legibility),
 ///   * an overlaid hero block with poster, big display title,
 ///     metadata pills, description, and a primary CTA row.
-///
-/// Matches the structure of the design's `ShowDetailScreen` /
-/// `MovieDetailScreen` backdrop heroes.
 class MediaHubBackdropHero extends StatelessWidget {
   const MediaHubBackdropHero({
     super.key,
@@ -31,22 +31,19 @@ class MediaHubBackdropHero extends StatelessWidget {
     required this.description,
     required this.primaryAction,
     this.posterPlaceholderIcon = Icons.movie_outlined,
-    this.height,
   });
 
   final String title;
   final String? year;
   final List<MediaHubMetaPill> metaPills;
 
-  /// Small status marker pinned to the hero's top-left — the next-episode
-  /// chip, today.
+  /// Small status marker above the title — the next-episode chip, today.
   ///
-  /// It lived in its own full-width band between the hero and Trailers, which
-  /// put a single narrow chip alone in ~100px of empty page. Worse, that band
-  /// shrink-wrapped under a `Center`, so the chip drifted to the middle of the
-  /// window while every other block stayed on the left margin — it read as a
-  /// stray toast rather than as part of the layout. Over the backdrop it is
-  /// next to the thing it describes, and costs no vertical space at all.
+  /// Part of the title block's own column, so it gets that column's width
+  /// and moves with it. It used to be pinned at a fixed spot with no width
+  /// limit: its ellipsis never engaged (a long episode name drew a 2000-px
+  /// chip in a 600-px hero), and a two-line title growing up from the bottom
+  /// slid underneath it.
   final Widget? statusOverlay;
   final String? posterUrl;
   final String? backdropUrl;
@@ -55,8 +52,11 @@ class MediaHubBackdropHero extends StatelessWidget {
   final Widget primaryAction;
   final IconData posterPlaceholderIcon;
 
-  /// Explicit hero height. Null means fit the window — see [resolveHeight].
-  final double? height;
+  /// Top inset of the hero block: clears the floating controls over the hero.
+  static const double _blockTopInset = 96;
+
+  /// The masthead title — larger than the type ramp's top step (40).
+  static const double _titleSize = 84;
 
   /// How tall the hero should be for a given viewport.
   ///
@@ -77,121 +77,97 @@ class MediaHubBackdropHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final heroHeight =
-        height ?? resolveHeight(MediaQuery.sizeOf(context).height);
+    final heroHeight = resolveHeight(MediaQuery.sizeOf(context).height);
     final posterHeight = resolvePosterHeight(heroHeight);
+    final backdrop = tmdbResized(backdropUrl);
 
-    return SizedBox(
-      height: heroHeight,
+    // A minimum, not a fixed height: the title block below is what sizes
+    // the hero, so a two-line title, a tagline and large accessibility text
+    // make it taller instead of pushing its top out of the frame, under the
+    // floating Back button.
+    return ConstrainedBox(
+      constraints: BoxConstraints(minHeight: heroHeight),
       child: Stack(
-        fit: StackFit.expand,
+        alignment: Alignment.bottomLeft,
         children: [
-          // Backdrop image or hue gradient fallback. We log when TMDB
-          // didn't ship a backdrop OR the network image errored — that's
-          // typically a stale `Show`/`Movie` instance loaded from a list
-          // endpoint that doesn't include `backdrop_path`. The fallback
-          // hue gradient is intentional, not a "mockup" — just be aware
-          // it kicks in whenever the URL is missing.
-          if (backdropUrl != null)
-            Image.network(
-              backdropUrl!,
-              fit: BoxFit.cover,
-              loadingBuilder: (_, child, progress) =>
-                  progress == null ? child : _backdropFallback(),
-              errorBuilder: (_, e, _) {
-                AppLog.e(
-                  '[Hero] backdrop load failed for "$title": $backdropUrl ($e)',
-                );
-                return _backdropFallback();
-              },
-            )
-          else ...[
-            Builder(
-              builder: (_) {
-                AppLog.d(
-                  '[Hero] no backdrop URL for "$title" (TMDB had no backdrop_path)',
-                );
-                return _backdropFallback();
-              },
-            ),
-          ],
+          // Backdrop, or the hue gradient when TMDB has none — a list
+          // endpoint's record carries no backdrop path, for one.
+          Positioned.fill(
+            child: backdrop != null
+                ? CachedNetworkImage(
+                    imageUrl: backdrop,
+                    fit: BoxFit.cover,
+                    memCacheWidth: 1600,
+                    placeholder: (_, _) =>
+                        HueBackdrop(hue: fallbackHue, dark: true),
+                    errorWidget: (_, _, _) =>
+                        HueBackdrop(hue: fallbackHue, dark: true),
+                  )
+                : HueBackdrop(hue: fallbackHue, dark: true),
+          ),
 
           // Top → bottom fade so the page content reads cleanly under
           // the hero image
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                stops: const [0.0, 0.55, 0.85, 1.0],
-                colors: [
-                  Colors.transparent,
-                  AppColors.bgPage.withAlpha(120),
-                  AppColors.bgPage.withAlpha(220),
-                  AppColors.bgPage,
-                ],
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  stops: const [0.0, 0.55, 0.85, 1.0],
+                  colors: [
+                    Colors.transparent,
+                    AppColors.bgPage.withValues(alpha: 0.47),
+                    AppColors.bgPage.withValues(alpha: 0.86),
+                    AppColors.bgPage,
+                  ],
+                ),
               ),
             ),
           ),
           // Left fade — protects metadata legibility over busy art
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-                stops: const [0.0, 0.6],
-                colors: [AppColors.bgPage.withAlpha(178), Colors.transparent],
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  stops: const [0.0, 0.6],
+                  colors: [
+                    AppColors.bgPage.withValues(alpha: 0.7),
+                    Colors.transparent,
+                  ],
+                ),
               ),
             ),
           ),
 
-          // Status overlay — top-left, clear of the floating back button
-          // and of the poster below it.
-          if (statusOverlay != null)
-            Positioned(
-              left: AppSpacing.huge,
-              top: AppSpacing.huge + 44,
-              child: statusOverlay!,
+          // Hero block — poster + title + meta + CTA. The only child not
+          // positioned, so the one that sets the hero's height; the top
+          // inset keeps it clear of the floating controls.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.huge,
+              _blockTopInset,
+              AppSpacing.huge,
+              AppSpacing.huge,
             ),
-
-          // Hero block — poster + title + meta + CTA
-          Positioned(
-            left: AppSpacing.huge,
-            right: AppSpacing.huge,
-            bottom: AppSpacing.huge,
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                // Poster — same diagnostic story as the backdrop above.
-                if (posterUrl != null)
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                    child: Image.network(
-                      posterUrl!,
-                      width: posterHeight * 2 / 3,
-                      height: posterHeight,
-                      fit: BoxFit.cover,
-                      loadingBuilder: (_, child, progress) => progress == null
-                          ? child
-                          : _posterFallback(posterHeight),
-                      errorBuilder: (_, e, _) {
-                        AppLog.e(
-                          '[Hero] poster load failed for "$title": $posterUrl ($e)',
-                        );
-                        return _posterFallback(posterHeight);
-                      },
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  child: SizedBox(
+                    width: posterHeight * 2 / 3,
+                    height: posterHeight,
+                    child: buildPosterImage(
+                      posterAsync: AsyncValue.data(posterUrl),
+                      hue: fallbackHue,
+                      placeholderIcon: posterPlaceholderIcon,
+                      iconSize: 64,
                     ),
-                  )
-                else ...[
-                  Builder(
-                    builder: (_) {
-                      AppLog.d(
-                        '[Hero] no poster URL for "$title" (TMDB had no poster_path)',
-                      );
-                      return _posterFallback(posterHeight);
-                    },
                   ),
-                ],
+                ),
                 const SizedBox(width: AppSpacing.xxl),
 
                 // Title block
@@ -200,17 +176,15 @@ class MediaHubBackdropHero extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      if (statusOverlay != null) ...[
+                        statusOverlay!,
+                        const SizedBox(height: AppSpacing.md),
+                      ],
                       // The year leads the metadata row rather than sitting
-                      // under the title.
-                      //
-                      // It used to be a small mono label below an 84pt serif
-                      // title set at 0.92 line height — so a descender (the
-                      // italic J of "Jumanji") dropped straight into it, and
-                      // at that size next to that title it read as an
-                      // artefact rather than as a fact. It is the same class
-                      // of metadata as the runtime and the rating, so it
-                      // belongs in the same row, at the same size, with the
-                      // same contrast.
+                      // under the title: at 84pt with a 0.92 line height a
+                      // descender (the italic J of "Jumanji") dropped into
+                      // it. It is the same class of fact as the runtime and
+                      // the rating, so it gets the same treatment.
                       Wrap(
                         spacing: AppSpacing.sm,
                         runSpacing: AppSpacing.sm,
@@ -233,7 +207,7 @@ class MediaHubBackdropHero extends StatelessWidget {
                       const SizedBox(height: AppSpacing.md),
                       SerifTitle(
                         title,
-                        size: 84,
+                        size: _titleSize,
                         height: 0.92,
                         letterSpacing: -0.02,
                         color: AppColors.fg,
@@ -248,7 +222,7 @@ class MediaHubBackdropHero extends StatelessWidget {
                             maxLines: 3,
                             overflow: TextOverflow.ellipsis,
                             style: AppType.ui(
-                              size: 14,
+                              size: AppType.sizeLead,
                               color: AppColors.fg1,
                               height: 1.6,
                             ),
@@ -264,47 +238,6 @@ class MediaHubBackdropHero extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _backdropFallback() {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            HSLColor.fromAHSL(1, fallbackHue, 0.5, 0.18).toColor(),
-            HSLColor.fromAHSL(1, (fallbackHue + 30) % 360, 0.5, 0.08).toColor(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _posterFallback(double posterHeight) {
-    return Container(
-      width: posterHeight * 2 / 3,
-      height: posterHeight,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            HSLColor.fromAHSL(1, fallbackHue, 0.6, 0.4).toColor(),
-            HSLColor.fromAHSL(1, fallbackHue, 0.5, 0.18).toColor(),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        border: Border.all(color: Colors.white.withAlpha(20)),
-      ),
-      child: Center(
-        child: Icon(
-          posterPlaceholderIcon,
-          size: 64,
-          color: Colors.white.withAlpha(102),
-        ),
       ),
     );
   }

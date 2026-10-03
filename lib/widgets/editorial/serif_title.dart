@@ -10,7 +10,7 @@ class SerifTitle extends StatelessWidget {
   const SerifTitle(
     this.text, {
     super.key,
-    this.size = 28,
+    this.size = AppType.sizeTitle,
     this.color = AppColors.fg,
     this.maxLines,
     this.overflow,

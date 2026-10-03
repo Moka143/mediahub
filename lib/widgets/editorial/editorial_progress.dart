@@ -1,69 +1,75 @@
 import 'package:flutter/material.dart';
 
 import '../../design/app_colors.dart';
+import '../../design/app_tokens.dart';
 
-/// 2–3px linear progress bar with the accent orange fill. Matches the
+/// The app's progress bar: a thin track with a filled share. Matches the
 /// `.prog` and `.prog.thin` rules in the design's CSS.
 ///
-/// Optionally pass [buffered] (0..1) to render an on-disk buffer
-/// track behind the playhead — the editorial player overlay's
-/// "honest seek bar" pattern. The dim track shows actual on-disk
-/// progress so users can scrub safely.
+/// It always spans the width it is given. It used to size itself to its
+/// fill, so in a start-aligned column a 30% bar was 30% wide with no track
+/// behind it — a bar that could not show how much was left.
 class EditorialProgress extends StatelessWidget {
   const EditorialProgress({
     super.key,
     required this.value,
-    this.buffered,
     this.thin = false,
-    this.borderRadius = 2,
+    this.height,
+    this.color = AppColors.accent,
+    this.glow = true,
   });
 
-  /// Progress 0..1.
+  /// Progress 0..1. Values outside are clamped.
   final double value;
 
-  /// Optional buffered fraction 0..1. Rendered behind the main fill.
-  final double? buffered;
-
-  /// Use the 2px thin variant. Default is 3px.
+  /// The 2px variant. Default is 3px; [height] overrides both.
   final bool thin;
 
-  final double borderRadius;
+  final double? height;
+
+  /// Fill colour — the accent by default; `torrentStateTone` for a torrent.
+  final Color color;
+
+  /// A soft halo on the fill. Transfers reserve it for data actually
+  /// arriving, so a paused or finished bar sits flat.
+  final bool glow;
 
   @override
   Widget build(BuildContext context) {
-    final height = thin ? 2.0 : 3.0;
-    final clamped = value.clamp(0.0, 1.0);
-    final bufClamped = buffered?.clamp(0.0, 1.0);
+    final barHeight = height ?? (thin ? 2.0 : 3.0);
+    final radius = BorderRadius.circular(barHeight / 2);
 
-    return SizedBox(
-      height: height,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(borderRadius),
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: ColoredBox(color: Colors.white.withValues(alpha: 0.1)),
-            ),
-            if (bufClamped != null)
+    return Semantics(
+      value: '${(value.clamp(0.0, 1.0) * 100).round()}%',
+      child: SizedBox(
+        width: double.infinity,
+        height: barHeight,
+        child: ClipRRect(
+          borderRadius: radius,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              const ColoredBox(color: AppColors.track),
               FractionallySizedBox(
-                widthFactor: bufClamped,
-                child: ColoredBox(color: Colors.white.withValues(alpha: 0.18)),
-              ),
-            FractionallySizedBox(
-              widthFactor: clamped,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: AppColors.accent,
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.accent.withValues(alpha: 0.4),
-                      blurRadius: 4,
-                    ),
-                  ],
+                alignment: Alignment.centerLeft,
+                widthFactor: value.clamp(0.0, 1.0),
+                heightFactor: 1,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: color,
+                    boxShadow: glow
+                        ? [
+                            BoxShadow(
+                              color: color.withAlpha(AppOpacity.semi),
+                              blurRadius: 4,
+                            ),
+                          ]
+                        : null,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

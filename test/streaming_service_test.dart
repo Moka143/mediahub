@@ -90,7 +90,7 @@ void main() {
       // Past rateWarmup — these cases exercise the rate projection, not the
       // warmup gate, which has its own test below.
       Duration sinceStart = const Duration(minutes: 2),
-    }) => StreamingService.assessBuffering(
+    }) => BufferPolicy.assess(
       bufferedBytes: buffered,
       minBytes: minBytes,
       bytesPerSecond: rate,
@@ -98,9 +98,12 @@ void main() {
       sinceStart: sinceStart,
     );
 
-    test('ready once the threshold is met', () {
-      expect(assess(buffered: need), BufferOutcome.ready);
-      expect(assess(buffered: need + 1), BufferOutcome.ready);
+    test('enough bytes is not readiness — it keeps waiting for the head', () {
+      // Readiness is the start of the file being down, which only the piece
+      // map can say. A byte count that answered "ready" here made the caller
+      // stop judging the session at all.
+      expect(assess(buffered: need), BufferOutcome.waiting);
+      expect(assess(buffered: need + 1), BufferOutcome.waiting);
     });
 
     test('keeps waiting while progressing at a workable rate', () {
@@ -143,7 +146,7 @@ void main() {
         BufferOutcome.waiting,
       );
       expect(
-        assess(rate: 1024, sinceStart: StreamingService.rateWarmup),
+        assess(rate: 1024, sinceStart: BufferPolicy.rateWarmup),
         BufferOutcome.tooSlow,
       );
     });
@@ -184,7 +187,20 @@ void main() {
       );
     });
 
-    test('readiness wins over stalled and too-slow', () {
+    test('plenty of scattered bytes still stall out when nothing arrives', () {
+      // The bug: 8 MB anywhere in the file used to answer "ready" before the
+      // stall and ceiling checks ran, so a queued torrent — or one whose
+      // first piece is rare — with that much scattered on disk polled every
+      // two seconds for good.
+      expect(
+        assess(
+          buffered: need,
+          rate: 0,
+          sinceProgress: const Duration(minutes: 10),
+          sinceStart: const Duration(minutes: 12),
+        ),
+        BufferOutcome.stalled,
+      );
       expect(
         assess(
           buffered: need,
@@ -192,7 +208,7 @@ void main() {
           sinceProgress: const Duration(minutes: 10),
           sinceStart: const Duration(minutes: 30),
         ),
-        BufferOutcome.ready,
+        BufferOutcome.gaveUp,
       );
     });
 
@@ -212,7 +228,7 @@ void main() {
           buffered: 10 * mb,
           rate: 5 * mb.toDouble(),
           sinceProgress: Duration.zero,
-          sinceStart: StreamingService.bufferHardCeiling,
+          sinceStart: BufferPolicy.hardCeiling,
         ),
         BufferOutcome.gaveUp,
       );

@@ -224,22 +224,49 @@ void main() {
     });
   });
 
-  group('getAvailableQualities', () {
-    test('collects the distinct derived qualities', () {
-      final streams = [
-        _stream(infoHash: 'a', name: 'T\n1080p'),
-        _stream(infoHash: 'b', name: 'T\n720p'),
-        _stream(infoHash: 'c', name: 'T\n1080p'),
-      ];
+  group('season packs', () {
+    TorrentioStream packCandidate(String release, String? filename) =>
+        TorrentioStream(
+          name: 'Torrentio\n1080p',
+          title: '$release\n$_person 10 $_disk 9 GB $_gear Site',
+          infoHash: release,
+          fileIdx: 3,
+          filename: filename,
+        );
 
-      expect(TorrentioApiService.getAvailableQualities(streams), {
-        '1080p',
-        '720p',
-      });
+    test('a season release with an episode file picked out is a pack', () {
+      expect(
+        packCandidate(
+          'Show.S01.1080p.WEB',
+          'Show.S01E04.1080p.mkv',
+        ).isSeasonPack,
+        isTrue,
+      );
     });
 
-    test('returns an empty set for empty input', () {
-      expect(TorrentioApiService.getAvailableQualities(const []), isEmpty);
+    test('an episode with its subtitles is not a pack', () {
+      final single = packCandidate('Show.S01E04.1080p.WEB', 'Show.S01E04.mkv');
+      expect(single.isSeasonPack, isFalse);
+      expect(single.isSingleEpisodeRelease, isTrue);
+    });
+
+    test('three-digit episodes are still episodes', () {
+      // The private regex stopped at two digits; `S01E105` read as no
+      // episode at all next to a long-running show's season token.
+      expect(
+        packCandidate(
+          'Show.S01E105.1080p.WEB',
+          'Show.S01E105.mkv',
+        ).isSeasonPack,
+        isFalse,
+      );
+    });
+
+    test('pack words in the title decide it', () {
+      expect(
+        packCandidate('Show.Complete.Series.1080p', null).isSeasonPack,
+        isTrue,
+      );
     });
   });
 }

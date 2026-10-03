@@ -113,7 +113,7 @@ class InMemorySecretBackend implements SecretBackend {
 ///
 /// Writes are async and write through to both the cache and the backend.
 class SecretStore {
-  SecretStore._(this._backend, this._cache);
+  SecretStore._(this._backend, this._cache, [this._prefs]);
 
   /// A store backed only by memory. The default for tests, so nothing in the
   /// suite can reach the developer's real Keychain.
@@ -125,6 +125,43 @@ class SecretStore {
 
   final SecretBackend _backend;
   final Map<Secret, String> _cache;
+
+  /// The prefs the legacy plaintext lives in, when this store was [open]ed
+  /// against them. Lets a sign-out remove a legacy copy that a
+  /// failed migration had to leave behind.
+  final SharedPreferences? _prefs;
+
+  /// Credentials still sitting as plaintext in the `app_settings` blob
+  /// because moving them into secure storage could not be confirmed — see
+  /// [pendingLegacySettingsFields].
+  final Map<Secret, String> _pendingLegacy = {};
+
+  /// The blob field each settings-borne secret was stored under by older
+  /// builds — and still is, while its migration is pending.
+  static const Map<Secret, String> _legacySettingsFields = {
+    Secret.qbittorrentPassword: 'password',
+    Secret.tmdbReadToken: 'tmdb_api_key',
+  };
+
+  /// Plaintext credentials an older build left in the `app_settings` blob
+  /// that could not be moved into secure storage — the Keychain refused, or
+  /// could not be read at all this session. Keyed by their field name in
+  /// that blob (`password`, `tmdb_api_key`).
+  ///
+  /// **Whoever rewrites the settings blob must write these back into it.**
+  /// They are deliberately left there so the next launch can retry the
+  /// migration — they are the only durable copy — and `AppSettings.toJson`
+  /// omits both fields by design. A settings save that does not merge them
+  /// deletes the credential everywhere: upgrade, deny the Keychain prompt,
+  /// toggle any setting, and the next launch had no password and no token.
+  ///
+  /// An entry disappears once its value is safely stored: the migration
+  /// succeeded on a later launch, or the user saved a new value that reached
+  /// secure storage, or cleared it.
+  Map<String, String> get pendingLegacySettingsFields => {
+    for (final entry in _pendingLegacy.entries)
+      _legacySettingsFields[entry.key]!: entry.value,
+  };
 
   /// The single backend entry every secret lives in.
   ///
@@ -205,10 +242,13 @@ class SecretStore {
         '[SecretStore] secure storage unavailable ($e) — credentials will '
         'not persist this session',
       );
-      return SecretStore._(InMemorySecretBackend(), {});
+      // Nothing was migrated, so any plaintext in the settings blob is still
+      // the only copy — and has to survive this session's settings saves.
+      return SecretStore._(InMemorySecretBackend(), {}, prefs)
+        .._pendingLegacy.addAll(_legacyBlobSecrets(prefs));
     }
 
-    final store = SecretStore._(backend, cache);
+    final store = SecretStore._(backend, cache, prefs);
     await store._migrateFromPrefs(prefs);
     if (fromPerSecretEntries) await store._consolidateSecrets();
     return store;
@@ -268,8 +308,14 @@ class SecretStore {
   /// other copy of the value must check this. [_migrateFromPrefs] is exactly
   /// that caller.
   Future<bool> write(Secret secret, String? value) async {
-    if (value == null || value.isEmpty) {
+    final clearing = value == null || value.isEmpty;
+    if (clearing) {
       _cache.remove(secret);
+      // Clearing is a decision about every copy. A legacy plaintext one left
+      // behind would be adopted again at the next launch — signing the user
+      // back in to an account they just signed out of.
+      _pendingLegacy.remove(secret);
+      await _forgetLegacyCopy(secret);
     } else {
       _cache[secret] = value;
     }
@@ -283,10 +329,41 @@ class SecretStore {
       } else {
         await _backend.write(bundleKey, encodeBundle(_cache));
       }
+      // A new value is safely stored, so the old plaintext no longer needs
+      // carrying through settings saves.
+      if (!clearing) _pendingLegacy.remove(secret);
       return true;
     } catch (e) {
       AppLog.e('[SecretStore] failed to persist ${secret.key}: $e');
       return false;
+    }
+  }
+
+  /// Remove [secret]'s legacy plaintext from prefs, when this store holds
+  /// them. Only the OAuth token has a key of its own; the two that live in
+  /// the settings blob go when the blob is next saved without them, which
+  /// [pendingLegacySettingsFields] no longer asks for.
+  Future<void> _forgetLegacyCopy(Secret secret) async {
+    final prefs = _prefs;
+    if (prefs == null || secret != Secret.tmdbAccessToken) return;
+    if (prefs.containsKey(_legacyAccessTokenKey)) {
+      await prefs.remove(_legacyAccessTokenKey);
+    }
+  }
+
+  /// The settings-borne secrets still in the legacy `app_settings` blob.
+  static Map<Secret, String> _legacyBlobSecrets(SharedPreferences prefs) {
+    final raw = prefs.getString(_legacySettingsKey);
+    if (raw == null) return const {};
+    try {
+      final json = jsonDecode(raw) as Map<String, dynamic>;
+      return {
+        for (final entry in _legacySettingsFields.entries)
+          if (json[entry.value] case final String v when v.isNotEmpty)
+            entry.key: v,
+      };
+    } catch (_) {
+      return const {};
     }
   }
 
@@ -394,6 +471,13 @@ class SecretStore {
         if (removedPassword || removedReadToken) {
           await prefs.setString(_legacySettingsKey, jsonEncode(json));
         }
+        // Whatever is still in the blob now is there on purpose, as the only
+        // durable copy. Settings saves must carry it — see
+        // [pendingLegacySettingsFields].
+        _pendingLegacy
+          ..remove(Secret.qbittorrentPassword)
+          ..remove(Secret.tmdbReadToken)
+          ..addAll(_legacyBlobSecrets(prefs));
       } catch (e) {
         AppLog.w('[SecretStore] could not scrub legacy settings blob: $e');
       }

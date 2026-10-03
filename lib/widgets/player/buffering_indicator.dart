@@ -4,18 +4,19 @@ import '../../design/app_tokens.dart';
 
 /// Center-screen buffering ring shown while mpv is paused-for-cache.
 ///
-/// Theme-driven (violet on-brand spinner, surface-tinted glass background,
-/// soft shadow, outline-variant rim) and animated in with a subtle
-/// scale + fade so it doesn't hard-cut on screen.
+/// Theme-driven (spinner in the theme's primary accent, surface-tinted glass
+/// background, soft shadow, outline-variant rim) and animated in with a
+/// subtle scale + fade so it doesn't hard-cut on screen.
 ///
-/// Optional [label] renders a small chip below the spinner — useful when
-/// the surrounding context wants to explain *why* we're buffering (e.g.
-/// "Fetching pieces around new position…" after a seek-past-head). Left
-/// null on the default call site.
+/// Optional [label] renders a small chip below the spinner — the player uses
+/// it while streaming to show how much of the file has downloaded, so a long
+/// pause reads as progress rather than a hang. Left null for local files.
 class BufferingIndicator extends StatelessWidget {
   final String? label;
 
   const BufferingIndicator({super.key, this.label});
+
+  static const double _ringSize = 80;
 
   @override
   Widget build(BuildContext context) {
@@ -38,8 +39,8 @@ class BufferingIndicator extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 80,
-              height: 80,
+              width: _ringSize,
+              height: _ringSize,
               decoration: BoxDecoration(
                 color: scheme.surface.withValues(
                   alpha: AppOpacity.heavy / 255.0,
@@ -51,15 +52,7 @@ class BufferingIndicator extends StatelessWidget {
                   ),
                   width: AppBorderWidth.thin,
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(
-                      alpha: AppOpacity.semi / 255.0,
-                    ),
-                    blurRadius: AppElevation.lg,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
+                boxShadow: AppShadow.floating,
               ),
               child: Padding(
                 padding: const EdgeInsets.all(AppSpacing.lg),

@@ -63,6 +63,34 @@ void main() {
     });
   });
 
+  group('AppLog in a release build', () {
+    test('keeps DEBUG lines off the disk', () async {
+      // The proxy and the pollers log at DEBUG on every request and tick;
+      // written out, they pushed the startup and shutdown breadcrumbs out of
+      // the 256 KB window within minutes of playback.
+      await AppLog.resetForTest(file: logFile, debugToDisk: false);
+      AppLog.d('[Test] chatty');
+      AppLog.i('[Startup] breadcrumb');
+      AppLog.w('[Test] warning');
+      AppLog.e('[Test] error');
+      await AppLog.idle;
+
+      final content = await logFile.readAsString();
+      expect(content, isNot(contains('chatty')));
+      expect(content, contains('INFO  [Startup] breadcrumb'));
+      expect(content, contains('WARN  [Test] warning'));
+      expect(content, contains('ERROR [Test] error'));
+    });
+
+    test('the verbose switch puts DEBUG back', () async {
+      await AppLog.resetForTest(file: logFile, debugToDisk: true);
+      AppLog.d('[Test] chatty');
+      await AppLog.idle;
+      expect(await logFile.readAsString(), contains('DEBUG [Test] chatty'));
+      expect(AppLog.verboseEnvVar, 'MEDIAHUB_VERBOSE_LOG');
+    });
+  });
+
   group('AppLog rotation', () {
     test('keeps one previous generation instead of deleting history', () async {
       // The predecessor to this class deleted the log at the size cap, which

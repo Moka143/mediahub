@@ -1,19 +1,34 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/player_provider.dart';
+import '../../services/player_service.dart';
 import '../shortcuts_help_dialog.dart';
+import 'player_shortcuts.dart';
 
 void showPlayerShortcutsDialog(
   BuildContext context, {
   required VoidCallback onUserInteraction,
 }) {
   onUserInteraction();
-  ShortcutsHelpDialog.show(context);
+  unawaited(ShortcutsHelpDialog.show(context));
 }
 
-void handlePlayerKeyEvent(
+/// Perform the [kPlayerShortcuts] entry [event] triggers. Returns whether it
+/// was one — the caller marks those key events handled.
+///
+/// Dispatches on the table's [PlayerShortcutAction]s, so it can only do what
+/// the help dialog documents. The two had drifted: tooltips advertised C, A
+/// and S, which nothing handled, and a plain `/` opened the help that the
+/// dialog said was on `?`.
+///
+/// Esc works outward from the most transient thing on screen: it dismisses
+/// [onDismissUpNext]'s card when there is one, then leaves full screen, and
+/// only then closes the player. It used to close the player from under the
+/// Up Next card.
+bool handlePlayerKeyEvent(
   KeyEvent event, {
   required WidgetRef ref,
   required bool isFullscreen,
@@ -23,57 +38,65 @@ void handlePlayerKeyEvent(
   required VoidCallback onToggleFullscreen,
   required VoidCallback onExitPlayer,
   required VoidCallback onShowShortcuts,
+  VoidCallback? onDismissUpNext,
   bool mediaOpened = true,
   bool resumePromptVisible = false,
 }) {
-  if (event is! KeyDownEvent) return;
+  final action = playerShortcutActionFor(event);
+  if (action == null) return false;
 
-  // Resume prompt sits in front of an unopened player. Space / seek /
-  // volume would hit media_kit with no file and can take the view down
-  // with it. Escape still leaves.
-  if (resumePromptVisible || !mediaOpened) {
-    if (event.logicalKey == LogicalKeyboardKey.escape) {
-      if (isFullscreen) {
+  switch (action) {
+    case PlayerShortcutAction.back:
+      if (onDismissUpNext != null) {
+        onDismissUpNext();
+      } else if (isFullscreen) {
         onToggleFullscreen();
       } else {
         onExitPlayer();
       }
-    }
-    return;
+      return true;
+    case PlayerShortcutAction.toggleFullscreen:
+      onToggleFullscreen();
+      return true;
+    case PlayerShortcutAction.showShortcuts:
+      onShowShortcuts();
+      return true;
+    case PlayerShortcutAction.playPause:
+    case PlayerShortcutAction.seekBack:
+    case PlayerShortcutAction.seekForward:
+    case PlayerShortcutAction.volumeUp:
+    case PlayerShortcutAction.volumeDown:
+    case PlayerShortcutAction.toggleMute:
+      break;
   }
+
+  // The rest act on the media. The resume prompt sits in front of an
+  // unopened player, and these would reach media_kit with no file loaded —
+  // which can take the view down with it.
+  if (resumePromptVisible || !mediaOpened) return false;
 
   final playerService = ref.read(playerServiceProvider);
-
-  switch (event.logicalKey) {
-    case LogicalKeyboardKey.space:
-      playerService.playOrPause();
+  switch (action) {
+    case PlayerShortcutAction.playPause:
+      unawaited(playerService.playOrPause());
       onUserInteraction();
-    case LogicalKeyboardKey.arrowLeft:
+    case PlayerShortcutAction.seekBack:
       onSeekBackward();
-    case LogicalKeyboardKey.arrowRight:
+    case PlayerShortcutAction.seekForward:
       onSeekForward();
-    case LogicalKeyboardKey.arrowUp:
-      final player = ref.read(playerProvider);
-      playerService.setVolume((player.state.volume + 10).clamp(0, 100));
+    case PlayerShortcutAction.volumeUp:
+      unawaited(playerService.adjustVolume(PlayerService.volumeStep));
       onUserInteraction();
-    case LogicalKeyboardKey.arrowDown:
-      final player = ref.read(playerProvider);
-      playerService.setVolume((player.state.volume - 10).clamp(0, 100));
+    case PlayerShortcutAction.volumeDown:
+      unawaited(playerService.adjustVolume(-PlayerService.volumeStep));
       onUserInteraction();
-    case LogicalKeyboardKey.keyF:
-      onToggleFullscreen();
-    case LogicalKeyboardKey.keyM:
-      playerService.toggleMute();
+    case PlayerShortcutAction.toggleMute:
+      unawaited(playerService.toggleMute());
       onUserInteraction();
-    case LogicalKeyboardKey.escape:
-      if (isFullscreen) {
-        onToggleFullscreen();
-      } else {
-        onExitPlayer();
-      }
-    case LogicalKeyboardKey.question:
-    case LogicalKeyboardKey.slash:
-      // ? on US layouts is Shift+/. Accept either.
-      onShowShortcuts();
+    case PlayerShortcutAction.back:
+    case PlayerShortcutAction.toggleFullscreen:
+    case PlayerShortcutAction.showShortcuts:
+      break;
   }
+  return true;
 }
