@@ -489,6 +489,13 @@ class QBittorrentApiService extends TorrentEngine {
     return isSuccessStatus(response?.statusCode);
   }
 
+  @override
+  Future<bool> setForceStart(List<String> hashes, {required bool force}) =>
+      _postOk('force start', '/api/v2/torrents/setForceStart', {
+        'hashes': hashes.join('|'),
+        'value': '$force',
+      });
+
   /// Delete torrents
   @override
   Future<bool> deleteTorrents(

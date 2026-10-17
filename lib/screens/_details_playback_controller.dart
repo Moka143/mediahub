@@ -16,7 +16,6 @@ import '../services/app_logger.dart';
 import '../services/library_actions.dart';
 import '../services/streaming_service.dart';
 import '../utils/feedback_utils.dart';
-import '../utils/formatters.dart';
 import '../utils/platform_utils.dart';
 import '../widgets/player/player_error_overlay.dart';
 import '../widgets/streaming_progress_overlay.dart';
@@ -46,7 +45,14 @@ class DetailsStreamTarget {
   /// file already on disk, or the fallback path where the session reached
   /// `ready` without a resolved `videoFile` and we located the file
   /// ourselves.
-  final Widget Function(LocalMediaFile file, StreamingSession? session)
+  ///
+  /// [canTryAnotherSource] says whether the player may offer "Try another
+  /// source": true only when this flow reopens the picker on that answer.
+  final Widget Function(
+    LocalMediaFile file,
+    StreamingSession? session, {
+    required bool canTryAnotherSource,
+  })
   openPlayer;
 
   /// How to describe a multi-file torrent in the opening overlay. A show's
@@ -73,9 +79,20 @@ class DetailsStreamTarget {
 /// One stream started from a details screen, and what the user has asked
 /// of it so far.
 class _StreamAttempt {
-  _StreamAttempt(this.target, {this.infoHash, this.torrentWasNew = false});
+  _StreamAttempt(
+    this.target, {
+    this.container,
+    this.infoHash,
+    this.torrentWasNew = false,
+  });
 
   final DetailsStreamTarget target;
+
+  /// Reaches the session after the screen is gone — see
+  /// [DetailsPlaybackController.disposePlaybackController].
+  final ProviderContainer? container;
+
+  final DateTime startedAt = DateTime.now();
 
   /// Lower-cased info hash, when known.
   final String? infoHash;
@@ -134,11 +151,59 @@ mixin DetailsPlaybackController<T extends ConsumerStatefulWidget>
   /// `dispose()` before `super.dispose()`.
   ///
   /// A stream still preparing keeps going: the app shell opens the player
-  /// when it is ready, wherever the user is by then.
+  /// when it is ready, wherever the user is by then — and if it fails
+  /// instead, [_reportWhenGone] says so. Leaving the page used to make that
+  /// failure silent.
   void disposePlaybackController() {
     monitorSubscription?.close();
     monitorSubscription = null;
     _removeOverlay();
+    final attempt = _attempt;
+    if (attempt != null && !attempt.settled && !attempt.cancelled) {
+      _reportWhenGone(attempt);
+    }
+  }
+
+  /// Watch [attempt]'s session from the app's container, with no screen,
+  /// and report a failure as a snackbar.
+  static void _reportWhenGone(_StreamAttempt attempt) {
+    final container = attempt.container;
+    final sessionId = attempt.sessionId;
+    if (container == null || sessionId == null) return;
+    ProviderSubscription<StreamingSessionsState>? subscription;
+    var done = false;
+    void finish() {
+      done = true;
+      subscription?.close();
+    }
+
+    subscription = container.listen<StreamingSessionsState>(
+      streamingSessionsProvider,
+      (_, next) {
+        if (done) return;
+        final session = next.sessions[sessionId];
+        // Gone, failed or stopped: report a failure, then stop watching.
+        if (session == null || !session.isActive) {
+          if (session?.state == StreamingState.error) {
+            AppSnackBar.showOn(
+              rootScaffoldMessengerKey.currentState,
+              message: streamFailedMessage(
+                attempt.target.label,
+                session!.errorMessage,
+              ),
+              kind: AppSnackBarKind.error,
+            );
+          }
+          finish();
+        } else if (session.isReady || next.activeSessionId != sessionId) {
+          // Played — or a newer stream took over, after which nothing
+          // publishes this one's updates any more.
+          finish();
+        }
+      },
+      fireImmediately: true,
+    );
+    if (done) subscription.close();
   }
 
   /// Drop the current overlay + data + subscription without disposing the
@@ -256,7 +321,7 @@ mixin DetailsPlaybackController<T extends ConsumerStatefulWidget>
         message: 'Downloading ${target.label}$fromPack.',
         kind: AppSnackBarKind.success,
         actionLabel: 'View transfers',
-        onAction: () => _showTransfers(container),
+        onAction: () => showAppTab(container, AppTab.transfers),
       );
     } catch (e) {
       AppLog.e('[DetailsPlayback] download failed to start: $e');
@@ -303,6 +368,7 @@ mixin DetailsPlaybackController<T extends ConsumerStatefulWidget>
     final hash = stream.infoHash.toLowerCase();
     final attempt = _StreamAttempt(
       target,
+      container: container,
       infoHash: hash,
       torrentWasNew: !ref
           .read(torrentListProvider)
@@ -374,7 +440,10 @@ mixin DetailsPlaybackController<T extends ConsumerStatefulWidget>
   void monitorDetailsStream(String sessionId, DetailsStreamTarget target) {
     var attempt = _attempt;
     if (attempt == null || !identical(attempt.target, target)) {
-      attempt = _StreamAttempt(target);
+      attempt = _StreamAttempt(
+        target,
+        container: ProviderScope.containerOf(context, listen: false),
+      );
       _attempt = attempt;
     }
     attempt.sessionId = sessionId;
@@ -418,24 +487,12 @@ mixin DetailsPlaybackController<T extends ConsumerStatefulWidget>
       case StreamingState.addingTorrent:
       case StreamingState.selectingFiles:
       case StreamingState.buffering:
-        // Update in place — no remove/recreate, no flicker. Always show the
-        // real percentage so there is visible motion during the metadata and
-        // file-selection phases too.
-        final pct = session.bufferProgress * 100;
-        final speed = session.downloadRateBytesPerSec;
-        final speedSuffix = speed > 0
-            ? ' · ${Formatters.formatSpeed(speed)}'
-            : '';
-        final verb = session.state == StreamingState.buffering
-            ? 'Buffering'
-            : 'Preparing';
-        streamingOverlayData?.value = StreamingOverlayData(
-          title: '$verb ${target.label}',
-          subtitle: pct > 0
-              ? '${pct.toStringAsFixed(1)}% downloaded$speedSuffix'
-              : 'Connecting…$speedSuffix',
-          progress: pct > 0 ? session.bufferProgress : null,
-          isIndeterminate: pct == 0,
+        // Update in place — no remove/recreate, no flicker.
+        streamingOverlayData?.value = StreamingOverlayData.preparing(
+          session,
+          label: target.label,
+          verb: 'Preparing',
+          waited: DateTime.now().difference(attempt.startedAt),
         );
 
       case StreamingState.ready:
@@ -463,15 +520,31 @@ mixin DetailsPlaybackController<T extends ConsumerStatefulWidget>
 
       case StreamingState.error:
         attempt.settled = true;
-        dismissPlaybackOverlay();
         target.onSettled?.call();
-        final reason =
-            presentableStreamError(session.errorMessage) ??
-            'Try another source.';
+        final data = streamingOverlayData;
+        if (data != null && !attempt.hidden) {
+          // Say it on the card the user is looking at, and keep it up until
+          // they act on it.
+          monitorSubscription?.close();
+          monitorSubscription = null;
+          data.value = StreamingOverlayData.failed(
+            session,
+            label: target.label,
+          );
+          return;
+        }
+        dismissPlaybackOverlay();
+        final tryAnother = target.onTryAnotherSource;
         AppSnackBar.showOn(
           rootScaffoldMessengerKey.currentState,
-          message: "Couldn't stream ${target.label}. $reason",
+          message: streamFailedMessage(target.label, session.errorMessage),
           kind: AppSnackBarKind.error,
+          actionLabel: tryAnother != null && mounted ? 'Try another' : null,
+          onAction: tryAnother == null
+              ? null
+              : () {
+                  if (mounted) tryAnother();
+                },
         );
 
       case StreamingState.cancelled:
@@ -498,7 +571,12 @@ mixin DetailsPlaybackController<T extends ConsumerStatefulWidget>
     if (navigator == null) return;
     final result = await navigator.push<Object?>(
       MaterialPageRoute<Object?>(
-        builder: (_) => target.openPlayer(file, session),
+        builder: (_) => target.openPlayer(
+          file,
+          session,
+          canTryAnotherSource:
+              session != null && target.onTryAnotherSource != null,
+        ),
       ),
     );
     if (result == PlayerExitReason.tryAnotherSource && mounted) {
@@ -524,8 +602,17 @@ mixin DetailsPlaybackController<T extends ConsumerStatefulWidget>
       onCancel: () => _cancelAttempt(attempt, container),
       onViewTransfers: () {
         _hideAttempt(attempt);
-        _showTransfers(container);
+        showAppTab(container, AppTab.transfers);
       },
+      onClose: () {
+        if (identical(_attempt, attempt)) dismissPlaybackOverlay();
+      },
+      onTryAnother: attempt.target.onTryAnotherSource == null
+          ? null
+          : () {
+              if (identical(_attempt, attempt)) dismissPlaybackOverlay();
+              if (mounted) attempt.target.onTryAnotherSource!();
+            },
     );
     streamingOverlay = result.entry;
     streamingOverlayData = result.data;
@@ -600,12 +687,6 @@ mixin DetailsPlaybackController<T extends ConsumerStatefulWidget>
           : "Couldn't remove the download. Remove it from Transfers.",
       kind: result.success ? AppSnackBarKind.success : AppSnackBarKind.error,
     );
-  }
-
-  /// Switch to the Transfers tab, closing whatever is pushed over the shell.
-  void _showTransfers(ProviderContainer container) {
-    container.read(currentTabIndexProvider.notifier).show(AppTab.transfers);
-    rootNavigatorKey.currentState?.popUntil((route) => route.isFirst);
   }
 
   // ---------------------------------------------------------------------

@@ -112,6 +112,16 @@ jobs:
 
           & $iscc "/DMyAppVersion=$version" windows\installer\mediahub.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed with $LASTEXITCODE" }
+
+          # The in-app updater only runs an installer whose SHA-256 matches
+          # this file, published beside it. `sha256sum` format: the hash,
+          # two spaces, the file name.
+          $setup = Get-ChildItem build\windows\installer\*-windows-setup.exe |
+                   Select-Object -First 1
+          if (-not $setup) { throw "installer not found" }
+          $hash = (Get-FileHash -Algorithm SHA256 $setup.FullName).Hash.ToLower()
+          "$hash  $($setup.Name)" |
+            Out-File -Encoding ascii -NoNewline "$($setup.FullName).sha256"
           Get-ChildItem build\windows\installer
 
       - name: Upload MSIX installer
@@ -125,7 +135,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: mediahub-setup
-          path: build/windows/installer/*.exe
+          path: |
+            build/windows/installer/*.exe
+            build/windows/installer/*.exe.sha256
           if-no-files-found: error
 
   release:

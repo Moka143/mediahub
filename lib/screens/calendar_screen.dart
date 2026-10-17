@@ -146,12 +146,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
         context,
         message: result.message,
         actionLabel: 'Open Transfers',
-        onAction: () {
-          container
-              .read(currentTabIndexProvider.notifier)
-              .show(AppTab.transfers);
-          rootNavigatorKey.currentState?.popUntil((route) => route.isFirst);
-        },
+        onAction: () => showAppTab(container, AppTab.transfers),
       );
     } else {
       AppSnackBar.showWarning(context, message: result.message);

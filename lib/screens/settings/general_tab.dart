@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../design/app_tokens.dart';
 import '../../providers/settings_provider.dart';
+import '../../utils/constants.dart';
 import 'settings_tiles.dart';
 
 /// Settings → General: playback and how often Transfers refreshes.
@@ -49,6 +50,18 @@ class SettingsGeneralTab extends ConsumerWidget {
                     unawaited(notifier.setNextEpisodeCountdownSeconds(s)),
               ),
             ],
+            const Divider(height: AppSpacing.xl),
+            SettingsDropdownTile<VideoDecoding>(
+              icon: Icons.memory_rounded,
+              title: 'Video decoding',
+              subtitle:
+                  'Sound but a black picture? Choose Hardware, compatible '
+                  'or Software',
+              value: settings.videoDecoding,
+              options: VideoDecoding.values,
+              labelOf: (d) => d.label,
+              onChanged: (d) => unawaited(notifier.setVideoDecoding(d)),
+            ),
           ],
         ),
         SettingsSection(

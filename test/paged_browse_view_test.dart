@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mediahub/providers/shows_provider.dart';
 import 'package:mediahub/services/tmdb_api_service.dart';
+import 'package:mediahub/widgets/common/browse_filter_bar.dart';
 import 'package:mediahub/widgets/common/paged_browse_view.dart';
 
 /// A browse config over plain ints, with pages served by [loader].
@@ -116,8 +117,29 @@ void main() {
 
     first.complete(_page(0));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('card-0')), findsOneWidget);
+    // Item 0 is the spotlight; the grid starts at item 1.
+    expect(find.byKey(const ValueKey('card-1')), findsOneWidget);
     expect(find.byType(LinearProgressIndicator), findsNothing);
+  });
+
+  testWidgets('the search and filter bar stays on screen while the grid '
+      'scrolls', (tester) async {
+    await tester.pumpWidget(_host(_IntBrowse((_) async => _page(0))));
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -2000));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(BrowseFilterBar).hitTestable(), findsOneWidget);
+  });
+
+  testWidgets('the spotlight title is not repeated as the first card', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_host(_IntBrowse((_) async => _page(0))));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('card-0')), findsNothing);
+    expect(find.byKey(const ValueKey('card-1')), findsOneWidget);
   });
 
   testWidgets('a failed first page explains itself and offers Try again', (
@@ -143,7 +165,7 @@ void main() {
 
     await tester.tap(find.text('Try again'));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('card-0')), findsOneWidget);
+    expect(find.byKey(const ValueKey('card-1')), findsOneWidget);
   });
 
   testWidgets('a failed later page shows in the footer with a retry', (

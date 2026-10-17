@@ -23,6 +23,7 @@ import 'watch_progress.dart';
 class WatchedIndex {
   WatchedIndex._(
     this._episodeKeys,
+    this._furthestByShow,
     this._movieIds,
     this._unkeyedByTitle,
     this.episodeCount,
@@ -32,6 +33,10 @@ class WatchedIndex {
   /// show id. This is the fast path and covers everything written since
   /// entries started persisting `showId`.
   final Set<String> _episodeKeys;
+
+  /// The furthest watched regular episode (season 1 and up) of every show
+  /// in [_episodeKeys], by season and then episode.
+  final Map<int, ({int season, int episode})> _furthestByShow;
 
   /// TMDB movie ids for every completed movie entry.
   final Set<int> _movieIds;
@@ -48,7 +53,13 @@ class WatchedIndex {
   /// Watched episode entries, keyed or not. For diagnostics and tests.
   final int episodeCount;
 
-  static final WatchedIndex empty = WatchedIndex._({}, {}, const {}, 0);
+  static final WatchedIndex empty = WatchedIndex._(
+    {},
+    const {},
+    {},
+    const {},
+    0,
+  );
 
   /// The one key format for "this episode of this show". The TMDB watched
   /// reconcile keys its rating sets with this too, so the two agree on
@@ -64,6 +75,7 @@ class WatchedIndex {
   /// identity is the more specific claim.
   factory WatchedIndex.fromProgress(Iterable<WatchProgress> entries) {
     final episodeKeys = <String>{};
+    final furthest = <int, ({int season, int episode})>{};
     final movieIds = <int>{};
     final unkeyed = <String, List<WatchProgress>>{};
     var episodes = 0;
@@ -78,6 +90,10 @@ class WatchedIndex {
         final showId = p.showId;
         if (showId != null) {
           episodeKeys.add(episodeKey(showId, season, episode));
+          final here = (season: season, episode: episode);
+          if (season > 0 && _isAfter(here, furthest[showId])) {
+            furthest[showId] = here;
+          }
           continue;
         }
         final name = p.showName;
@@ -92,8 +108,16 @@ class WatchedIndex {
       if (movieId != null) movieIds.add(movieId);
     }
 
-    return WatchedIndex._(episodeKeys, movieIds, unkeyed, episodes);
+    return WatchedIndex._(episodeKeys, furthest, movieIds, unkeyed, episodes);
   }
+
+  static bool _isAfter(
+    ({int season, int episode}) a,
+    ({int season, int episode})? b,
+  ) =>
+      b == null ||
+      a.season > b.season ||
+      (a.season == b.season && a.episode > b.episode);
 
   /// Whether a specific episode is marked watched.
   ///
@@ -122,6 +146,27 @@ class WatchedIndex {
           p.episodeNumber == episode &&
           titlesMatch(p.showName!, showName),
     );
+  }
+
+  /// The furthest episode of a show marked watched — highest season, then
+  /// highest episode — or null when none is. Specials (season 0) are left
+  /// out: they sit outside the running order. [showName] finds rows saved
+  /// without a show id, on the same rules as [isEpisodeWatched].
+  ({int season, int episode})? furthestWatchedEpisode({
+    required int showId,
+    String? showName,
+  }) {
+    var furthest = _furthestByShow[showId];
+    if (showName == null || _unkeyedByTitle.isEmpty) return furthest;
+
+    final bucket = _unkeyedByTitle[titleMatchKey(showName)] ?? const [];
+    for (final p in bucket) {
+      final season = p.seasonNumber!;
+      if (season < 1 || !titlesMatch(p.showName!, showName)) continue;
+      final here = (season: season, episode: p.episodeNumber!);
+      if (_isAfter(here, furthest)) furthest = here;
+    }
+    return furthest;
   }
 
   bool isMovieWatched(int movieId) => _movieIds.contains(movieId);

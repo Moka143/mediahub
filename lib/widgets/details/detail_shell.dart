@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -8,6 +6,7 @@ import '../../design/app_tokens.dart';
 import '../../design/app_typography.dart';
 import '../../models/video.dart';
 import '../../utils/feedback_utils.dart';
+import '../common/horizontal_paging.dart';
 import '../editorial/mono_label.dart';
 import '../editorial/serif_title.dart';
 
@@ -171,6 +170,10 @@ class _FoldableSectionState extends State<FoldableSection> {
 /// rather than competing with the page it sits under. The arrows exist
 /// because a trackpad swipe is not discoverable and a scrollbar under a row
 /// of posters is noise.
+///
+/// A primary row — Home's — passes [restingOpacity] 1, [alwaysShowArrows]
+/// and [fadeEdges]: there a card cut off at the window edge, with nothing
+/// saying more follow, read as a layout bug rather than a row to scroll.
 class HoverScrollRow extends StatefulWidget {
   const HoverScrollRow({
     super.key,
@@ -181,7 +184,9 @@ class HoverScrollRow extends StatefulWidget {
       horizontal: AppSpacing.detailPadding,
     ),
     this.restingOpacity = 0.55,
-    this.scrollStep = 600,
+    this.scrollStep,
+    this.alwaysShowArrows = false,
+    this.fadeEdges = false,
   });
 
   final double height;
@@ -192,67 +197,31 @@ class HoverScrollRow extends StatefulWidget {
   /// How visible the row is before the pointer arrives.
   final double restingOpacity;
 
-  /// Pixels one arrow press travels. Roughly two cards.
-  final double scrollStep;
+  /// Pixels one arrow press travels. Null pages by most of the visible
+  /// width, so the next card on screen is the one that was cut off.
+  final double? scrollStep;
+
+  /// Show the arrows whenever there is more to that side, not only on hover.
+  final bool alwaysShowArrows;
+
+  /// Fade out the edge that has more content past it.
+  final bool fadeEdges;
 
   @override
   State<HoverScrollRow> createState() => _HoverScrollRowState();
 }
 
-class _HoverScrollRowState extends State<HoverScrollRow> {
-  final _controller = ScrollController();
+class _HoverScrollRowState extends State<HoverScrollRow>
+    with HorizontalPaging<HoverScrollRow> {
   bool _hovered = false;
 
   /// A card in the row has keyboard focus: the row comes up to full
   /// strength for it, as it does for the pointer.
   bool _focused = false;
-  bool _canScrollLeft = false;
-  bool _canScrollRight = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller.addListener(_syncArrows);
-    // The first frame has no scroll metrics yet, so the right arrow would
-    // never appear for a row that has not been touched.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _syncArrows());
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _syncArrows() {
-    if (!mounted || !_controller.hasClients) return;
-    final position = _controller.position;
-    final left = position.pixels > 1;
-    final right = position.pixels < position.maxScrollExtent - 1;
-    if (left != _canScrollLeft || right != _canScrollRight) {
-      setState(() {
-        _canScrollLeft = left;
-        _canScrollRight = right;
-      });
-    }
-  }
-
-  void _scrollBy(double delta) {
-    if (!_controller.hasClients) return;
-    unawaited(
-      _controller.animateTo(
-        (_controller.offset + delta).clamp(
-          0.0,
-          _controller.position.maxScrollExtent,
-        ),
-        duration: AppDuration.normal,
-        curve: Curves.easeOutCubic,
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
+    final arrows = widget.alwaysShowArrows || _hovered;
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
@@ -267,17 +236,20 @@ class _HoverScrollRowState extends State<HoverScrollRow> {
             height: widget.height,
             child: Stack(
               children: [
-                ListView.separated(
-                  controller: _controller,
-                  scrollDirection: Axis.horizontal,
-                  padding: widget.padding,
-                  itemCount: widget.itemCount,
-                  separatorBuilder: (_, _) =>
-                      const SizedBox(width: AppSpacing.md),
-                  itemBuilder: widget.itemBuilder,
+                trackEdges(
+                  fade: widget.fadeEdges,
+                  ListView.separated(
+                    controller: pagingController,
+                    scrollDirection: Axis.horizontal,
+                    padding: widget.padding,
+                    itemCount: widget.itemCount,
+                    separatorBuilder: (_, _) =>
+                        const SizedBox(width: AppSpacing.md),
+                    itemBuilder: widget.itemBuilder,
+                  ),
                 ),
-                _arrow(left: true, visible: _hovered && _canScrollLeft),
-                _arrow(left: false, visible: _hovered && _canScrollRight),
+                _arrow(left: true, visible: arrows && canScrollBack),
+                _arrow(left: false, visible: arrows && canScrollForward),
               ],
             ),
           ),
@@ -313,8 +285,8 @@ class _HoverScrollRowState extends State<HoverScrollRow> {
                       ? Icons.chevron_left_rounded
                       : Icons.chevron_right_rounded,
                 ),
-                onPressed: () =>
-                    _scrollBy(left ? -widget.scrollStep : widget.scrollStep),
+                tooltip: left ? 'Scroll back' : 'Scroll for more',
+                onPressed: () => page(forward: !left, step: widget.scrollStep),
               ),
             ),
           ),

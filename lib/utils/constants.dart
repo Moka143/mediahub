@@ -13,7 +13,12 @@ class AppConstants {
   /// version that had not shipped for two releases. `app_version_test.dart`
   /// now fails the build when the two disagree, which is the only thing that
   /// keeps a hand-copied constant honest.
-  static const String appVersion = '0.8.0';
+  static const String appVersion = '0.9.0';
+
+  /// The GitHub repository releases are published from, as `owner/name`.
+  /// The in-app updater reads its latest release; the installer script
+  /// carries the same address.
+  static const String releaseRepo = 'Moka143/mediahub';
 
   // Built-in engine (rqbit) defaults.
   //
@@ -193,6 +198,39 @@ enum TorrentEngineKind {
   String get sentenceName => switch (this) {
     TorrentEngineKind.builtin => 'the built-in engine',
     TorrentEngineKind.qbittorrent => 'qBittorrent',
+  };
+}
+
+/// How the player decodes video. See [mpvHwdec].
+///
+/// On Windows the player draws through ANGLE, and the GPU's own frames
+/// cannot always be handed to it — a 10-bit HEVC (x265) file then played its
+/// sound over a black picture. Copying each decoded frame back first works
+/// for every format, at some CPU cost.
+enum VideoDecoding {
+  /// Compatible on Windows, Hardware elsewhere.
+  automatic('Automatic'),
+
+  /// The GPU decodes and draws in one go. Fastest, but shows black for some
+  /// formats on Windows.
+  hardware('Hardware'),
+
+  /// The GPU decodes, the frame is copied back to be drawn. Works for every
+  /// format.
+  compatible('Hardware, compatible'),
+
+  /// The CPU decodes. Slowest, for when the GPU path misbehaves.
+  software('Software');
+
+  final String label;
+  const VideoDecoding(this.label);
+
+  /// The value for mpv's `hwdec` option.
+  String mpvHwdec({required bool windows}) => switch (this) {
+    VideoDecoding.automatic => windows ? 'auto-copy' : 'auto',
+    VideoDecoding.hardware => 'auto',
+    VideoDecoding.compatible => 'auto-copy',
+    VideoDecoding.software => 'no',
   };
 }
 

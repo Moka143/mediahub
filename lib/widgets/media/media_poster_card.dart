@@ -56,6 +56,14 @@ String? ratingLabel(double average, {int voteCount = 0}) {
   return '★ ${average.toStringAsFixed(1)}';
 }
 
+/// The caption under a TMDB card's title: its genre, led by what kind of
+/// title it is when [kind] is given — "TV · Drama", "Movie", "Action".
+/// Null when there is nothing to say.
+String? mediaCaption({String? kind, String? genre}) {
+  final parts = [?kind, ?genre];
+  return parts.isEmpty ? null : parts.join(' · ');
+}
+
 /// Unified poster card. Two layouts:
 ///
 /// * [CardTitleStyle.below] (default) — poster with optional badge,
@@ -124,6 +132,9 @@ class MediaPosterCard extends StatefulWidget {
   /// Browse, Favorites, Home and the details pages' "More like this" rows
   /// each mapped a movie onto a card by hand — eight copies of the same
   /// rating string among them.
+  ///
+  /// Without a [subtitle] the card names the movie's genre, and with
+  /// [showKind] says it is a movie — for rows that mix movies and shows.
   factory MediaPosterCard.movie(
     Movie movie, {
     Key? key,
@@ -131,6 +142,7 @@ class MediaPosterCard extends StatefulWidget {
     bool isWatched = false,
     double? width,
     String? subtitle,
+    bool showKind = false,
     List<MediaCardAction> actions = const [],
   }) => MediaPosterCard(
     key: key,
@@ -143,7 +155,12 @@ class MediaPosterCard extends StatefulWidget {
     overlayRatingTone: movie.voteAverage >= 8 ? AppColors.accent : null,
     isWatched: isWatched,
     width: width,
-    subtitle: subtitle,
+    subtitle:
+        subtitle ??
+        mediaCaption(
+          kind: showKind ? 'Movie' : null,
+          genre: movie.primaryGenre,
+        ),
     actions: actions,
   );
 
@@ -154,6 +171,7 @@ class MediaPosterCard extends StatefulWidget {
     required VoidCallback onTap,
     double? width,
     String? subtitle,
+    bool showKind = false,
     List<MediaCardAction> actions = const [],
   }) => MediaPosterCard(
     key: key,
@@ -165,7 +183,9 @@ class MediaPosterCard extends StatefulWidget {
     overlayRating: ratingLabel(show.voteAverage, voteCount: show.voteCount),
     overlayRatingTone: show.voteAverage >= 8 ? AppColors.accent : null,
     width: width,
-    subtitle: subtitle,
+    subtitle:
+        subtitle ??
+        mediaCaption(kind: showKind ? 'TV' : null, genre: show.primaryGenre),
     placeholderIcon: Icons.live_tv_rounded,
     actions: actions,
   );

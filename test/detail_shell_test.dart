@@ -205,5 +205,85 @@ void main() {
         );
       }
     });
+
+    Widget primaryRow() => MaterialApp(
+      home: Scaffold(
+        body: SizedBox(
+          width: 500,
+          child: HoverScrollRow(
+            height: 100,
+            itemCount: 20,
+            padding: EdgeInsets.zero,
+            restingOpacity: 1,
+            alwaysShowArrows: true,
+            fadeEdges: true,
+            itemBuilder: (_, i) => SizedBox(width: 100, child: Text('$i')),
+          ),
+        ),
+      ),
+    );
+
+    double arrowOpacity(WidgetTester tester, IconData icon) => tester
+        .widget<AnimatedOpacity>(
+          find
+              .ancestor(
+                of: find.byIcon(icon),
+                matching: find.byType(AnimatedOpacity),
+              )
+              .first,
+        )
+        .opacity;
+
+    testWidgets('a primary row shows its arrow without hover, only where '
+        'there is more', (tester) async {
+      // A Home row cut off at the window edge, with no sign that more
+      // followed, read as a layout bug.
+      await tester.pumpWidget(primaryRow());
+      await tester.pumpAndSettle();
+      expect(arrowOpacity(tester, Icons.chevron_right_rounded), 1);
+      expect(arrowOpacity(tester, Icons.chevron_left_rounded), 0);
+      expect(find.byType(ShaderMask), findsOneWidget);
+    });
+
+    testWidgets('an arrow pages by most of the visible width', (tester) async {
+      await tester.pumpWidget(primaryRow());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.chevron_right_rounded));
+      await tester.pumpAndSettle();
+
+      final position = tester
+          .state<ScrollableState>(find.byType(Scrollable))
+          .position;
+      expect(position.pixels, closeTo(500 * 0.85, 1));
+      expect(arrowOpacity(tester, Icons.chevron_left_rounded), 1);
+    });
+
+    testWidgets('the arrows follow a resize, not only a scroll', (
+      tester,
+    ) async {
+      // Five 100 px cards plus gaps fit in 700 px but not in 400.
+      Widget row(double width) => MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: width,
+            child: HoverScrollRow(
+              height: 100,
+              itemCount: 5,
+              padding: EdgeInsets.zero,
+              alwaysShowArrows: true,
+              itemBuilder: (_, i) => SizedBox(width: 100, child: Text('$i')),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpWidget(row(700));
+      await tester.pumpAndSettle();
+      expect(arrowOpacity(tester, Icons.chevron_right_rounded), 0);
+
+      await tester.pumpWidget(row(400));
+      await tester.pumpAndSettle();
+      expect(arrowOpacity(tester, Icons.chevron_right_rounded), 1);
+    });
   });
 }

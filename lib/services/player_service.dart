@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
@@ -7,6 +8,7 @@ import 'package:window_manager/window_manager.dart';
 import '../models/local_media_file.dart';
 import '../models/playback_failure.dart';
 import '../providers/player_provider.dart';
+import '../providers/settings_provider.dart';
 import '../providers/watch_progress_provider.dart';
 import '../utils/constants.dart';
 import '../utils/formatters.dart';
@@ -68,7 +70,14 @@ PlaybackFailureKind? classifyPlayerLog(
 
 /// Service class for player operations
 class PlayerService {
-  PlayerService(this.ref);
+  PlayerService(this.ref) {
+    // A change in Settings reaches the file playing now: mpv re-creates the
+    // decoder in place, so a black picture can be fixed without reopening.
+    ref.listen<VideoDecoding>(
+      videoDecodingProvider,
+      (_, next) => unawaited(_applyVideoDecoding(next)),
+    );
+  }
 
   final Ref ref;
 
@@ -154,9 +163,12 @@ class PlayerService {
     // "playing" before the new file has even been opened — leaving the
     // spinner stuck on top of a mpv instance that's still actually loading.
     try {
-      await _player.stop();
+      // Bounded: a stop that never answers would leave this screen black
+      // for good, with nothing to say why.
+      await _player.stop().timeout(const Duration(seconds: 5));
     } catch (_) {
-      // No media loaded yet — non-fatal.
+      // No media loaded yet, or mpv slow to stop — non-fatal: open() below
+      // replaces whatever is loaded anyway.
     }
     if (superseded()) return;
 
@@ -180,6 +192,7 @@ class PlayerService {
 
     final platform = _player.platform;
     if (platform is NativePlayer) {
+      await _applyVideoDecoding(ref.read(videoDecodingProvider));
       await _tuneForSource(
         platform,
         isStreaming: isStreaming,
@@ -192,6 +205,7 @@ class PlayerService {
     // mpv's `pause` property to "no" after loadfile.
     await _player.open(Media(mediaUri));
     if (superseded()) return;
+    unawaited(_logDecoder(generation));
 
     // Seek to start position if provided — wait for a valid duration rather
     // than a blind 500 ms delay, which was too short on slow storage.
@@ -210,6 +224,40 @@ class PlayerService {
 
     // Start auto-save timer
     _startProgressSaveTimer();
+  }
+
+  /// Point mpv's `hwdec` at [decoding].
+  Future<void> _applyVideoDecoding(VideoDecoding decoding) async {
+    final platform = _player.platform;
+    if (platform is! NativePlayer) return;
+    final hwdec = decoding.mpvHwdec(windows: Platform.isWindows);
+    try {
+      await platform.setProperty('hwdec', hwdec);
+    } catch (e) {
+      AppLog.w('[Player] could not set hwdec=$hwdec: $e');
+    }
+  }
+
+  /// Say in the log which decoder the file ended up on, and in what pixel
+  /// format. "Sound but a black picture" is a decoder-to-screen problem,
+  /// and these two say which: d3d11va with p010 is the classic one.
+  Future<void> _logDecoder(int generation) async {
+    await Future<void>.delayed(const Duration(seconds: 3));
+    final platform = _player.platform;
+    if (generation != _generation || platform is! NativePlayer) return;
+    try {
+      final codec = await platform.getProperty('video-codec');
+      final hwdec = await platform.getProperty('hwdec-current');
+      final format = await platform.getProperty('video-params/hw-pixelformat');
+      final fallback = await platform.getProperty('video-params/pixelformat');
+      AppLog.i(
+        '[Player] video: ${codec.isEmpty ? 'none' : codec}, decoder '
+        '${hwdec.isEmpty ? 'software' : hwdec}, format '
+        '${format.isEmpty ? fallback : format}',
+      );
+    } catch (_) {
+      // Diagnostics only.
+    }
   }
 
   /// mpv settings for where [openFile]'s media is coming from.

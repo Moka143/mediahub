@@ -171,6 +171,19 @@ abstract class TorrentEngine {
   /// to watch one episode. Priority 0 means "do not download".
   Future<bool> setFilePriority(String hash, List<int> fileIds, int priority);
 
+  /// Let [hashes] past the engine's download queue ([force] true), or put
+  /// them back under it.
+  ///
+  /// qBittorrent queues a new torrent once its "maximum active downloads"
+  /// (three by default) are running — and a movie just watched keeps
+  /// downloading after the player closes, as do auto-downloads. A stream
+  /// that lands in that queue never fetches a byte. An engine with no queue
+  /// answers true.
+  Future<bool> setForceStart(
+    List<String> hashes, {
+    required bool force,
+  }) async => true;
+
   // ---------------------------------------------------------------------
   // Streaming
   // ---------------------------------------------------------------------

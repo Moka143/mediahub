@@ -19,6 +19,7 @@ import 'episodes/episode_picker.dart';
 import 'episodes/episode_row.dart';
 import 'episodes/episode_states.dart';
 import 'episodes/episode_status.dart';
+import 'episodes/resume_point.dart';
 import 'episodes/season_tabs.dart';
 import 'mediahub_drawer.dart';
 
@@ -29,18 +30,23 @@ import 'mediahub_drawer.dart';
 ///   * Season strip (`01 02 03 …`)
 ///   * Episode quick-jump strip
 ///   * Episode list — each row opens the episode through [onEpisodeTap]
+///
+/// Without an [initialSeason] it opens where the viewer left off
+/// ([ResumePoint]): on that episode's season, scrolled to it.
 class MediaHubEpisodesDrawer extends ConsumerStatefulWidget {
   const MediaHubEpisodesDrawer({
     super.key,
     required this.show,
     required this.seasons,
-    required this.initialSeason,
+    this.initialSeason,
     required this.onEpisodeTap,
   });
 
   final Show show;
   final List<Season> seasons;
-  final int initialSeason;
+
+  /// The season to open on; null for where the viewer left off.
+  final int? initialSeason;
   final void Function(Episode episode) onEpisodeTap;
 
   /// Slide-in helper — same shape as `MediaHubTorrentDrawer.show`.
@@ -50,7 +56,7 @@ class MediaHubEpisodesDrawer extends ConsumerStatefulWidget {
     required BuildContext context,
     required Show show,
     required List<Season> seasons,
-    int initialSeason = 1,
+    int? initialSeason,
     required void Function(Episode episode) onEpisodeTap,
   }) {
     return MediaHubDrawer.show<void>(
@@ -87,9 +93,30 @@ class _MediaHubEpisodesDrawerState
   late final List<int> _seasonNumbers = MediaHubEpisodesDrawer.tabSeasons(
     widget.seasons,
   );
-  late int _season = _seasonNumbers.contains(widget.initialSeason)
-      ? widget.initialSeason
-      : (_seasonNumbers.isEmpty ? widget.initialSeason : _seasonNumbers.first);
+
+  /// Where the viewer left off, when no season was asked for. Read once, as
+  /// the drawer opens: progress saved behind it must not move the list.
+  late final ResumePoint? _resume = widget.initialSeason == null
+      ? ResumePoint.pick(
+          show: widget.show,
+          seasons: widget.seasons,
+          inProgress: ref.read(continueWatchingProvider),
+          watched: ref.read(watchedIndexProvider),
+        )
+      : null;
+
+  late int _season = _startSeason();
+
+  /// The episode to scroll to once its season's list is in — the resume
+  /// point's, until it has been scrolled to or another season picked.
+  late int? _pendingEpisode = _resume?.episode;
+
+  int _startSeason() {
+    final wanted = widget.initialSeason ?? _resume?.season;
+    if (wanted != null && _seasonNumbers.contains(wanted)) return wanted;
+    if (_seasonNumbers.isNotEmpty) return _seasonNumbers.first;
+    return wanted ?? 1;
+  }
 
   @override
   void dispose() {
@@ -102,6 +129,7 @@ class _MediaHubEpisodesDrawerState
 
   void _selectSeason(int season) {
     if (season == _season) return;
+    _pendingEpisode = null;
     setState(() => _season = season);
     if (_listController.hasClients) _listController.jumpTo(0);
   }
@@ -122,6 +150,22 @@ class _MediaHubEpisodesDrawerState
         curve: Curves.easeOutCubic,
       ),
     );
+  }
+
+  /// Bring the resume point's row to the top, once, the first time its
+  /// season's episodes are on screen. A jump, not a glide: the drawer is
+  /// still sliding in.
+  void _scrollToPending(List<Episode> episodes, double extent) {
+    final target = _pendingEpisode;
+    if (target == null) return;
+    _pendingEpisode = null;
+    final index = episodes.indexWhere((e) => e.episodeNumber == target);
+    if (index <= 0) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_listController.hasClients) return;
+      final max = _listController.position.maxScrollExtent;
+      _listController.jumpTo((index * extent).clamp(0.0, max));
+    });
   }
 
   /// One status per episode — watched wins over Transfers, which wins over
@@ -204,6 +248,7 @@ class _MediaHubEpisodesDrawerState
     final List<Episode>? episodes = episodesAsync.value;
     final Widget body;
     if (episodes != null) {
+      _scrollToPending(episodes, extent);
       body = episodes.isEmpty
           ? const EpisodesEmptyState()
           : ListView.builder(

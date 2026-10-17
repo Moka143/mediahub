@@ -1,6 +1,7 @@
 import 'cast_member.dart';
 import 'episode.dart';
 import 'season.dart';
+import 'tmdb_genres.dart';
 import 'tmdb_json.dart';
 import 'video.dart';
 
@@ -150,6 +151,10 @@ class Show {
   String? get year => firstAirDate != null && firstAirDate!.length >= 4
       ? firstAirDate!.substring(0, 4)
       : null;
+
+  /// The genre a card names — see `Movie.primaryGenre`.
+  String? get primaryGenre =>
+      genres.isNotEmpty ? genres.first : firstGenreName(genreIds, tv: true);
 
   /// Check if show is currently airing
   bool get isAiring => status == 'Returning Series' || inProduction;

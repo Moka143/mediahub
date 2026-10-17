@@ -1,10 +1,15 @@
+import 'dart:async';
+import 'dart:io' show Platform;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
 import '../../design/app_typography.dart';
+import '../../providers/app_update_provider.dart';
 import '../../services/app_logger.dart';
 import '../../utils/constants.dart';
 import '../../utils/feedback_utils.dart';
@@ -25,6 +30,13 @@ class SettingsAboutTab extends StatelessWidget {
     return SettingsPage(
       children: [
         const _AppIdentity(),
+        // Only Windows has an installer to update from.
+        if (Platform.isWindows)
+          const SettingsSection(
+            title: 'Updates',
+            icon: Icons.system_update_alt_rounded,
+            children: [_UpdateTile()],
+          ),
         SettingsSection(
           title: 'Keyboard shortcuts',
           icon: Icons.keyboard_rounded,
@@ -82,6 +94,85 @@ class SettingsAboutTab extends StatelessWidget {
             ),
           ],
         ),
+      ],
+    );
+  }
+}
+
+/// Where this copy stands against the latest release, and the button that
+/// moves it along: check, update, or try again.
+class _UpdateTile extends ConsumerWidget {
+  const _UpdateTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final update = ref.watch(appUpdateProvider);
+    final notifier = ref.read(appUpdateProvider.notifier);
+    final version = update.release?.version;
+
+    final (
+      String status,
+      String? button,
+      VoidCallback? onPressed,
+    ) = switch (update.stage) {
+      AppUpdateStage.idle => (
+        'Version ${AppConstants.appVersion}',
+        'Check for updates',
+        () => unawaited(notifier.check(userAsked: true)),
+      ),
+      AppUpdateStage.checking => ('Checking for updates…', null, null),
+      AppUpdateStage.upToDate => (
+        'Version ${AppConstants.appVersion} is the latest',
+        'Check again',
+        () => unawaited(notifier.check(userAsked: true)),
+      ),
+      AppUpdateStage.available => (
+        'Version $version is available',
+        'Update now',
+        () => unawaited(notifier.install()),
+      ),
+      AppUpdateStage.downloading => (
+        'Downloading $version… ${(update.progress * 100).round()}%',
+        null,
+        null,
+      ),
+      AppUpdateStage.installing => ('Installing $version…', null, null),
+      AppUpdateStage.failed => (
+        update.error ?? "Couldn't update.",
+        'Try again',
+        () => unawaited(
+          version == null
+              ? notifier.check(userAsked: true)
+              : notifier.install(),
+        ),
+      ),
+    };
+
+    return Row(
+      children: [
+        const SettingsIconBox(icon: Icons.system_update_alt_rounded),
+        const SizedBox(width: AppSpacing.md),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(status, style: AppType.bodyStrong()),
+              Text(
+                'Updates install in place and reopen MediaHub. Settings '
+                'and downloads are kept.',
+                style: AppType.caption(),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: AppSpacing.md),
+        if (button != null)
+          OutlinedButton(onPressed: onPressed, child: Text(button))
+        else
+          const SizedBox.square(
+            dimension: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
       ],
     );
   }

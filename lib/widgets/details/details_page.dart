@@ -12,8 +12,30 @@ import '../common/floating_header_action.dart';
 import '../common/loading_state.dart';
 import '../editorial/editorial.dart';
 import '../media/cast_row.dart';
+import '../mediahub_backdrop_hero.dart';
 import 'detail_shell.dart';
 import 'show_detail_sections.dart';
+
+/// What a details page already knows about its title before the full
+/// record has loaded — what the card that opened it showed.
+@immutable
+class DetailsPreview {
+  const DetailsPreview({
+    required this.title,
+    required this.year,
+    required this.posterUrl,
+    required this.backdropUrl,
+    required this.hue,
+    this.placeholderIcon = Icons.movie_outlined,
+  });
+
+  final String title;
+  final String? year;
+  final String? posterUrl;
+  final String? backdropUrl;
+  final double hue;
+  final IconData placeholderIcon;
+}
 
 /// A pushed details page — movie or show.
 ///
@@ -30,9 +52,14 @@ class DetailsPageScaffold<T> extends StatelessWidget {
     required this.builder,
     this.headerActions,
     this.onOpenSettings,
+    this.preview,
   });
 
   final AsyncValue<T> value;
+
+  /// Drawn while [value] loads, in place of a bare spinner: the page opened
+  /// from a card that already showed the poster and title.
+  final DetailsPreview? preview;
 
   /// What failed to load, for the error message — "this movie".
   final String subject;
@@ -66,6 +93,8 @@ class DetailsPageScaffold<T> extends StatelessWidget {
         secondaryLabel: needsSettings ? 'Open Settings' : null,
         onSecondary: needsSettings ? onOpenSettings : null,
       );
+    } else if (preview case final known?) {
+      body = _LoadingPreview(preview: known);
     } else {
       body = const LoadingIndicator();
     }
@@ -95,6 +124,45 @@ class DetailsPageScaffold<T> extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The details hero for a [DetailsPreview], with its actions held back
+/// until the record they need (an IMDb id, the seasons) has loaded.
+class _LoadingPreview extends StatelessWidget {
+  const _LoadingPreview({required this.preview});
+
+  final DetailsPreview preview;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(
+          child: MediaHubBackdropHero(
+            title: preview.title,
+            year: preview.year,
+            metaPills: const [],
+            posterUrl: preview.posterUrl,
+            backdropUrl: preview.backdropUrl,
+            fallbackHue: preview.hue,
+            description: null,
+            posterPlaceholderIcon: preview.placeholderIcon,
+            primaryAction: const EditorialButton(
+              label: 'Loading…',
+              icon: Icons.hourglass_empty_rounded,
+              large: true,
+            ),
+          ),
+        ),
+        const SliverToBoxAdapter(
+          child: Padding(
+            padding: EdgeInsets.all(AppSpacing.detailPadding),
+            child: ThinProgressLine(),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -226,8 +294,10 @@ class DetailsCastSliver extends StatelessWidget {
   }
 }
 
-/// "More like this" — at the bottom and deliberately quiet: dimmed until
-/// pointed at, because the reader came for this title, not the next one.
+/// "More like this" — at the bottom and deliberately quiet: a little dimmed
+/// until pointed at, because the reader came for this title, not the next
+/// one. Its arrows show without hover, though: hidden ones left a row cut
+/// off at the window edge that a mouse wheel could not scroll.
 class DetailsSimilarSliver extends StatelessWidget {
   const DetailsSimilarSliver({
     super.key,
@@ -267,6 +337,9 @@ class DetailsSimilarSliver extends StatelessWidget {
             HoverScrollRow(
               // The overlay card is a bare 2:3 poster.
               height: cardWidth * 3 / 2,
+              restingOpacity: 0.8,
+              alwaysShowArrows: true,
+              fadeEdges: true,
               itemCount: itemCount,
               itemBuilder: itemBuilder,
             ),

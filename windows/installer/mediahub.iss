@@ -85,6 +85,10 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+; The in-app updater runs this installer with /SILENT /UPDATE=1 and quits.
+; skipifsilent above would then leave the user with no MediaHub at all, so
+; an update brings the new version back up itself.
+Filename: "{app}\{#MyAppExeName}"; Flags: nowait; Check: IsAppUpdate
 
 [UninstallDelete]
 ; Flutter and media_kit drop caches next to the executable at runtime; leave
@@ -92,3 +96,10 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 ; %APPDATA%\MediaHub and under DPAPI, and are deliberately kept — an
 ; uninstall/reinstall cycle should not sign anyone out.
 Type: filesandordirs; Name: "{app}"
+
+[Code]
+// True when the in-app updater started this installer (/UPDATE=1).
+function IsAppUpdate: Boolean;
+begin
+  Result := ExpandConstant('{param:UPDATE|0}') = '1';
+end;

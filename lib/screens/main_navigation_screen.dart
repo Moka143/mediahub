@@ -27,6 +27,7 @@ import '../utils/constants.dart';
 import '../utils/feedback_utils.dart';
 import '../widgets/add_torrent_dialog.dart';
 import '../widgets/common/app_shortcuts.dart';
+import '../widgets/common/app_update_notice.dart';
 import '../widgets/common/mediahub_sidebar.dart';
 import '../widgets/common/mediahub_topbar.dart';
 import '../widgets/common/nav_badge.dart';
@@ -400,6 +401,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
     );
     final prefsReset = ref.watch(prefsWereResetProvider);
     return [
+      const AppUpdateNotice(),
       // Without this the engine migration is silent, and the first thing it
       // shows is an empty Transfers list — because torrents still running in
       // their qBittorrent belong to a backend the app is no longer talking

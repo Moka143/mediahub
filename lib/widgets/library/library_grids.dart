@@ -8,6 +8,7 @@ import '../../models/local_media_file.dart';
 import '../../models/show_with_seasons.dart';
 import '../../models/watch_progress.dart';
 import '../../utils/media_names.dart';
+import '../details/detail_shell.dart' show HoverScrollRow;
 import '../media/continue_watching_card.dart';
 import '../media/media_poster_card.dart';
 import '../media/poster_lookup.dart';
@@ -30,28 +31,30 @@ class ContinueWatchingStrip extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return SizedBox(
+    // Arrows and a fade on the side with more, as on Home: a mouse wheel
+    // scrolls the page rather than the strip, and a card cut off at the
+    // window edge with nothing saying more follow read as clipped layout.
+    return HoverScrollRow(
       // Asked of the card rather than hard-coded: these cards carry a
       // subtitle ("48m left"), and the previous fixed 190 clipped 84 px off
       // every card.
       height: MediaPosterCard.heightForWidth(context),
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.zero,
-        itemCount: items.length,
-        separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.sm),
-        itemBuilder: (context, index) {
-          final progress = items[index];
-          return ContinueWatchingCard(
-            progress: progress,
-            onTap: () => actions.playProgress(progress),
-            onRemove: () => actions.removeProgress(progress),
-            onMarkWatched: () =>
-                actions.markWatched(actions.fileFor(ref, progress)),
-            onDelete: () => actions.deleteFile(actions.fileFor(ref, progress)),
-          );
-        },
-      ),
+      padding: EdgeInsets.zero,
+      restingOpacity: 1,
+      alwaysShowArrows: true,
+      fadeEdges: true,
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        final progress = items[index];
+        return ContinueWatchingCard(
+          progress: progress,
+          onTap: () => actions.playProgress(progress),
+          onRemove: () => actions.removeProgress(progress),
+          onMarkWatched: () =>
+              actions.markWatched(actions.fileFor(ref, progress)),
+          onDelete: () => actions.deleteFile(actions.fileFor(ref, progress)),
+        );
+      },
     );
   }
 }

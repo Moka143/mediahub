@@ -42,6 +42,54 @@ void main() {
     });
   });
 
+  group('sourceListItems', () {
+    List<String> labels(List<Object> items) => [
+      for (final item in items)
+        if (item is TorrentioStream)
+          item.infoHash
+        else
+          '# ${(item as SourceTierHeader).tier}',
+    ];
+
+    test('the best source leads, and is not repeated in its tier', () {
+      // Tiers run 2160p first, so a best 1080p source sat below every 4K
+      // row, often out of sight.
+      final sources = [
+        _source('2160p', 3),
+        _source('2160p', 5),
+        _source('1080p', 800),
+        _source('1080p', 40),
+      ];
+      final items = sourceListItems(sources, best: bestSource(sources));
+      expect(labels(items), [
+        '# $recommendedTier',
+        '1080p-800',
+        '# 2160p',
+        '2160p-3',
+        '2160p-5',
+        '# 1080p',
+        '1080p-40',
+      ]);
+    });
+
+    test('a tier left empty by the pin has no header', () {
+      final sources = [_source('1080p', 800), _source('720p', 2)];
+      final items = sourceListItems(sources, best: sources.first);
+      expect(labels(items), [
+        '# $recommendedTier',
+        '1080p-800',
+        '# 720p',
+        '720p-2',
+      ]);
+    });
+
+    test('a best source filtered out of view is not pinned', () {
+      final best = _source('2160p', 900);
+      final items = sourceListItems([_source('720p', 2)], best: best);
+      expect(labels(items), ['# 720p', '720p-2']);
+    });
+  });
+
   testWidgets('the picker leads with Stream; a row click streams; Download '
       'is the second choice', (tester) async {
     final picks = <(String, bool)>[];

@@ -142,11 +142,7 @@ class ShowsBrowseConfig extends BrowseConfig<Show> {
     return MediaHubSpotlight(
       title: item.name,
       year: item.year,
-      genre: genre.isAll
-          ? (item.genres.isNotEmpty
-                ? item.genres.first
-                : firstGenreName(item.genreIds, tv: true))
-          : genre.label,
+      genre: genre.isAll ? item.primaryGenre : genre.label,
       rating: ratingLabel(item.voteAverage, voteCount: item.voteCount),
       hue: hueForId(item.id),
       metaSuffix: 'TV SERIES',

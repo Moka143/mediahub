@@ -61,6 +61,10 @@ class _SessionTracking {
   /// Where the selected file sits in the torrent's pieces; fixed once known.
   int pieceSize = 0;
   FilePieceMap? pieceMap;
+
+  /// This session took the torrent out of the engine's download queue, and
+  /// puts it back when it ends. See [TorrentEngine.setForceStart].
+  bool forcedStart = false;
 }
 
 /// Runs streaming sessions: adds the torrent, waits for its metadata, picks
@@ -82,6 +86,7 @@ class StreamingService {
     this.metadataTimeout = defaultMetadataTimeout,
     this.engineSilenceLimit = defaultEngineSilenceLimit,
     this.pollingInterval = defaultPollingInterval,
+    this.tickTimeout = defaultTickTimeout,
   });
 
   final TorrentEngine _engine;
@@ -96,6 +101,9 @@ class StreamingService {
 
   /// How often a session is checked while it gets ready.
   final Duration pollingInterval;
+
+  /// How long one check may take before the next one runs anyway.
+  final Duration tickTimeout;
 
   final Map<String, StreamingSession> _sessions = {};
   final Map<String, _SessionTracking> _tracking = {};
@@ -112,6 +120,10 @@ class StreamingService {
   static const Duration defaultMetadataTimeout = Duration(minutes: 2);
   static const Duration defaultEngineSilenceLimit = Duration(seconds: 30);
   static const Duration defaultPollingInterval = Duration(seconds: 2);
+
+  /// Longer than the engines' own request timeouts, so it only fires when
+  /// something below them has hung.
+  static const Duration defaultTickTimeout = Duration(seconds: 60);
 
   /// Polls in a row that must find no metadata before [metadataTimeout] may
   /// end a session. One unlucky poll is not evidence.
@@ -245,9 +257,16 @@ class StreamingService {
     final session = _sessions[sessionId];
     if (session == null) return;
 
-    AppLog.d('[StreamingService] Cancelling session $sessionId');
+    // INFO, not DEBUG: release logs drop DEBUG, and a stream that vanished
+    // with no message is told apart from one that failed by this line.
+    AppLog.i(
+      '[StreamingService] Cancelling session $sessionId '
+      '(was ${session.state.name})',
+    );
 
-    _tracking.remove(sessionId)?.loop?.dispose();
+    final tracking = _tracking.remove(sessionId);
+    tracking?.loop?.dispose();
+    if (tracking != null) _releaseForceStart(sessionId, session, tracking);
 
     // Tear down the local HTTP proxy if one was started for this session.
     await _streamingServers.remove(sessionId)?.stop();
@@ -270,6 +289,10 @@ class StreamingService {
         PollLoop(
           name: 'stream:$sessionId',
           onTick: () => _checkSessionProgress(sessionId),
+          // A request that never returns used to freeze the session on
+          // "Buffering" for good: every later tick was dropped as overlap,
+          // so neither readiness nor any give-up rule was checked again.
+          tickTimeout: tickTimeout,
         )..start(
           pollingInterval,
           // Check immediately rather than making the first buffering update
@@ -304,6 +327,11 @@ class StreamingService {
     if (torrent == null) {
       _torrentMissing(sessionId, session, tracking);
       return;
+    }
+
+    if (torrent.state == TorrentState.queuedDL && !tracking.forcedStart) {
+      await _forceStart(sessionId, torrent, tracking);
+      if (!_isLive(sessionId)) return;
     }
 
     // Heartbeat: refresh content path AND progress on every poll so the
@@ -528,18 +556,26 @@ class StreamingService {
     }
   }
 
-  /// Files of torrent [hash] that other live sessions are playing.
-  Set<int> _filesPlayingElsewhere(String hash, String exceptSession) {
+  /// Live sessions other than [exceptSession] on torrent [hash].
+  Iterable<StreamingSession> _otherLiveSessionsOn(
+    String hash,
+    String exceptSession,
+  ) {
     final wanted = hash.toLowerCase();
-    return {
+    return [
       for (final entry in _sessions.entries)
         if (entry.key != exceptSession &&
             entry.value.isActive &&
-            entry.value.request.infoHash.toLowerCase() == wanted &&
-            entry.value.selectedFileIndex != null)
-          entry.value.selectedFileIndex!,
-    };
+            entry.value.request.infoHash.toLowerCase() == wanted)
+          entry.value,
+    ];
   }
+
+  /// Files of torrent [hash] that other live sessions are playing.
+  Set<int> _filesPlayingElsewhere(String hash, String exceptSession) => {
+    for (final other in _otherLiveSessionsOn(hash, exceptSession))
+      ?other.selectedFileIndex,
+  };
 
   /// Which of the three ways to reach the bytes applies right now.
   ///
@@ -843,6 +879,49 @@ class StreamingService {
     final tracking = _tracking[sessionId];
     tracking?.loop?.stop();
     tracking?.buffer = null;
+    final session = _sessions[sessionId];
+    if (tracking != null && session != null) {
+      _releaseForceStart(sessionId, session, tracking);
+    }
+  }
+
+  /// Take a queued torrent past the engine's download queue.
+  ///
+  /// qBittorrent holds a new torrent back while its active-download slots
+  /// are full — a movie just watched keeps one busy, auto-downloads others.
+  /// The stream then sat on "Connecting…" until the metadata timeout, and
+  /// worked after a restart only because a slot had freed up by then.
+  Future<void> _forceStart(
+    String sessionId,
+    Torrent torrent,
+    _SessionTracking tracking,
+  ) async {
+    tracking.forcedStart = true;
+    AppLog.i(
+      '[StreamingService] ${torrent.hash} is queued behind other downloads '
+      '— starting it now',
+    );
+    final ok = await _engine.setForceStart([torrent.hash], force: true);
+    if (!ok) {
+      AppLog.w('[StreamingService] force start failed for ${torrent.hash}');
+    }
+  }
+
+  /// Hand the torrent back to the engine's queue once nothing streams it.
+  ///
+  /// Left forced, a finished stream would hold a download slot — and seed —
+  /// past every limit the user set. Not while another session reads the
+  /// same torrent: the next episode of a pack, say.
+  void _releaseForceStart(
+    String sessionId,
+    StreamingSession session,
+    _SessionTracking tracking,
+  ) {
+    if (!tracking.forcedStart) return;
+    tracking.forcedStart = false;
+    final hash = session.request.infoHash;
+    if (_otherLiveSessionsOn(hash, sessionId).isNotEmpty) return;
+    unawaited(_engine.setForceStart([hash.toLowerCase()], force: false));
   }
 
   /// Apply [change] to a session and notify listeners.

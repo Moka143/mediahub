@@ -139,20 +139,24 @@ class _HostState extends ConsumerState<_Host>
     with DetailsPlaybackController<_Host> {
   int settled = 0;
   int anotherSource = 0;
+  bool? playerCanTryAnother;
 
   late final DetailsStreamTarget target = DetailsStreamTarget(
     label: '"Dune"',
     onSettled: () => settled++,
     onTryAnotherSource: () => anotherSource++,
-    openPlayer: (file, session) => Scaffold(
-      body: Builder(
-        builder: (context) => TextButton(
-          onPressed: () =>
-              Navigator.of(context).pop(PlayerExitReason.tryAnotherSource),
-          child: Text('player ${file.fileName}'),
+    openPlayer: (file, session, {required canTryAnotherSource}) {
+      playerCanTryAnother = canTryAnotherSource;
+      return Scaffold(
+        body: Builder(
+          builder: (context) => TextButton(
+            onPressed: () =>
+                Navigator.of(context).pop(PlayerExitReason.tryAnotherSource),
+            child: Text('player ${file.fileName}'),
+          ),
         ),
-      ),
-    ),
+      );
+    },
   );
 
   @override
@@ -356,6 +360,8 @@ void main() {
     sessions.publish(_session(StreamingState.ready, file: _file));
     await tester.pumpAndSettle();
 
+    // A stream from here may offer it: this screen reopens the picker.
+    expect(host.playerCanTryAnother, isTrue);
     await tester.tap(find.text('player ${_file.fileName}'));
     await tester.pumpAndSettle();
     expect(host.anotherSource, 1);

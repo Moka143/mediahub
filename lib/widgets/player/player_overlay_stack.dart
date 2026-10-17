@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../design/app_tokens.dart';
@@ -130,6 +132,13 @@ class PlayerOverlayStack extends StatelessWidget {
               if (showBuffering && video != null && !failed)
                 BufferingIndicator(label: bufferingLabel),
 
+              // Opening can take seconds — longer for a stream, or a resume
+              // that waits for a duration — and was a plain black frame. A
+              // short delay keeps it from flashing on a file that opens at
+              // once.
+              if (video == null && !failed && !showResumePrompt)
+                const _OpeningIndicator(),
+
               // Skip backward indicator (left side)
               if (showSkipBackward)
                 Positioned(
@@ -220,4 +229,38 @@ class PlayerOverlayStack extends StatelessWidget {
       ],
     );
   }
+}
+
+/// "Opening…", shown only once opening has taken longer than [_delay].
+class _OpeningIndicator extends StatefulWidget {
+  const _OpeningIndicator();
+
+  static const Duration _delay = Duration(milliseconds: 800);
+
+  @override
+  State<_OpeningIndicator> createState() => _OpeningIndicatorState();
+}
+
+class _OpeningIndicatorState extends State<_OpeningIndicator> {
+  Timer? _timer;
+  bool _visible = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer(_OpeningIndicator._delay, () {
+      if (mounted) setState(() => _visible = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => _visible
+      ? const BufferingIndicator(label: 'Opening…')
+      : const SizedBox.shrink();
 }

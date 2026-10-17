@@ -9,6 +9,7 @@ import 'design/app_theme.dart';
 import 'design/app_tokens.dart';
 import 'design/app_typography.dart';
 import 'design/ui_scale.dart';
+import 'providers/navigation_provider.dart';
 import 'screens/splash_screen.dart';
 import 'utils/constants.dart';
 
@@ -19,6 +20,14 @@ final rootScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 /// Global key for the root Navigator
 /// Use this for navigation from anywhere in the app
 final rootNavigatorKey = GlobalKey<NavigatorState>();
+
+/// Switch to [tab], closing whatever is pushed over the shell — a details
+/// page, a player. From [container] rather than a `ref`: it is reached from
+/// snackbar actions and overlays that can outlive the screen that made them.
+void showAppTab(ProviderContainer container, AppTab tab) {
+  container.read(currentTabIndexProvider.notifier).show(tab);
+  rootNavigatorKey.currentState?.popUntil((route) => route.isFirst);
+}
 
 /// Main application widget
 class MediaHubApp extends ConsumerWidget {

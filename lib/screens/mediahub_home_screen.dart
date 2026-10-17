@@ -52,12 +52,18 @@ class MediaHubHomeScreen extends ConsumerWidget {
   void _showTab(WidgetRef ref, AppTab tab) =>
       ref.read(currentTabIndexProvider.notifier).show(tab);
 
+  /// Still fetching a feed for the first time — nothing to show and no
+  /// error yet. A feed that failed says so instead (see [_FeedProblem]).
+  static bool _firstLoad(AsyncValue<List<Object>> feed) =>
+      feed.isLoading && !feed.hasValue && !feed.hasError;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final continueWatching = ref.watch(continueWatchingProvider);
     final trendingShowsAsync = ref.watch(trendingShowsProvider);
     final trendingShows = trendingShowsAsync.value ?? const <Show>[];
-    final trendingMovies = ref.watch(trendingMoviesProvider).value ?? const [];
+    final trendingMoviesAsync = ref.watch(trendingMoviesProvider);
+    final trendingMovies = trendingMoviesAsync.value ?? const <Movie>[];
     final recs = ref.watch(homeRecommendationsProvider).value;
     final hero = continueWatching.firstOrNull;
     final fallbackShow = trendingShows.firstOrNull;
@@ -70,33 +76,39 @@ class MediaHubHomeScreen extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            HeroCard(
-              progress: hero,
-              art: hero == null
-                  ? null
-                  : ref.watch(homeContinueHeroArtProvider).value,
-              fallbackShow: fallbackShow,
-              onPrimaryTap: () {
-                if (hero != null) {
-                  actions.playProgress(hero);
-                } else if (fallbackShow != null) {
-                  _push(
-                    context,
-                    ShowDetailsScreen(
-                      show: fallbackShow,
-                      autoOpenEpisodesDrawer: true,
-                    ),
-                  );
-                } else {
-                  _showTab(ref, AppTab.shows);
-                }
-              },
-              onSecondaryTap: hero != null
-                  ? () => unawaited(openProgressDetails(context, ref, hero))
-                  : fallbackShow != null
-                  ? () => _push(context, ShowDetailsScreen(show: fallbackShow))
-                  : null,
-            ),
+            if (hero == null &&
+                fallbackShow == null &&
+                _firstLoad(trendingShowsAsync))
+              const HeroSkeleton()
+            else
+              HeroCard(
+                progress: hero,
+                art: hero == null
+                    ? null
+                    : ref.watch(homeContinueHeroArtProvider).value,
+                fallbackShow: fallbackShow,
+                onPrimaryTap: () {
+                  if (hero != null) {
+                    actions.playProgress(hero);
+                  } else if (fallbackShow != null) {
+                    _push(
+                      context,
+                      ShowDetailsScreen(
+                        show: fallbackShow,
+                        autoOpenEpisodesDrawer: true,
+                      ),
+                    );
+                  } else {
+                    _showTab(ref, AppTab.shows);
+                  }
+                },
+                onSecondaryTap: hero != null
+                    ? () => unawaited(openProgressDetails(context, ref, hero))
+                    : fallbackShow != null
+                    ? () =>
+                          _push(context, ShowDetailsScreen(show: fallbackShow))
+                    : null,
+              ),
             const SizedBox(height: AppSpacing.xxl),
 
             // TMDB unreachable, or the token rejected: say so, rather than
@@ -125,10 +137,12 @@ class MediaHubHomeScreen extends ConsumerWidget {
                 },
               ),
 
+            // No "See all": the row already holds every recommendation there
+            // is, merged from up to two favorites. It used to lead to
+            // Favorites, which lists none of them.
             if (recs != null && recs.items.isNotEmpty)
               HomeRow(
                 title: 'Because you liked ${recs.becauseTitle}',
-                onSeeAll: () => _showTab(ref, AppTab.favorites),
                 itemCount: recs.items.length,
                 itemBuilder: (context, i) {
                   final item = recs.items[i];
@@ -140,7 +154,9 @@ class MediaHubHomeScreen extends ConsumerWidget {
                 },
               ),
 
-            if (trendingShows.isNotEmpty)
+            if (_firstLoad(trendingShowsAsync))
+              const HomeRowSkeleton(title: 'Trending shows')
+            else if (trendingShows.isNotEmpty)
               HomeRow(
                 title: 'Trending shows',
                 onSeeAll: () => _showTab(ref, AppTab.shows),
@@ -149,7 +165,9 @@ class MediaHubHomeScreen extends ConsumerWidget {
                     _showCard(context, trendingShows[i]),
               ),
 
-            if (trendingMovies.isNotEmpty)
+            if (_firstLoad(trendingMoviesAsync))
+              const HomeRowSkeleton(title: 'Trending movies')
+            else if (trendingMovies.isNotEmpty)
               HomeRow(
                 title: 'Trending movies',
                 onSeeAll: () => _showTab(ref, AppTab.movies),
@@ -174,9 +192,11 @@ class MediaHubHomeScreen extends ConsumerWidget {
     );
   }
 
+  // Home's rows mix movies and shows, so every card says which it is.
   Widget _showCard(BuildContext context, Show show) => MediaPosterCard.show(
     show,
     width: homeCardWidth,
+    showKind: true,
     onTap: () => _push(context, ShowDetailsScreen(show: show)),
   );
 
@@ -184,6 +204,7 @@ class MediaHubHomeScreen extends ConsumerWidget {
     builder: (context, ref, _) => MediaPosterCard.movie(
       movie,
       width: homeCardWidth,
+      showKind: true,
       isWatched: ref.watch(isMovieWatchedProvider(movie.id)),
       onTap: () => _push(context, MovieDetailsScreen(movie: movie)),
     ),

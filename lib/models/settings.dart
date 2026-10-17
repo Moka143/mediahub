@@ -52,6 +52,7 @@ class AppSettings {
   // Playback settings (Stremio-inspired)
   final bool bingeWatchingEnabled; // Auto-play next episode
   final int nextEpisodeCountdownSeconds; // Seconds before end to show popup
+  final VideoDecoding videoDecoding;
 
   // External API keys (user-provided; not shipped in source)
   final String tmdbApiKey;
@@ -78,6 +79,7 @@ class AppSettings {
     this.sortAscending = false,
     this.bingeWatchingEnabled = true,
     this.nextEpisodeCountdownSeconds = 30,
+    this.videoDecoding = VideoDecoding.automatic,
     this.tmdbApiKey = '',
   }) : qbittorrentPath =
            qbittorrentPath ?? PlatformUtils.getDefaultQBittorrentPath(),
@@ -137,6 +139,11 @@ class AppSettings {
       bingeWatchingEnabled: json['binge_watching_enabled'] as bool? ?? true,
       nextEpisodeCountdownSeconds:
           json['next_episode_countdown_seconds'] as int? ?? 30,
+      videoDecoding: _enumAt(
+        VideoDecoding.values,
+        json['video_decoding'],
+        VideoDecoding.automatic,
+      ),
       tmdbApiKey: json['tmdb_api_key'] as String? ?? '',
     );
   }
@@ -168,6 +175,7 @@ class AppSettings {
       'sort_ascending': sortAscending,
       'binge_watching_enabled': bingeWatchingEnabled,
       'next_episode_countdown_seconds': nextEpisodeCountdownSeconds,
+      'video_decoding': videoDecoding.index,
     };
   }
 
@@ -193,6 +201,7 @@ class AppSettings {
     bool? sortAscending,
     bool? bingeWatchingEnabled,
     int? nextEpisodeCountdownSeconds,
+    VideoDecoding? videoDecoding,
     String? tmdbApiKey,
   }) {
     return AppSettings(
@@ -222,6 +231,7 @@ class AppSettings {
       bingeWatchingEnabled: bingeWatchingEnabled ?? this.bingeWatchingEnabled,
       nextEpisodeCountdownSeconds:
           nextEpisodeCountdownSeconds ?? this.nextEpisodeCountdownSeconds,
+      videoDecoding: videoDecoding ?? this.videoDecoding,
       tmdbApiKey: tmdbApiKey ?? this.tmdbApiKey,
     );
   }
@@ -252,6 +262,7 @@ class AppSettings {
           sortAscending == other.sortAscending &&
           bingeWatchingEnabled == other.bingeWatchingEnabled &&
           nextEpisodeCountdownSeconds == other.nextEpisodeCountdownSeconds &&
+          videoDecoding == other.videoDecoding &&
           tmdbApiKey == other.tmdbApiKey;
 
   @override
@@ -277,6 +288,7 @@ class AppSettings {
     sortAscending,
     bingeWatchingEnabled,
     nextEpisodeCountdownSeconds,
+    videoDecoding,
     tmdbApiKey,
   ]);
 }
