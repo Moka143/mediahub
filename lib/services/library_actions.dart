@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/local_media_file.dart';
+import '../models/stream_request.dart';
 import '../models/torrent.dart';
 import '../models/torrent_file.dart';
 import '../models/watch_progress.dart';
@@ -273,6 +274,65 @@ Future<bool> isFileCompleteOnDisk(WidgetRef ref, LocalMediaFile file) async {
     '${complete ? "playable" : "INCOMPLETE, must stream"}',
   );
   return complete;
+}
+
+// ---------------------------------------------------------------------------
+// Streaming a file again
+// ---------------------------------------------------------------------------
+
+/// How to stream [file] again from the torrent still writing it — or null
+/// when no torrent in the engine lists it, or the one that does already has
+/// every byte (then it plays from disk).
+///
+/// For a title that was streamed rather than downloaded. Closing the player
+/// ends its session but leaves the torrent in the engine, still fetching,
+/// so the file is neither finished nor being streamed — and Resume used to
+/// dead-end at "hasn't finished downloading yet".
+Future<StreamRequest?> streamRequestForIncompleteFile(
+  WidgetRef ref,
+  LocalMediaFile file,
+) async {
+  // Read before the first await, as in [isFileCompleteOnDisk].
+  final engine = ref.read(torrentEngineProvider);
+  final torrents = ref.read(torrentListProvider).torrents;
+
+  final lookup = await findTorrentForFile(
+    engine: engine,
+    torrents: torrents,
+    file: file,
+  );
+  final match = lookup.match;
+  if (match == null || match.entry.isComplete) return null;
+  return streamRequestForTorrentFile(match);
+}
+
+/// A request that streams [match]'s file out of its torrent.
+///
+/// The magnet is rebuilt from the hash alone. That is enough here: the
+/// torrent is already in the engine, and both engines take adding it again
+/// as "carry on with the one you have".
+///
+/// The file is named by index, which wins over every other way of picking
+/// one — except for a one-file torrent, where there is nothing to pick.
+/// More than one real video makes it a pack, so the session raises this
+/// file's priority: streaming another episode may have deselected it.
+@visibleForTesting
+StreamRequest streamRequestForTorrentFile(TorrentFileMatch match) {
+  final torrent = match.torrent;
+  final videos = match.files.where(
+    (f) => videoExtensions.contains(f.extension) && f.size >= minPlayableBytes,
+  );
+  return StreamRequest(
+    displayName: torrent.name,
+    magnetUri:
+        'magnet:?xt=urn:btih:${torrent.hash}'
+        '&dn=${Uri.encodeQueryComponent(torrent.name)}',
+    infoHash: torrent.hash,
+    fileIdx: match.entry.index,
+    filename: match.entry.fileName,
+    isSingleFile: match.files.length == 1,
+    isSeasonPack: videos.length > 1,
+  );
 }
 
 // ---------------------------------------------------------------------------

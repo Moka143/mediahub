@@ -12,7 +12,8 @@ import '../media/hue_backdrop.dart';
 import 'episode_status.dart';
 
 /// One episode in the episodes drawer. The whole row is the button: click,
-/// Enter or Space opens the episode.
+/// Enter or Space opens the episode — unless it has not aired yet, when it
+/// says when it airs and is not a button at all.
 ///
 /// Rows have one fixed height ([extentFor]) so the list can scroll straight
 /// to any episode — including ones not built yet — by arithmetic.
@@ -75,16 +76,28 @@ class _EpisodeRowState extends State<EpisodeRow> {
     return date == null ? null : DateFormat('MMM d, y').format(date);
   }
 
+  /// The air date of an episode that has not aired and is not already in
+  /// hand, or null. No source can exist for it yet: "Stream" only led to
+  /// "No sources found". An episode with no date at all stays clickable —
+  /// TMDB leaves the date off old episodes too, not just unscheduled ones.
+  DateTime? _airsLater(Episode ep) {
+    if (widget.status != EpisodeStatus.none) return null;
+    final date = parseAirDate(ep.airDate);
+    if (date == null || airDateHasPassed(ep.airDate)) return null;
+    return date;
+  }
+
   @override
   Widget build(BuildContext context) {
     final ep = widget.episode;
-    final active = _hover || _focus;
+    final airsLater = _airsLater(ep);
+    final active = airsLater == null && (_hover || _focus);
     final airDate = _airDateLabel(ep.airDate);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: EpisodeRow._gap),
       child: HubPressable(
-        onTap: widget.onTap,
+        onTap: airsLater == null ? widget.onTap : null,
         onHoverChanged: (h) => setState(() => _hover = h),
         onFocusChanged: (f) => setState(() => _focus = f),
         borderRadius: BorderRadius.circular(AppRadius.md),
@@ -218,7 +231,11 @@ class _EpisodeRowState extends State<EpisodeRow> {
                   ),
                 ),
                 const SizedBox(width: AppSpacing.md),
-                EpisodeActionLabel(status: widget.status, active: active),
+                EpisodeActionLabel(
+                  status: widget.status,
+                  active: active,
+                  airsOn: airsLater,
+                ),
               ],
             ),
           ),
@@ -236,6 +253,7 @@ class EpisodeActionLabel extends StatelessWidget {
     super.key,
     required this.status,
     required this.active,
+    this.airsOn,
   });
 
   final EpisodeStatus status;
@@ -243,7 +261,19 @@ class EpisodeActionLabel extends StatelessWidget {
   /// Row hovered or focused — the label fills in.
   final bool active;
 
+  /// Set for an episode that has not aired: the label gives the date, in
+  /// a neutral grey, where an action would be — there is nothing to do yet.
+  final DateTime? airsOn;
+
   ({IconData icon, String label, Color color}) _spec() {
+    final airs = airsOn;
+    if (airs != null) {
+      return (
+        icon: Icons.schedule_rounded,
+        label: 'Airs ${DateFormat('MMM d').format(airs)}',
+        color: AppColors.fg2,
+      );
+    }
     return switch (status) {
       EpisodeStatus.watched => (
         icon: Icons.replay_rounded,

@@ -9,8 +9,10 @@ import '../../models/torrent.dart';
 import '../../utils/formatters.dart';
 import '../../utils/media_names.dart';
 import '../../utils/media_quality.dart';
+import '../../widgets/details/detail_shell.dart' show HoverScrollRow;
 import '../../widgets/media/media_poster_card.dart';
 import '../../widgets/media/poster_lookup.dart';
+import '../../widgets/media/poster_skeleton.dart';
 import '../../widgets/media/row_header.dart';
 
 /// Width of the cards in Home's horizontal rows.
@@ -46,14 +48,62 @@ class HomeRow extends StatelessWidget {
         children: [
           RowHeader(title: title, onSeeAll: onSeeAll),
           const SizedBox(height: AppSpacing.md),
-          SizedBox(
+          // Arrows and a fade on the side with more: a row cut off at the
+          // window edge otherwise reads as clipped, and a mouse wheel scrolls
+          // the page, not the row.
+          HoverScrollRow(
             height: height ?? homeCardWidth * 3 / 2,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              physics: const ClampingScrollPhysics(),
-              itemCount: itemCount,
-              separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.md),
-              itemBuilder: itemBuilder,
+            padding: EdgeInsets.zero,
+            restingOpacity: 1,
+            alwaysShowArrows: true,
+            fadeEdges: true,
+            itemCount: itemCount,
+            itemBuilder: itemBuilder,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A [HomeRow] whose cards are still loading: its title over poster-shaped
+/// placeholders. Without it the rows popped in one by one, pushing the page
+/// down under the pointer.
+class HomeRowSkeleton extends StatelessWidget {
+  const HomeRowSkeleton({super.key, required this.title});
+
+  final String title;
+
+  static const int _cards = 8;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          RowHeader(title: title),
+          const SizedBox(height: AppSpacing.md),
+          SizedBox(
+            height: homeCardWidth * 3 / 2,
+            // Clipped, not scrolled: there is nothing to scroll to yet.
+            child: ClipRect(
+              child: OverflowBox(
+                alignment: Alignment.centerLeft,
+                maxWidth: double.infinity,
+                child: Row(
+                  children: [
+                    for (var i = 0; i < _cards; i++) ...[
+                      if (i > 0) const SizedBox(width: AppSpacing.md),
+                      const SizedBox(
+                        width: homeCardWidth,
+                        child: PosterSkeleton(),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
             ),
           ),
         ],

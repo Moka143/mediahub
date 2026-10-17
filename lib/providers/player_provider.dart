@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -5,6 +7,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import '../models/playback_failure.dart';
 import '../services/app_logger.dart';
 import '../services/player_service.dart';
+import 'settings_provider.dart';
 
 /// Global player instance - not autoDispose to prevent issues
 Player? _globalPlayer;
@@ -41,9 +44,20 @@ final playerProvider = Provider<Player>((ref) {
 });
 
 /// Provider for video controller
+///
+/// Created on the first play, after `PlayerService.openFile` has set mpv's
+/// `hwdec` — and creating it sets `hwdec` again. Left at media_kit's default
+/// ("auto") that undid the user's choice for the first file of every run.
 final videoControllerProvider = Provider<VideoController>((ref) {
   final player = ref.watch(playerProvider);
-  _globalVideoController ??= VideoController(player);
+  _globalVideoController ??= VideoController(
+    player,
+    configuration: VideoControllerConfiguration(
+      hwdec: ref
+          .read(videoDecodingProvider)
+          .mpvHwdec(windows: Platform.isWindows),
+    ),
+  );
   return _globalVideoController!;
 });
 

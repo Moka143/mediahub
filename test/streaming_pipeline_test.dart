@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -98,6 +99,14 @@ class _FakeEngine extends TorrentEngine {
   /// Each call as (comma-joined file ids, priority).
   final List<(String, int)> priorityCalls = [];
 
+  /// Each call as (hash, force).
+  final List<(String, bool)> forceStartCalls = [];
+
+  /// The listing with this 1-based number never answers — a request hung
+  /// below every timeout.
+  int? hangListing;
+  int _listings = 0;
+
   @override
   EngineCapabilities get capabilities =>
       const EngineCapabilities(pieceLevelControl: false);
@@ -116,6 +125,9 @@ class _FakeEngine extends TorrentEngine {
 
   @override
   Future<List<Torrent>?> tryGetTorrents({List<String>? hashes}) async {
+    if (++_listings == hangListing) {
+      return Completer<List<Torrent>?>().future;
+    }
     if (silent) return null;
     return _listed ? [torrent] : [];
   }
@@ -171,6 +183,14 @@ class _FakeEngine extends TorrentEngine {
   }
 
   @override
+  Future<bool> setForceStart(List<String> hashes, {required bool force}) async {
+    for (final h in hashes) {
+      forceStartCalls.add((h, force));
+    }
+    return true;
+  }
+
+  @override
   String? streamUrl(String hash, int fileIndex) => engineStreamUrl;
 
   @override
@@ -197,12 +217,14 @@ StreamingService _service(
   _FakeEngine engine, {
   Duration metadataTimeout = StreamingService.defaultMetadataTimeout,
   Duration engineSilenceLimit = StreamingService.defaultEngineSilenceLimit,
+  Duration tickTimeout = StreamingService.defaultTickTimeout,
 }) {
   final service = StreamingService(
     engine,
     metadataTimeout: metadataTimeout,
     engineSilenceLimit: engineSilenceLimit,
     pollingInterval: const Duration(milliseconds: 20),
+    tickTimeout: tickTimeout,
   );
   addTearDown(service.dispose);
   return service;
@@ -572,6 +594,57 @@ void main() {
         );
       },
     );
+
+    test('a stream queued behind other downloads is started now, and handed '
+        'back to the queue when it ends', () async {
+      // qBittorrent holds a new torrent back while its active-download
+      // slots are full; a movie just watched still holds one. The stream
+      // sat on "Connecting…" until the metadata timeout.
+      final engine = _FakeEngine(
+        files: [_file(0, 'Show/E01.mkv', size: 1000, progress: 0.1)],
+      )..torrent = _torrent(state: 'queuedDL');
+      final service = _service(engine);
+
+      final session = await service.startStreamingRequest(request: _pack());
+      await _until(() => engine.forceStartCalls.isNotEmpty);
+      expect(engine.forceStartCalls, [(_hash, true)]);
+
+      await service.cancelSession(session.id);
+      expect(engine.forceStartCalls.last, (_hash, false));
+    });
+
+    test('a torrent that is not queued is left as it is', () async {
+      final engine = _FakeEngine(
+        files: [_file(0, 'Show/E01.mkv', size: 1000, progress: 0.1)],
+      );
+      final service = _service(engine);
+
+      final session = await service.startStreamingRequest(request: _pack());
+      await _until(
+        () => service.getSession(session.id)?.state == StreamingState.buffering,
+      );
+      await service.cancelSession(session.id);
+      expect(engine.forceStartCalls, isEmpty);
+    });
+
+    test('a check that never returns does not freeze the session', () async {
+      // The poll loop drops a tick while the last is still running, so one
+      // hung request used to leave the card on "Buffering" for good.
+      final engine = _FakeEngine(
+        files: [_file(0, 'Show/E01.mkv', size: 1000, progress: 0.1)],
+        // The first listing is the add's own presence check; the second is
+        // the first poll.
+      )..hangListing = 2;
+      final service = _service(
+        engine,
+        tickTimeout: const Duration(milliseconds: 100),
+      );
+
+      final session = await service.startStreamingRequest(request: _pack());
+      await _until(
+        () => service.getSession(session.id)?.state == StreamingState.buffering,
+      );
+    });
 
     test('cancelling stops the session for good', () async {
       final engine = _FakeEngine(files: const []);

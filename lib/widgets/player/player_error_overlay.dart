@@ -49,6 +49,15 @@ String? presentableStreamError(String? reason) {
   return text;
 }
 
+/// "Couldn't stream X. Why." — the one sentence for a stream that failed
+/// before it played. [fallback] stands in when the reason is not one to
+/// show.
+String streamFailedMessage(
+  String label,
+  String? reason, {
+  String fallback = 'Try another source.',
+}) => "Couldn't stream $label. ${presentableStreamError(reason) ?? fallback}";
+
 /// What the player shows instead of a black frame when the file can't be
 /// played.
 ///
@@ -60,13 +69,18 @@ class PlayerErrorOverlay extends StatelessWidget {
     super.key,
     required this.message,
     required this.onBack,
+    this.onRetry,
     this.onTryAnotherSource,
   });
 
   final String message;
   final VoidCallback onBack;
 
-  /// Offered when streaming: back to the source picker for another torrent.
+  /// Open the same file again.
+  final VoidCallback? onRetry;
+
+  /// Back to the source picker for another torrent — offered only when the
+  /// screen that opened the player will reopen it.
   final VoidCallback? onTryAnotherSource;
 
   static const double _maxWidth = 420;
@@ -74,6 +88,7 @@ class PlayerErrorOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tryAnother = onTryAnotherSource;
+    final retry = onRetry;
     return ColoredBox(
       color: AppColors.mediaBlack.withValues(alpha: 0.85),
       child: Center(
@@ -115,11 +130,22 @@ class PlayerErrorOverlay extends StatelessWidget {
                       EditorialButton(
                         label: 'Back',
                         icon: Icons.arrow_back_rounded,
-                        kind: tryAnother == null
+                        kind: tryAnother == null && retry == null
                             ? EditorialButtonKind.subtle
                             : EditorialButtonKind.ghost,
                         onPressed: onBack,
                       ),
+                      if (retry != null)
+                        EditorialButton(
+                          label: 'Retry',
+                          icon: Icons.refresh_rounded,
+                          // The main way forward only when there is no
+                          // other source to try.
+                          kind: tryAnother == null
+                              ? EditorialButtonKind.accent
+                              : EditorialButtonKind.ghost,
+                          onPressed: retry,
+                        ),
                       if (tryAnother != null)
                         Tooltip(
                           message: 'Close the player and pick another source',

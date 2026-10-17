@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 
 import '../design/app_colors.dart';
 import '../design/app_tokens.dart';
+import '../models/streaming_session.dart';
 import '../utils/formatters.dart';
 import 'editorial/editorial.dart';
+import 'player/player_error_overlay.dart';
 
 /// Data that can change while the overlay stays on screen.
 @immutable
@@ -15,12 +17,62 @@ class StreamingOverlayData {
   final double? progress;
   final bool isIndeterminate;
 
+  /// Why the stream could not start. Turns the card into a failure card
+  /// that stays up until dismissed. The card used to vanish on failure,
+  /// leaving only a snackbar at the bottom of the window — easy to miss
+  /// while looking at the card, so it read as "it just disappeared".
+  final String? failure;
+
   const StreamingOverlayData({
     required this.title,
     this.subtitle,
     this.progress,
     this.isIndeterminate = true,
+    this.failure,
   });
+
+  /// The card for [session] while it gets ready: [verb] until the file is
+  /// picked ("Preparing", "Resuming"), "Buffering" after, with what has
+  /// arrived and how fast.
+  ///
+  /// [waited] is how long the stream has been starting. After
+  /// [noPeersHintAfter] with nothing arriving, the card says the source may
+  /// be dead — the give-up rules take minutes to be sure.
+  factory StreamingOverlayData.preparing(
+    StreamingSession session, {
+    required String label,
+    required String verb,
+    required Duration waited,
+  }) {
+    final pct = session.bufferProgress * 100;
+    final speed = session.downloadRateBytesPerSec;
+    final speedSuffix = speed > 0 ? ' · ${Formatters.formatSpeed(speed)}' : '';
+    final shownVerb = session.state == StreamingState.buffering
+        ? 'Buffering'
+        : verb;
+    return StreamingOverlayData(
+      title: '$shownVerb $label',
+      subtitle: pct > 0
+          ? '${pct.toStringAsFixed(1)}% downloaded$speedSuffix'
+          : waited > noPeersHintAfter && speed == 0
+          ? 'No peers yet — this source may be dead. You can try another one.'
+          : 'Connecting…$speedSuffix',
+      progress: pct > 0 ? session.bufferProgress : null,
+      isIndeterminate: pct == 0,
+    );
+  }
+
+  /// The failure card for [session].
+  factory StreamingOverlayData.failed(
+    StreamingSession session, {
+    required String label,
+    String fallback = 'Try another source.',
+  }) => StreamingOverlayData(
+    title: "Couldn't stream $label",
+    failure: presentableStreamError(session.errorMessage) ?? fallback,
+  );
+
+  static const Duration noPeersHintAfter = Duration(seconds: 20);
 }
 
 /// The floating card shown while a stream gets ready to play.
@@ -45,12 +97,20 @@ class StreamingProgressOverlay extends StatefulWidget {
   /// Keep preparing and go to the Transfers screen.
   final VoidCallback? onViewTransfers;
 
+  /// Dismiss the failure card.
+  final VoidCallback? onClose;
+
+  /// Dismiss the failure card and pick another source.
+  final VoidCallback? onTryAnother;
+
   const StreamingProgressOverlay({
     super.key,
     required this.dataNotifier,
     this.onHide,
     this.onCancel,
     this.onViewTransfers,
+    this.onClose,
+    this.onTryAnother,
   });
 
   @override
@@ -151,6 +211,7 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
     StreamingOverlayData data,
   ) {
     final progress = data.progress;
+    final failure = data.failure;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -163,7 +224,9 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
           ),
           child: Row(
             children: [
-              _buildAnimatedIcon(accentColor),
+              failure != null
+                  ? _buildFailureIcon()
+                  : _buildAnimatedIcon(accentColor),
               const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Column(
@@ -177,17 +240,19 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    if (data.subtitle != null)
+                    if ((failure ?? data.subtitle) case final line?)
                       Padding(
                         padding: const EdgeInsets.only(top: AppSpacing.xs),
                         child: Text(
-                          data.subtitle!,
+                          line,
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: theme.colorScheme.onSurface.withValues(
                               alpha: 0.7,
                             ),
                           ),
-                          maxLines: 1,
+                          // A failure explains what to do next; one line
+                          // cut it mid-sentence.
+                          maxLines: failure != null ? 4 : 2,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
@@ -198,36 +263,39 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
           ),
         ),
 
-        // Progress section
-        Padding(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          child: Column(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(AppRadius.full),
-                child: SizedBox(
-                  height: _progressBarHeight,
-                  child: LinearProgressIndicator(
-                    value: data.isIndeterminate ? null : (progress ?? 0),
-                    backgroundColor: AppColors.accentSoft,
-                    valueColor: AlwaysStoppedAnimation<Color>(accentColor),
-                  ),
-                ),
-              ),
-              if (progress != null && !data.isIndeterminate)
-                Padding(
-                  padding: const EdgeInsets.only(top: AppSpacing.sm),
-                  child: Text(
-                    Formatters.formatProgress(progress),
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: accentColor,
-                      fontWeight: FontWeight.w600,
+        if (failure != null)
+          const SizedBox(height: AppSpacing.lg)
+        else
+          // Progress section
+          Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Column(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(AppRadius.full),
+                  child: SizedBox(
+                    height: _progressBarHeight,
+                    child: LinearProgressIndicator(
+                      value: data.isIndeterminate ? null : (progress ?? 0),
+                      backgroundColor: AppColors.accentSoft,
+                      valueColor: AlwaysStoppedAnimation<Color>(accentColor),
                     ),
                   ),
                 ),
-            ],
+                if (progress != null && !data.isIndeterminate)
+                  Padding(
+                    padding: const EdgeInsets.only(top: AppSpacing.sm),
+                    child: Text(
+                      Formatters.formatProgress(progress),
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: accentColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
-        ),
 
         // Actions
         Container(
@@ -243,43 +311,77 @@ class _StreamingProgressOverlayState extends State<StreamingProgressOverlay>
             alignment: WrapAlignment.end,
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
-            children: [
-              if (widget.onViewTransfers != null)
-                Tooltip(
-                  message:
-                      'Keep preparing in the background and open '
-                      'Transfers',
-                  child: EditorialButton(
-                    label: 'View transfers',
-                    icon: Icons.download_rounded,
-                    kind: EditorialButtonKind.ghost,
-                    onPressed: () => widget.onViewTransfers?.call(),
-                  ),
-                ),
-              if (widget.onHide != null)
-                Tooltip(
-                  message:
-                      'Keep preparing in the background — the player opens '
-                      "when it's ready",
-                  child: EditorialButton(
-                    label: 'Hide',
-                    kind: EditorialButtonKind.ghost,
-                    onPressed: () => unawaited(_leaveThen(widget.onHide)),
-                  ),
-                ),
-              if (widget.onCancel != null)
-                Tooltip(
-                  message: 'Stop preparing this stream',
-                  child: EditorialButton(
-                    label: 'Cancel',
-                    kind: EditorialButtonKind.subtle,
-                    onPressed: () => unawaited(_leaveThen(widget.onCancel)),
-                  ),
-                ),
-            ],
+            children: failure != null ? _failureActions() : _preparingActions(),
           ),
         ),
       ],
+    );
+  }
+
+  List<Widget> _failureActions() => [
+    if (widget.onClose != null)
+      EditorialButton(
+        label: 'Close',
+        kind: EditorialButtonKind.ghost,
+        onPressed: () => unawaited(_leaveThen(widget.onClose)),
+      ),
+    if (widget.onTryAnother != null)
+      EditorialButton(
+        label: 'Try another source',
+        icon: Icons.swap_horiz_rounded,
+        kind: EditorialButtonKind.accent,
+        onPressed: () => unawaited(_leaveThen(widget.onTryAnother)),
+      ),
+  ];
+
+  List<Widget> _preparingActions() => [
+    if (widget.onViewTransfers != null)
+      Tooltip(
+        message:
+            'Keep preparing in the background and open '
+            'Transfers',
+        child: EditorialButton(
+          label: 'View transfers',
+          icon: Icons.download_rounded,
+          kind: EditorialButtonKind.ghost,
+          onPressed: () => widget.onViewTransfers?.call(),
+        ),
+      ),
+    if (widget.onHide != null)
+      Tooltip(
+        message:
+            'Keep preparing in the background — the player opens '
+            "when it's ready",
+        child: EditorialButton(
+          label: 'Hide',
+          kind: EditorialButtonKind.ghost,
+          onPressed: () => unawaited(_leaveThen(widget.onHide)),
+        ),
+      ),
+    if (widget.onCancel != null)
+      Tooltip(
+        message: 'Stop preparing this stream',
+        child: EditorialButton(
+          label: 'Cancel',
+          kind: EditorialButtonKind.subtle,
+          onPressed: () => unawaited(_leaveThen(widget.onCancel)),
+        ),
+      ),
+  ];
+
+  Widget _buildFailureIcon() {
+    return Container(
+      width: _iconRingSize,
+      height: _iconRingSize,
+      decoration: BoxDecoration(
+        color: AppColors.err.withValues(alpha: 0.12),
+        shape: BoxShape.circle,
+      ),
+      child: const Icon(
+        Icons.error_outline_rounded,
+        size: AppIconSize.md,
+        color: AppColors.err,
+      ),
     );
   }
 
@@ -323,6 +425,8 @@ showUpdatableStreamingOverlay(
   VoidCallback? onHide,
   VoidCallback? onCancel,
   VoidCallback? onViewTransfers,
+  VoidCallback? onClose,
+  VoidCallback? onTryAnother,
 }) {
   final overlay = Overlay.of(context);
   final dataNotifier = ValueNotifier<StreamingOverlayData>(
@@ -337,6 +441,8 @@ showUpdatableStreamingOverlay(
         onHide: onHide,
         onCancel: onCancel,
         onViewTransfers: onViewTransfers,
+        onClose: onClose,
+        onTryAnother: onTryAnother,
       ),
     ),
   );

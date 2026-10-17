@@ -38,6 +38,12 @@ Future<void> stopAllEngines() async {
   ]);
 }
 
+/// The app's [AppShutdown], for code that must quit the app itself — the
+/// updater, once the installer is running. Overridden in `main`.
+final appShutdownProvider = Provider<AppShutdown>((ref) {
+  throw UnimplementedError('appShutdownProvider must be overridden in main');
+});
+
 /// The one way out of the app.
 ///
 /// Every exit path ends up in [run], which tears down exactly once however

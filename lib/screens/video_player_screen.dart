@@ -74,6 +74,12 @@ class VideoPlayerScreen extends ConsumerStatefulWidget {
   /// the life of the process.
   final String? streamingSessionId;
 
+  /// Offer "Try another source" when playback fails. Only for a player whose
+  /// opener reopens its source picker on [PlayerExitReason.tryAnotherSource]
+  /// — elsewhere (autoplay of the next episode, Resume, the app shell) the
+  /// button just closed the player.
+  final bool canTryAnotherSource;
+
   const VideoPlayerScreen({
     super.key,
     required this.file,
@@ -86,6 +92,7 @@ class VideoPlayerScreen extends ConsumerStatefulWidget {
     this.streamingProxyUrl,
     this.initialBufferedRatio,
     this.streamingSessionId,
+    this.canTryAnotherSource = false,
   });
 
   /// The player for [file], fed by [session] when it is a stream.
@@ -100,6 +107,7 @@ class VideoPlayerScreen extends ConsumerStatefulWidget {
     String? showImdbId,
     String? movieImdbId,
     Duration? startPosition,
+    bool canTryAnotherSource = false,
   }) => VideoPlayerScreen(
     key: key,
     file: file,
@@ -112,6 +120,7 @@ class VideoPlayerScreen extends ConsumerStatefulWidget {
     streamingProxyUrl: session?.streamUrl,
     initialBufferedRatio: session?.bufferProgress,
     streamingSessionId: session?.id,
+    canTryAnotherSource: canTryAnotherSource,
   );
 
   @override
@@ -234,7 +243,7 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
       });
     } else {
       if (widget.isStreaming) {
-        AppLog.d(
+        AppLog.i(
           '[VideoPlayerScreen] opening streaming hash=${widget.streamingTorrentHash} '
           'fileIdx=${widget.streamingFileIndex} '
           'proxyUrl=${widget.streamingProxyUrl} '
@@ -374,6 +383,22 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
     if (!mounted) return;
     if (!_showControls) setState(() => _showControls = true);
     _startHideControlsTimer();
+  }
+
+  /// Open the file again from where it stopped. A stream that hiccuped, or
+  /// an engine that was restarting, often plays on a second try — and the
+  /// error said "try again" while offering only Back.
+  Future<void> _retryPlayback() async {
+    final stoppedAt = ref.read(playerProvider).state.position;
+    setState(() {
+      _failure = null;
+      _mediaOpened = false;
+    });
+    await _openMedia(
+      startPosition: stoppedAt > Duration.zero
+          ? stoppedAt
+          : widget.startPosition,
+    );
   }
 
   Future<void> _handleResume(bool resume) async {
@@ -669,7 +694,8 @@ class _VideoPlayerScreenState extends ConsumerState<VideoPlayerScreen>
                       streaming: widget.isStreaming,
                     ),
                     onBack: () => unawaited(_exitPlayer()),
-                    onTryAnotherSource: widget.isStreaming
+                    onRetry: () => unawaited(_retryPlayback()),
+                    onTryAnotherSource: widget.canTryAnotherSource
                         ? () => unawaited(
                             _exitPlayer(
                               reason: PlayerExitReason.tryAnotherSource,

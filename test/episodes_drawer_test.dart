@@ -6,12 +6,14 @@ import 'package:mediahub/models/local_media_file.dart';
 import 'package:mediahub/models/season.dart';
 import 'package:mediahub/models/show.dart';
 import 'package:mediahub/models/torrent.dart';
+import 'package:mediahub/models/watch_progress.dart';
 import 'package:mediahub/models/watched_index.dart';
 import 'package:mediahub/providers/local_media_provider.dart';
 import 'package:mediahub/providers/shows_provider.dart';
 import 'package:mediahub/providers/watch_progress_provider.dart';
 import 'package:mediahub/widgets/episodes/episode_row.dart';
 import 'package:mediahub/widgets/episodes/episode_status.dart';
+import 'package:mediahub/widgets/episodes/season_tabs.dart';
 import 'package:mediahub/widgets/mediahub_episodes_drawer.dart';
 
 Torrent _torrent(
@@ -31,6 +33,19 @@ Episode _episode(int n, {int season = 1}) => Episode(
   seasonNumber: season,
   name: 'Episode $n',
 );
+
+/// Watch progress for Silo (show 7) — [done] of the way through.
+WatchProgress _progress(int season, int episode, {double done = 1}) =>
+    WatchProgress(
+      fileHash: '$season/$episode',
+      filePath: '/library/Silo.S${season}E$episode.mkv',
+      showId: 7,
+      seasonNumber: season,
+      episodeNumber: episode,
+      position: Duration(seconds: (done * 1000).round()),
+      duration: const Duration(seconds: 1000),
+      lastWatched: DateTime(2026, 10),
+    );
 
 void main() {
   group('TransfersEpisodeIndex', () {
@@ -94,6 +109,10 @@ void main() {
       List<Episode>? episodes,
       List<Torrent> torrents = const [],
       Object? error,
+      List<Season>? seasonList,
+      int? initialSeason = 1,
+      List<WatchProgress> watched = const [],
+      List<WatchProgress> inProgress = const [],
     }) async {
       await tester.binding.setSurfaceSize(const Size(800, 600));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -102,23 +121,29 @@ void main() {
           overrides: [
             seasonEpisodesProvider.overrideWith((ref, params) async {
               if (error != null) throw error;
-              return episodes ?? [for (var i = 1; i <= 22; i++) _episode(i)];
+              return episodes ??
+                  [
+                    for (var i = 1; i <= 22; i++)
+                      _episode(i, season: params.seasonNumber),
+                  ];
             }),
-            watchedIndexProvider.overrideWithValue(WatchedIndex.empty),
+            watchedIndexProvider.overrideWithValue(
+              WatchedIndex.fromProgress(watched),
+            ),
             transfersEpisodeIndexProvider.overrideWithValue(
               TransfersEpisodeIndex.from(torrents),
             ),
             localMediaFilesProvider.overrideWith(
               (ref) async => const <LocalMediaFile>[],
             ),
-            continueWatchingProvider.overrideWithValue(const []),
+            continueWatchingProvider.overrideWithValue(inProgress),
           ],
           child: MaterialApp(
             home: Scaffold(
               body: MediaHubEpisodesDrawer(
                 show: show,
-                seasons: seasons,
-                initialSeason: 1,
+                seasons: seasonList ?? seasons,
+                initialSeason: initialSeason,
                 onEpisodeTap: (_) {},
               ),
             ),
@@ -182,6 +207,84 @@ void main() {
         find.text('No episodes listed for this season yet.'),
         findsOneWidget,
       );
+    });
+
+    group('opens where the viewer left off', () {
+      final threeSeasons = [
+        for (var n = 1; n <= 3; n++)
+          Season(id: n, seasonNumber: n, name: 'Season $n', episodeCount: 22),
+      ];
+
+      Future<void> open(
+        WidgetTester tester, {
+        List<WatchProgress> watched = const [],
+        List<WatchProgress> inProgress = const [],
+      }) => pump(
+        tester,
+        seasonList: threeSeasons,
+        initialSeason: null,
+        watched: watched,
+        inProgress: inProgress,
+      );
+
+      int selectedSeason(WidgetTester tester) =>
+          tester.widget<SeasonTabs>(find.byType(SeasonTabs)).selected;
+
+      double scrolledRows(WidgetTester tester) {
+        final scrollable = tester.state<ScrollableState>(
+          find.descendant(
+            of: find.byType(ListView),
+            matching: find.byType(Scrollable),
+          ),
+        );
+        final extent = EpisodeRow.extentFor(
+          MediaQuery.textScalerOf(tester.element(find.byType(ListView))),
+        );
+        return scrollable.position.pixels / extent;
+      }
+
+      testWidgets('an episode in progress beats the next unwatched one', (
+        tester,
+      ) async {
+        await open(
+          tester,
+          watched: [_progress(3, 4)],
+          inProgress: [_progress(2, 12, done: 0.4)],
+        );
+        expect(selectedSeason(tester), 2);
+        expect(scrolledRows(tester), closeTo(11, 0.01));
+        expect(find.text('Episode 12'), findsOneWidget);
+      });
+
+      testWidgets('otherwise the episode after the furthest watched', (
+        tester,
+      ) async {
+        await open(tester, watched: [_progress(1, 3), _progress(3, 9)]);
+        expect(selectedSeason(tester), 3);
+        expect(scrolledRows(tester), closeTo(9, 0.01)); // E10
+        expect(find.text('Episode 10'), findsOneWidget);
+      });
+
+      testWidgets('a fully watched show opens at the top of season 1', (
+        tester,
+      ) async {
+        await open(tester, watched: [_progress(3, 22)]);
+        expect(selectedSeason(tester), 1);
+        expect(scrolledRows(tester), 0);
+      });
+
+      testWidgets('another season picked opens at its top', (tester) async {
+        await open(tester, inProgress: [_progress(2, 12, done: 0.4)]);
+        await tester.tap(
+          find.descendant(
+            of: find.byType(SeasonTabs),
+            matching: find.text('03'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(selectedSeason(tester), 3);
+        expect(scrolledRows(tester), 0);
+      });
     });
 
     test('a show with only specials still gets a tab', () {

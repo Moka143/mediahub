@@ -20,16 +20,27 @@ import '../services/app_logger.dart';
 ///    invisible. The loop must log it and keep its next tick scheduled.
 ///  * **Stay dead after dispose.** A tick that fires after the owner is torn
 ///    down writes to a disposed notifier.
+///  * **Not wait forever.** "No overlap" means a tick that never completes
+///    stops the loop for good while it still looks alive. With [tickTimeout]
+///    a stuck tick is abandoned and the next one runs.
 ///
 /// [setInterval] exists for the adaptive-polling case: it is a no-op when the
 /// interval is unchanged, so calling it every tick does not continually reset
 /// the phase and starve the callback.
 class PollLoop {
-  PollLoop({required this.name, required Future<void> Function() onTick})
-    : _onTick = onTick;
+  PollLoop({
+    required this.name,
+    required Future<void> Function() onTick,
+    this.tickTimeout,
+  }) : _onTick = onTick;
 
   /// Used only in log lines, to identify which loop misbehaved.
   final String name;
+
+  /// How long a tick may run before the loop stops waiting for it. Null
+  /// waits as long as it takes. The abandoned tick is not cancelled — Dart
+  /// cannot — so it must tolerate a newer tick having run meanwhile.
+  final Duration? tickTimeout;
 
   final Future<void> Function() _onTick;
 
@@ -97,8 +108,19 @@ class PollLoop {
     // error from the timer, and `_tickInFlight` would stay true forever, so
     // every later tick was dropped as "still running": the loop looked alive
     // and never polled again.
+    var tick = Future<void>.sync(_onTick);
+    final limit = tickTimeout;
+    if (limit != null) {
+      tick = tick.timeout(
+        limit,
+        onTimeout: () => AppLog.w(
+          '[PollLoop:$name] tick still running after ${limit.inSeconds}s '
+          '— moving on',
+        ),
+      );
+    }
     unawaited(
-      Future<void>.sync(_onTick)
+      tick
           .catchError((Object e, StackTrace st) {
             AppLog.w('[PollLoop:$name] tick failed: $e');
           })

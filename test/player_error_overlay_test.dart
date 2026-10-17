@@ -44,6 +44,7 @@ void main() {
   Future<(List<String>, Widget)> pumpOverlay(
     WidgetTester tester, {
     required bool streaming,
+    bool retry = false,
   }) async {
     final calls = <String>[];
     final overlay = PlayerErrorOverlay(
@@ -52,6 +53,7 @@ void main() {
         streaming: streaming,
       ),
       onBack: () => calls.add('back'),
+      onRetry: retry ? () => calls.add('retry') : null,
       onTryAnotherSource: streaming ? () => calls.add('another') : null,
     );
     await tester.pumpWidget(
@@ -78,5 +80,14 @@ void main() {
     expect(find.text('Try another source'), findsNothing);
     await tester.tap(find.text('Back'));
     expect(calls, ['back']);
+  });
+
+  testWidgets('Retry is offered beside the other ways out', (tester) async {
+    // The message says "try again"; Back was the only button.
+    final (calls, _) = await pumpOverlay(tester, streaming: true, retry: true);
+
+    await tester.tap(find.text('Retry'));
+    expect(calls, ['retry']);
+    expect(find.text('Try another source'), findsOneWidget);
   });
 }

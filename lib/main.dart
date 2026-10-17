@@ -288,6 +288,7 @@ Future<void> _bootstrap() async {
       sharedPreferencesProvider.overrideWithValue(sharedPreferences),
       secretStoreProvider.overrideWithValue(secretStore),
       prefsWereResetProvider.overrideWithValue(prefsResult.recovered),
+      appShutdownProvider.overrideWithValue(shutdown),
     ],
   );
   shutdown.container = container;

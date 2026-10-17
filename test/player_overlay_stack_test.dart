@@ -94,6 +94,15 @@ void main() {
       expect(find.byType(BufferingIndicator), findsNothing);
     });
 
+    testWidgets('says "Opening…" when opening takes a while', (tester) async {
+      // A black frame for the seconds a stream takes to open read as "it
+      // did nothing".
+      await pump(tester, video: null);
+      expect(find.text('Opening…'), findsNothing);
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text('Opening…'), findsOneWidget);
+    });
+
     testWidgets('shows once media is open and buffering', (tester) async {
       await pump(tester, video: video, showBuffering: true);
       expect(find.byType(BufferingIndicator), findsOneWidget);

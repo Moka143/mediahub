@@ -4,11 +4,11 @@ import 'dart:collection';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
 import '../../providers/shows_provider.dart' show tmdbApiServiceProvider;
 import '../../services/tmdb_api_service.dart';
 import '../../utils/error_messages.dart';
+import '../media/poster_skeleton.dart';
 import 'browse_filter_bar.dart';
 import 'browse_pagination_footer.dart';
 import 'browse_picker.dart';
@@ -405,40 +405,48 @@ class _PagedBrowseViewState<T> extends ConsumerState<PagedBrowseView<T>> {
                 ),
               ),
               // Stable key — keeps the search field's element (and focus)
-              // when the conditional slivers around it change.
-              SliverToBoxAdapter(
+              // when the conditional slivers around it change. Pinned: on a
+              // long grid, scrolling back up to search or change genre was
+              // the only way to reach them.
+              PinnedHeaderSliver(
                 key: ValueKey('mh-$prefix-filter-bar'),
-                child: BrowseFilterBar(
-                  genrePicker: BrowsePicker<BrowseGenre>(
-                    value: _genre,
-                    options: _config.genres,
-                    labelOf: (g) => g.label,
-                    icon: Icons.category_outlined,
-                    tooltip: 'Genre',
-                    enabled: !isSearching,
-                    onChanged: (genre) {
-                      if (identical(genre, _genre)) return;
-                      setState(() => _genre = genre);
-                      unawaited(_reload());
-                    },
+                child: _FilterBarWithProgress(
+                  // A new search keeps the last results up while it runs, so
+                  // without this nothing said it was running at all.
+                  busy:
+                      isSearching && _config.watchSearchResults(ref).isLoading,
+                  bar: BrowseFilterBar(
+                    genrePicker: BrowsePicker<BrowseGenre>(
+                      value: _genre,
+                      options: _config.genres,
+                      labelOf: (g) => g.label,
+                      icon: Icons.category_outlined,
+                      tooltip: 'Genre',
+                      enabled: !isSearching,
+                      onChanged: (genre) {
+                        if (identical(genre, _genre)) return;
+                        setState(() => _genre = genre);
+                        unawaited(_reload());
+                      },
+                    ),
+                    sortPicker: BrowsePicker<BrowseFeed>(
+                      value: _feed,
+                      options: _config.feeds,
+                      labelOf: (f) => f.label,
+                      icon: Icons.sort_rounded,
+                      tooltip: 'Sort',
+                      enabled: !isSearching,
+                      onChanged: (feed) {
+                        if (identical(feed, _feed)) return;
+                        setState(() => _feed = feed);
+                        unawaited(_reload());
+                      },
+                    ),
+                    searchController: _searchController,
+                    onSearchChanged: _onSearchChanged,
+                    searchActive: isSearching,
+                    searchHint: _config.searchHint,
                   ),
-                  sortPicker: BrowsePicker<BrowseFeed>(
-                    value: _feed,
-                    options: _config.feeds,
-                    labelOf: (f) => f.label,
-                    icon: Icons.sort_rounded,
-                    tooltip: 'Sort',
-                    enabled: !isSearching,
-                    onChanged: (feed) {
-                      if (identical(feed, _feed)) return;
-                      setState(() => _feed = feed);
-                      unawaited(_reload());
-                    },
-                  ),
-                  searchController: _searchController,
-                  onSearchChanged: _onSearchChanged,
-                  searchActive: isSearching,
-                  searchHint: _config.searchHint,
                 ),
               ),
               if (isSearching)
@@ -493,7 +501,9 @@ class _PagedBrowseViewState<T> extends ConsumerState<PagedBrowseView<T>> {
         ),
       ];
     }
-    return [_grid(items)];
+    // The first item is the spotlight above; repeating it as the grid's
+    // first card showed the same title twice, one above the other.
+    return [_grid(items.skip(1).toList())];
   }
 
   Widget _grid(List<T> items) => SliverPadding(
@@ -516,20 +526,14 @@ class _PagedBrowseViewState<T> extends ConsumerState<PagedBrowseView<T>> {
         top: AppSpacing.xxl,
         right: AppSpacing.xxl,
       ),
-      sliver: SliverToBoxAdapter(
-        child: LinearProgressIndicator(
-          minHeight: 2,
-          color: AppColors.accent,
-          backgroundColor: AppColors.line,
-        ),
-      ),
+      sliver: SliverToBoxAdapter(child: ThinProgressLine()),
     ),
     SliverPadding(
       padding: const EdgeInsets.all(AppSpacing.xxl),
       sliver: SliverGrid(
         gridDelegate: _gridDelegate,
         delegate: SliverChildBuilderDelegate(
-          (context, i) => const _PosterSkeleton(),
+          (context, i) => const PosterSkeleton(),
           childCount: 12,
         ),
       ),
@@ -577,17 +581,23 @@ class _PagedBrowseViewState<T> extends ConsumerState<PagedBrowseView<T>> {
   }
 }
 
-class _PosterSkeleton extends StatelessWidget {
-  const _PosterSkeleton();
+/// The filter bar, with a [ThinProgressLine] along its bottom edge while
+/// [busy].
+class _FilterBarWithProgress extends StatelessWidget {
+  const _FilterBarWithProgress({required this.bar, required this.busy});
+
+  final Widget bar;
+  final bool busy;
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: AppColors.bgSurface,
-        border: Border.all(color: AppColors.line),
-        borderRadius: BorderRadius.circular(AppRadius.lg),
-      ),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        bar,
+        ThinProgressLine.slot(busy: busy),
+      ],
     );
   }
 }

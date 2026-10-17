@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mediahub/utils/poll_loop.dart';
@@ -133,6 +135,46 @@ void main() {
           lessThan(12),
           reason: 'skipped ticks are dropped, not queued up for later',
         );
+      });
+    });
+
+    test('a tick that never finishes is abandoned after tickTimeout', () {
+      fakeAsync((async) {
+        var ticks = 0;
+
+        final loop = PollLoop(
+          name: 'hung',
+          tickTimeout: const Duration(seconds: 8),
+          onTick: () {
+            ticks++;
+            // The first tick hangs for good; later ones return.
+            return ticks == 1 ? Completer<void>().future : Future.value();
+          },
+        )..start(const Duration(seconds: 5));
+
+        async.elapse(const Duration(seconds: 30));
+        loop.dispose();
+
+        expect(ticks, greaterThan(2), reason: 'one hung tick must not wedge');
+      });
+    });
+
+    test('without tickTimeout a hung tick blocks the next ones', () {
+      fakeAsync((async) {
+        var ticks = 0;
+
+        final loop = PollLoop(
+          name: 'hung-no-timeout',
+          onTick: () {
+            ticks++;
+            return Completer<void>().future;
+          },
+        )..start(const Duration(seconds: 5));
+
+        async.elapse(const Duration(seconds: 30));
+        loop.dispose();
+
+        expect(ticks, 1);
       });
     });
 

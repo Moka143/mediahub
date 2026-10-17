@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
 import '../../design/app_typography.dart';
+import '../common/horizontal_paging.dart';
 import '../common/hub_pressable.dart';
 
 /// One chip in a [NumberStrip].
@@ -40,7 +41,13 @@ class NumberStripItem {
 /// Seasons and the episode quick-jump were the same strip written twice
 /// (`SeasonTabs` / `EpisodePicker`), both on bare GestureDetectors — no
 /// focus, no keyboard, no button semantics.
-class NumberStrip extends StatelessWidget {
+///
+/// A long show's chips run past the drawer's edge, and a mouse wheel scrolls
+/// vertically, so a strip that overflows fades the side with more and gets
+/// an arrow at each end. Not `HoverScrollRow`: its arrows are 40 px buttons
+/// laid over the content — taller than these chips, and wide enough to hide
+/// one. The scrolling behind the arrows is shared ([HorizontalPaging]).
+class NumberStrip extends StatefulWidget {
   const NumberStrip({super.key, required this.title, required this.items});
 
   /// Mono label in front of the chips — "SEASON", "EPISODE".
@@ -48,7 +55,14 @@ class NumberStrip extends StatelessWidget {
   final List<NumberStripItem> items;
 
   @override
+  State<NumberStrip> createState() => _NumberStripState();
+}
+
+class _NumberStripState extends State<NumberStrip>
+    with HorizontalPaging<NumberStrip> {
+  @override
   Widget build(BuildContext context) {
+    final overflows = canScrollBack || canScrollForward;
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.xl,
@@ -60,7 +74,7 @@ class NumberStrip extends StatelessWidget {
       child: Row(
         children: [
           Text(
-            title,
+            widget.title,
             style: AppType.mono(
               size: AppType.sizeLabel,
               color: AppColors.fg2,
@@ -69,20 +83,64 @@ class NumberStrip extends StatelessWidget {
             ),
           ),
           const SizedBox(width: AppSpacing.sm),
+          if (overflows)
+            _StripArrow(
+              left: true,
+              onTap: canScrollBack ? () => page(forward: false) : null,
+            ),
           Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  for (final item in items) ...[
-                    _NumberChip(item: item),
-                    const SizedBox(width: 4),
+            child: trackEdges(
+              fadeExtent: AppSpacing.xxl,
+              SingleChildScrollView(
+                controller: pagingController,
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (final item in widget.items) ...[
+                      _NumberChip(item: item),
+                      const SizedBox(width: 4),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),
+          if (overflows)
+            _StripArrow(
+              left: false,
+              onTap: canScrollForward ? () => page(forward: true) : null,
+            ),
         ],
+      ),
+    );
+  }
+}
+
+/// One end of a strip that overflows. Stays, inert, at an end with nothing
+/// more past it, so the chips do not shift each time an arrow would come or
+/// go.
+class _StripArrow extends StatelessWidget {
+  const _StripArrow({required this.left, required this.onTap});
+
+  final bool left;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return HubPressable(
+      onTap: onTap,
+      tooltip: onTap == null
+          ? null
+          : (left ? 'Scroll back' : 'Scroll for more'),
+      borderRadius: BorderRadius.circular(AppRadius.sm),
+      child: SizedBox(
+        width: 24,
+        height: 28,
+        child: Icon(
+          left ? Icons.chevron_left_rounded : Icons.chevron_right_rounded,
+          size: 20,
+          color: onTap == null ? AppColors.fg3 : AppColors.fg1,
+        ),
       ),
     );
   }

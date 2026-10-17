@@ -23,6 +23,7 @@ import '../utils/feedback_utils.dart';
 import '../widgets/details/detail_shell.dart';
 import '../widgets/details/details_page.dart';
 import '../widgets/details/show_auto_download_controls.dart';
+import '../widgets/details/show_episode_actions.dart';
 import '../widgets/editorial/editorial.dart';
 import '../widgets/media/hue_backdrop.dart';
 import '../widgets/media/local_playback.dart';
@@ -59,6 +60,11 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
     with DetailsPlaybackController<ShowDetailsScreen> {
   bool _autoDrawerFired = false;
 
+  /// An episode's sources are being looked up. Further clicks are ignored
+  /// until it answers: the lookup takes seconds, and a double-click opened
+  /// two source pickers.
+  bool _loadingSources = false;
+
   @override
   void dispose() {
     disposePlaybackController();
@@ -71,21 +77,21 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
     ).push(MaterialPageRoute(builder: (_) => const SettingsScreen())),
   );
 
-  /// Slide the episodes drawer in. It stays open behind the source picker,
-  /// so closing the picker lands back on the same episode list.
+  /// Slide the episodes drawer in, on the episode the viewer left off at.
+  /// It stays open behind the source picker, so closing the picker lands
+  /// back on the same episode list.
   Future<void> _openEpisodesDrawer(Show show, List<Season> seasons) async {
     if (seasons.isEmpty) return;
-    final tabs = MediaHubEpisodesDrawer.tabSeasons(seasons);
     await MediaHubEpisodesDrawer.open(
       context: context,
       show: show,
       seasons: seasons,
-      initialSeason: tabs.isEmpty ? seasons.first.seasonNumber : tabs.first,
       onEpisodeTap: (episode) => unawaited(_onEpisodeTap(episode, show)),
     );
   }
 
   Future<void> _onEpisodeTap(Episode episode, Show show) async {
+    if (_loadingSources) return;
     // Finished on disk? Play it — the drawer says "Play" for exactly these.
     // "Finished" is checked here, once, before anything else; a mere
     // existence check matches qBittorrent's pre-allocated shells, and
@@ -98,7 +104,15 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
       )),
     );
     if (localFile != null) {
-      final complete = await isFileCompleteOnDisk(ref, localFile);
+      // Held through the disk check as well: it can wait on the engine, long
+      // enough for a double-click's second click to start a second player.
+      _loadingSources = true;
+      final bool complete;
+      try {
+        complete = await isFileCompleteOnDisk(ref, localFile);
+      } finally {
+        _loadingSources = false;
+      }
       if (!mounted) return;
       // Still downloading, but already streaming? Hand the player that
       // session rather than asking for a source all over again.
@@ -137,10 +151,22 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
       return;
     }
 
+    if (_loadingSources) return;
+    _loadingSources = true;
+    // Said over the episodes drawer, which this screen does not build — so
+    // a notice rather than the movie page's "Finding sources…" button. The
+    // click otherwise looked dead for the seconds the lookup takes.
+    AppSnackBar.showInfo(
+      context,
+      message: 'Finding sources for ${episode.episodeCode}…',
+      duration: AppSnackBar.maxDuration,
+    );
+
     // Straight to the service: the cached provider retries a failure for
     // ~40 s before reporting it, which read as a dead click.
     final torrentio = ref.read(torrentioApiServiceProvider);
-    final List<TorrentioStream> streams;
+    List<TorrentioStream>? streams;
+    Object? failure;
     try {
       streams = (await torrentio.getSeriesStreams(
         imdbId,
@@ -148,16 +174,21 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
         episode: episode.episodeNumber,
       )).streams;
     } catch (e) {
-      if (!mounted) return;
+      failure = e;
+    } finally {
+      _loadingSources = false;
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
+
+    if (failure != null) {
       AppSnackBar.showError(
         context,
-        message: friendlyErrorMessage(e, subject: 'sources'),
+        message: friendlyErrorMessage(failure, subject: 'sources'),
       );
       return;
     }
-    if (!mounted) return;
-
-    if (streams.isEmpty) {
+    if (streams == null || streams.isEmpty) {
       AppSnackBar.showInfo(
         context,
         message: 'No sources found for ${episode.episodeCode} yet.',
@@ -209,11 +240,13 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
         season: episode.seasonNumber,
         episode: episode.episodeNumber,
         onTryAnotherSource: () => unawaited(_openSources(episode, show)),
-        openPlayer: (file, session) => VideoPlayerScreen.fromSession(
-          file: file,
-          session: session,
-          showImdbId: show.imdbId,
-        ),
+        openPlayer: (file, session, {required canTryAnotherSource}) =>
+            VideoPlayerScreen.fromSession(
+              file: file,
+              session: session,
+              canTryAnotherSource: canTryAnotherSource,
+              showImdbId: show.imdbId,
+            ),
       ),
     );
   }
@@ -237,6 +270,14 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
     return DetailsPageScaffold<Show>(
       value: showAsync,
       subject: 'this show',
+      preview: DetailsPreview(
+        title: widget.show.name,
+        year: widget.show.year,
+        posterUrl: widget.show.posterUrl,
+        backdropUrl: widget.show.backdropUrl,
+        hue: hueForId(widget.show.id),
+        placeholderIcon: Icons.live_tv_rounded,
+      ),
       onRetry: () => ref.invalidate(showDetailsProvider(widget.show.id)),
       onOpenSettings: _openSettings,
       headerActions: (show) => Consumer(
@@ -345,18 +386,16 @@ class _ShowDetailsScreenState extends ConsumerState<ShowDetailsScreen>
             .take(2)
             .map((g) => MediaHubMetaPill(label: g, color: AppColors.accent)),
       ],
-      // The single way into the episode list.
       primaryAction: Wrap(
         spacing: AppSpacing.sm,
         runSpacing: AppSpacing.sm,
         children: [
+          // Continue where the viewer left off, and the episode list.
           if (show.seasons.isNotEmpty)
-            EditorialButton(
-              label: 'Browse episodes',
-              icon: Icons.play_arrow_rounded,
-              kind: EditorialButtonKind.accent,
-              large: true,
-              onPressed: () =>
+            ShowEpisodeActions(
+              show: show,
+              onPlay: (episode) => unawaited(_onEpisodeTap(episode, show)),
+              onBrowse: () =>
                   unawaited(_openEpisodesDrawer(show, show.seasons)),
             )
           else

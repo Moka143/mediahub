@@ -163,11 +163,7 @@ class MoviesBrowseConfig extends BrowseConfig<Movie> {
       year: item.year,
       // The chip the feed is filtered by, else the title's own first genre:
       // by name on a details record, by id on a list record.
-      genre: genre.isAll
-          ? (item.genres.isNotEmpty
-                ? item.genres.first
-                : firstGenreName(item.genreIds, tv: false))
-          : genre.label,
+      genre: genre.isAll ? item.primaryGenre : genre.label,
       rating: ratingLabel(item.voteAverage, voteCount: item.voteCount),
       hue: hueForId(item.id),
       metaSuffix: item.runtimeFormatted?.toUpperCase() ?? 'MOVIE',

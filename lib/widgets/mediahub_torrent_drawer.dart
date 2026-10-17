@@ -35,7 +35,8 @@ TorrentioStream? bestSource(List<TorrentioStream> streams) {
 /// Layout:
 ///   * Header — "CHOOSE A SOURCE" kicker + title + subtitle + ✕
 ///   * Quality filter row (`All` / `2160p` / `1080p` / `720p`) + sort
-///   * Source rows grouped by quality tier; the best one carries ★ Best
+///   * The best source first, under "Recommended", with ★ Best; then the
+///     rest grouped by quality tier
 ///   * Footer — source count + sort + Cancel
 class MediaHubTorrentDrawer extends StatefulWidget {
   const MediaHubTorrentDrawer({
@@ -152,9 +153,51 @@ class _MediaHubTorrentDrawerState extends State<MediaHubTorrentDrawer> {
   }
 }
 
-/// Sources grouped by quality tier (2160p / 1080p / 720p / 480p / Other)
-/// under a small header per tier. Within a tier the parent's sort order is
-/// kept.
+/// A tier header in [sourceListItems]: the tier's label and how many rows
+/// follow it.
+typedef SourceTierHeader = ({String tier, int count});
+
+/// Label of the tier that holds only the [bestSource].
+const String recommendedTier = 'Recommended';
+
+/// [filtered] as one flat list of [SourceTierHeader]s and the
+/// [TorrentioStream]s under each, for a single lazy list.
+///
+/// [best], when it is among [filtered], leads under [recommendedTier] and is
+/// left out of its own tier. Tiers run 2160p first, so a best source at
+/// 1080p sat below every 4K row — often out of sight. Within a tier the
+/// order of [filtered] is kept.
+List<Object> sourceListItems(
+  List<TorrentioStream> filtered, {
+  TorrentioStream? best,
+}) {
+  const tierOrder = ['2160p', '1080p', '720p', '480p', 'Other'];
+  String tierOf(TorrentioStream s) =>
+      s.mediaQuality.isResolution ? s.mediaQuality.label : 'Other';
+
+  final pinned = best != null && filtered.any((s) => identical(s, best));
+  final groups = <String, List<TorrentioStream>>{};
+  for (final s in filtered) {
+    if (pinned && identical(s, best)) continue;
+    groups.putIfAbsent(tierOf(s), () => <TorrentioStream>[]).add(s);
+  }
+
+  final items = <Object>[];
+  if (pinned) {
+    items
+      ..add((tier: recommendedTier, count: 1))
+      ..add(best);
+  }
+  for (final tier in tierOrder.where(groups.containsKey)) {
+    final rows = groups[tier]!;
+    items
+      ..add((tier: tier, count: rows.length))
+      ..addAll(rows);
+  }
+  return items;
+}
+
+/// Sources under a small header per tier — see [sourceListItems].
 class _GroupedSourceList extends StatelessWidget {
   const _GroupedSourceList({
     required this.filtered,
@@ -166,27 +209,9 @@ class _GroupedSourceList extends StatelessWidget {
   final TorrentioStream? best;
   final void Function(TorrentioStream, bool isStreaming) onPick;
 
-  /// Resolution tier, or "Other" for source-only tags (BluRay, WEB-DL…)
-  /// and anything unrecognised — the same rules the sorter ranks by.
-  String _tier(TorrentioStream s) =>
-      s.mediaQuality.isResolution ? s.mediaQuality.label : 'Other';
-
   @override
   Widget build(BuildContext context) {
-    const tierOrder = ['2160p', '1080p', '720p', '480p', 'Other'];
-    final groups = <String, List<TorrentioStream>>{};
-    for (final s in filtered) {
-      groups.putIfAbsent(_tier(s), () => <TorrentioStream>[]).add(s);
-    }
-
-    // One flat list of headers and rows, so a single lazy ListView serves.
-    final items = <Object>[];
-    for (final tier in tierOrder.where(groups.containsKey)) {
-      final rows = groups[tier]!;
-      items.add((tier: tier, count: rows.length));
-      items.addAll(rows);
-    }
-
+    final items = sourceListItems(filtered, best: best);
     return ListView.builder(
       padding: const EdgeInsets.all(AppSpacing.md),
       itemCount: items.length,
@@ -199,7 +224,7 @@ class _GroupedSourceList extends StatelessWidget {
             onPick: onPick,
           );
         }
-        final header = item as ({String tier, int count});
+        final header = item as SourceTierHeader;
         return _TierHeader(label: header.tier, count: header.count);
       },
     );
@@ -216,8 +241,11 @@ class _TierHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     // The same colour as the quality badges on the rows below it — the
     // header used to take a Material scheme colour of its own, so a green
-    // "2160p" header sat over orange 2160p badges.
-    final accent = qualityTone(MediaQuality.fromText(label));
+    // "2160p" header sat over orange 2160p badges. The recommended source
+    // takes the app accent, like its ★ Best badge.
+    final accent = label == recommendedTier
+        ? AppColors.accent
+        : qualityTone(MediaQuality.fromText(label));
     return Padding(
       padding: const EdgeInsets.only(top: AppSpacing.sm, bottom: AppSpacing.xs),
       child: Row(

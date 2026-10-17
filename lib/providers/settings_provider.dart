@@ -291,6 +291,13 @@ class SettingsNotifier extends Notifier<AppSettings> {
     await _saveSettings();
   }
 
+  /// How the player decodes video. Applied to the file playing now as well
+  /// as to the next one.
+  Future<void> setVideoDecoding(VideoDecoding decoding) async {
+    state = state.copyWith(videoDecoding: decoding);
+    await _saveSettings();
+  }
+
   /// Update next episode countdown seconds
   Future<void> setNextEpisodeCountdownSeconds(int seconds) async {
     state = state.copyWith(nextEpisodeCountdownSeconds: seconds);
@@ -411,6 +418,11 @@ final hasCompletedOnboardingProvider =
 /// Provider for binge watching enabled
 final bingeWatchingEnabledProvider = Provider<bool>((ref) {
   return ref.watch(settingsProvider).bingeWatchingEnabled;
+});
+
+/// How the player decodes video — see [VideoDecoding].
+final videoDecodingProvider = Provider<VideoDecoding>((ref) {
+  return ref.watch(settingsProvider).videoDecoding;
 });
 
 /// Provider for next episode countdown seconds

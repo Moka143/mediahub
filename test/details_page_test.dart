@@ -10,6 +10,7 @@ Future<void> _pushPage(
   AsyncValue<String> value, {
   VoidCallback? onRetry,
   bool settle = true,
+  DetailsPreview? preview,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -21,6 +22,7 @@ Future<void> _pushPage(
                 builder: (_) => DetailsPageScaffold<String>(
                   value: value,
                   subject: 'this movie',
+                  preview: preview,
                   onRetry: onRetry ?? () {},
                   builder: (context, data) => Text('loaded: $data'),
                 ),
@@ -69,6 +71,27 @@ void main() {
 
   testWidgets('Back is there while it is still loading', (tester) async {
     await _pushPage(tester, const AsyncValue.loading(), settle: false);
+    expect(find.byTooltip('Back'), findsOneWidget);
+  });
+
+  testWidgets('while loading, the title the card showed is on the page '
+      'already', (tester) async {
+    // A bare spinner, though the card that opened the page had the poster
+    // and the title.
+    await _pushPage(
+      tester,
+      const AsyncValue.loading(),
+      settle: false,
+      preview: const DetailsPreview(
+        title: 'Arrival',
+        year: '2016',
+        posterUrl: null,
+        backdropUrl: null,
+        hue: 200,
+      ),
+    );
+    expect(find.text('Arrival'), findsOneWidget);
+    expect(find.text('Loading…'), findsOneWidget);
     expect(find.byTooltip('Back'), findsOneWidget);
   });
 

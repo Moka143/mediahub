@@ -147,11 +147,13 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
           if (mounted) setState(() => _isStreaming = false);
         },
         onTryAnotherSource: () => unawaited(_openSources(movie)),
-        openPlayer: (file, session) => VideoPlayerScreen.fromSession(
-          file: file,
-          session: session,
-          movieImdbId: movie.imdbId,
-        ),
+        openPlayer: (file, session, {required canTryAnotherSource}) =>
+            VideoPlayerScreen.fromSession(
+              file: file,
+              session: session,
+              canTryAnotherSource: canTryAnotherSource,
+              movieImdbId: movie.imdbId,
+            ),
       ),
     );
   }
@@ -173,6 +175,13 @@ class _MovieDetailsScreenState extends ConsumerState<MovieDetailsScreen>
     return DetailsPageScaffold<Movie>(
       value: movieAsync,
       subject: 'this movie',
+      preview: DetailsPreview(
+        title: widget.movie.title,
+        year: widget.movie.year,
+        posterUrl: widget.movie.posterUrl,
+        backdropUrl: widget.movie.backdropUrl,
+        hue: hueForId(widget.movie.id),
+      ),
       onRetry: () => ref.invalidate(movieDetailsProvider(widget.movie.id)),
       onOpenSettings: _openSettings,
       headerActions: (movie) => Consumer(

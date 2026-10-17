@@ -164,6 +164,7 @@ void main() {
         file: film,
         isStreaming: true,
         streamingProxyUrl: proxyUrl,
+        canTryAnotherSource: true,
       ),
     );
 
@@ -175,6 +176,27 @@ void main() {
     await tester.tap(find.text('Try another source'));
     await tester.pumpAndSettle();
     expect(await popped, PlayerExitReason.tryAnotherSource);
+    await unmount(tester);
+  });
+
+  testWidgets('a stream whose opener has no source picker offers Retry, not '
+      'another source', (tester) async {
+    // Next-episode autoplay, Resume and the app shell open the player too;
+    // there "Try another source" only closed it.
+    await pushPlayer(
+      tester,
+      VideoPlayerScreen(
+        file: film,
+        isStreaming: true,
+        streamingProxyUrl: proxyUrl,
+      ),
+    );
+
+    player.emitLog('stream', 'error', 'Failed to open $proxyUrl.');
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Try another source'), findsNothing);
+    expect(find.text('Retry'), findsOneWidget);
     await unmount(tester);
   });
 

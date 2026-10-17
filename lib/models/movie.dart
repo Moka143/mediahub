@@ -1,4 +1,5 @@
 import 'cast_member.dart';
+import 'tmdb_genres.dart';
 import 'tmdb_json.dart';
 import 'video.dart';
 
@@ -87,6 +88,11 @@ class Movie {
   String? get year => releaseDate != null && releaseDate!.length >= 4
       ? releaseDate!.substring(0, 4)
       : null;
+
+  /// The genre a card names: the first full name when the details fetch
+  /// supplied them, else the first id a list endpoint gave.
+  String? get primaryGenre =>
+      genres.isNotEmpty ? genres.first : firstGenreName(genreIds, tv: false);
 
   /// Get formatted runtime (e.g., "2h 15m")
   String? get runtimeFormatted {

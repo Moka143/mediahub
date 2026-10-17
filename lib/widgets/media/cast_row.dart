@@ -5,6 +5,7 @@ import '../../design/app_colors.dart';
 import '../../design/app_tokens.dart';
 import '../../design/app_typography.dart';
 import '../../models/cast_member.dart';
+import '../details/detail_shell.dart' show HoverScrollRow;
 
 /// Horizontal scroller of cast cards.
 ///
@@ -26,18 +27,17 @@ class CastRow extends StatelessWidget {
     final sorted = [...cast]..sort((a, b) => a.order.compareTo(b.order));
     final items = sorted.take(maxItems).toList();
 
-    return SizedBox(
+    // Arrows and a fade on the side with more: twelve cards run past most
+    // windows, a mouse wheel scrolls the page rather than the row, and a
+    // headshot cut off at the edge with no hint read as clipped layout.
+    return HoverScrollRow(
       height: 180,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        physics: const ClampingScrollPhysics(),
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.detailPadding,
-        ),
-        itemCount: items.length,
-        separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.md),
-        itemBuilder: (_, i) => _CastCard(member: items[i]),
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.detailPadding),
+      restingOpacity: 1,
+      alwaysShowArrows: true,
+      fadeEdges: true,
+      itemCount: items.length,
+      itemBuilder: (_, i) => _CastCard(member: items[i]),
     );
   }
 }

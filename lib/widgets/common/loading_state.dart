@@ -36,6 +36,34 @@ class LoadingIndicator extends StatelessWidget {
   }
 }
 
+/// A 2 px accent progress line — "something is loading here" where a
+/// spinner would be too much: over a placeholder grid, under a search bar.
+///
+/// [slot] keeps the line's room even while nothing loads, so the content
+/// around it does not jump when it appears.
+class ThinProgressLine extends StatelessWidget {
+  const ThinProgressLine({super.key, this.track = AppColors.line});
+
+  /// A slot of the line's height that shows the line only while [busy],
+  /// over a clear track.
+  static Widget slot({required bool busy}) => SizedBox(
+    height: height,
+    child: busy ? const ThinProgressLine(track: Colors.transparent) : null,
+  );
+
+  static const double height = 2;
+
+  /// Colour of the unfilled part.
+  final Color track;
+
+  @override
+  Widget build(BuildContext context) => LinearProgressIndicator(
+    minHeight: height,
+    color: AppColors.accent,
+    backgroundColor: track,
+  );
+}
+
 /// Skeleton loading list for torrents.
 class TorrentSkeletonList extends StatelessWidget {
   const TorrentSkeletonList({super.key, this.itemCount = 5});
@@ -112,8 +140,14 @@ class _ShimmerLoadingState extends State<_ShimmerLoading>
   }
 }
 
-class _SkeletonBox extends StatelessWidget {
-  const _SkeletonBox({this.width, this.height = 16, this.borderRadius});
+/// A placeholder bar for text or a control that is still loading.
+class SkeletonBox extends StatelessWidget {
+  const SkeletonBox({
+    super.key,
+    this.width,
+    this.height = 16,
+    this.borderRadius,
+  });
 
   final double? width;
   final double height;
@@ -154,7 +188,7 @@ class _SkeletonTorrentItem extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _SkeletonBox(
+              SkeletonBox(
                 width: 10,
                 height: 10,
                 borderRadius: BorderRadius.circular(AppRadius.full),
@@ -164,16 +198,16 @@ class _SkeletonTorrentItem extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const _SkeletonBox(height: 16),
+                    const SkeletonBox(height: 16),
                     const SizedBox(height: AppSpacing.xs),
-                    const _SkeletonBox(width: 80, height: 20),
+                    const SkeletonBox(width: 80, height: 20),
                   ],
                 ),
               ),
             ],
           ),
           const SizedBox(height: AppSpacing.lg),
-          _SkeletonBox(
+          SkeletonBox(
             height: 6,
             borderRadius: BorderRadius.circular(AppRadius.full),
           ),
@@ -181,9 +215,9 @@ class _SkeletonTorrentItem extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: const [
-              _SkeletonBox(width: 60, height: 12),
-              _SkeletonBox(width: 80, height: 12),
-              _SkeletonBox(width: 70, height: 12),
+              SkeletonBox(width: 60, height: 12),
+              SkeletonBox(width: 80, height: 12),
+              SkeletonBox(width: 70, height: 12),
             ],
           ),
         ],
