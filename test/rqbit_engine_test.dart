@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mediahub/services/rqbit_engine.dart';
 import 'package:mediahub/utils/constants.dart';
@@ -363,5 +365,66 @@ void main() {
         expect(await engine.ensureInOrderDownload('abc'), isTrue);
       },
     );
+  });
+
+  group('prefetchHead', () {
+    late HttpServer server;
+    late RqbitEngine engine;
+    final requests = <HttpRequest>[];
+
+    setUp(() async {
+      requests.clear();
+      server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      engine = RqbitEngine(port: server.port);
+    });
+    tearDown(() async {
+      engine.dispose();
+      await server.close(force: true);
+    });
+
+    test('reads the start of the file through its stream', () async {
+      server.listen((request) async {
+        requests.add(request);
+        request.response
+          ..statusCode = HttpStatus.partialContent
+          ..add(List.filled(16, 1));
+        await request.response.close();
+      });
+
+      final prefetch = engine.prefetchHead('ABCDEF', 2, bytes: 16);
+      await prefetch.done.timeout(const Duration(seconds: 3));
+
+      expect(requests.single.uri.path, '/torrents/abcdef/stream/2');
+      expect(requests.single.headers.value('range'), 'bytes=0-15');
+    });
+
+    test('cancel ends a read the engine is still holding open', () async {
+      // rqbit holds the body open until the pieces exist.
+      server.listen((request) async {
+        requests.add(request);
+        request.response
+          ..statusCode = HttpStatus.partialContent
+          ..contentLength = 16;
+        await request.response.flush();
+      });
+
+      final prefetch = engine.prefetchHead('abcdef', 0, bytes: 16);
+      while (requests.isEmpty) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      prefetch.cancel();
+      await prefetch.done.timeout(const Duration(seconds: 3));
+    });
+
+    test('a refusal ends the read instead of throwing', () async {
+      // 412 while the torrent is still initialising.
+      server.listen((request) async {
+        request.response.statusCode = HttpStatus.preconditionFailed;
+        await request.response.close();
+      });
+
+      final prefetch = engine.prefetchHead('abcdef', 0, bytes: 16);
+      await prefetch.done.timeout(const Duration(seconds: 3));
+    });
   });
 }

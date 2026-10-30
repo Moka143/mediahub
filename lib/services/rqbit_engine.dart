@@ -533,6 +533,42 @@ class RqbitEngine extends TorrentEngine {
   String? streamUrl(String hash, int fileIndex) =>
       '$baseUrl/torrents/${hash.toLowerCase()}/stream/$fileIndex';
 
+  /// A ranged read of the stream, drained as it arrives. rqbit holds it open
+  /// until the pieces exist, so it fails by `receiveTimeout` when nothing
+  /// comes — the caller starts another on its next poll.
+  @override
+  HeadPrefetch prefetchHead(String hash, int fileIndex, {required int bytes}) {
+    final cancelToken = CancelToken();
+    Future<void> read() async {
+      try {
+        final response = await _dio.get<ResponseBody>(
+          '/torrents/${hash.toLowerCase()}/stream/$fileIndex',
+          options: Options(
+            responseType: ResponseType.stream,
+            headers: {'Range': 'bytes=0-${bytes - 1}'},
+          ),
+          cancelToken: cancelToken,
+        );
+        final body = response.data;
+        final code = response.statusCode;
+        if (body == null) return;
+        if (code != 200 && code != 206) {
+          // 412 while the torrent is still initialising. Not worth a log line
+          // every poll; close the body so the connection is freed.
+          await body.stream.listen(null).cancel();
+          return;
+        }
+        await body.stream.drain<void>();
+      } catch (e) {
+        if (e is! DioException || !CancelToken.isCancel(e)) {
+          _log('Head prefetch $hash/$fileIndex ended: $e');
+        }
+      }
+    }
+
+    return HeadPrefetch(done: read(), cancel: cancelToken.cancel);
+  }
+
   /// Expand rqbit's `haves` bitfield into the 0/1/2 vector the app uses.
   ///
   /// Sent as `Accept: application/octet-stream`, the endpoint answers the raw

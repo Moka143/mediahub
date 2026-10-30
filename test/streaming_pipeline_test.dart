@@ -193,6 +193,31 @@ class _FakeEngine extends TorrentEngine {
   @override
   String? streamUrl(String hash, int fileIndex) => engineStreamUrl;
 
+  /// Whether [prefetchHead] answers, as rqbit does, or declines.
+  bool prefetches = false;
+
+  /// The file index of each [prefetchHead] call.
+  final List<int> prefetchCalls = [];
+
+  /// The last read started, until it ends.
+  Completer<void>? openPrefetch;
+  int cancelledPrefetches = 0;
+
+  @override
+  HeadPrefetch? prefetchHead(String hash, int fileIndex, {required int bytes}) {
+    if (!prefetches) return null;
+    prefetchCalls.add(fileIndex);
+    final read = openPrefetch = Completer<void>();
+    return HeadPrefetch(
+      done: read.future,
+      cancel: () {
+        if (read.isCompleted) return;
+        cancelledPrefetches++;
+        read.complete();
+      },
+    );
+  }
+
   @override
   Future<List<int>?> getPieceStates(String hash) async => pieceStates;
 
@@ -594,6 +619,69 @@ void main() {
         );
       },
     );
+
+    group('pulling the head forward', () {
+      // A pack queued in full, so E01 stays wanted: rqbit fetches files in
+      // name order unless something reads one, so E02 waited behind E01.
+      // Each file is two pieces of 4 bytes; E02 starts at piece 2.
+      _FakeEngine packEngine() =>
+          _FakeEngine(
+              files: [
+                _file(0, 'Show/E01.mkv', size: 8),
+                _file(1, 'Show/E02.mkv', size: 8),
+              ],
+              torrentPresentBeforeAdd: true,
+            )
+            ..prefetches = true
+            ..pieceSize = 4
+            ..pieceStates = [2, 2, 0, 0]
+            ..engineStreamUrl = 'http://fake/stream/1';
+
+      test('reads the episode asked for, once, until its head is down, '
+          'then stops', () async {
+        final engine = packEngine();
+        final service = _service(engine);
+
+        final session = await service.startStreamingRequest(
+          request: _pack(fileIdx: 1),
+        );
+        await _until(() => engine.prefetchCalls.isNotEmpty);
+        // Several polls with the read still open.
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        expect(engine.prefetchCalls, [1]);
+        expect(service.getSession(session.id)!.state, StreamingState.buffering);
+
+        engine.pieceStates = [2, 2, 2, 0];
+        await _until(
+          () => service.getSession(session.id)?.state == StreamingState.ready,
+        );
+        expect(engine.cancelledPrefetches, 1);
+      });
+
+      test('a read that ended short of the head is started again', () async {
+        final engine = packEngine();
+        final service = _service(engine);
+
+        await service.startStreamingRequest(request: _pack(fileIdx: 1));
+        await _until(() => engine.prefetchCalls.isNotEmpty);
+        engine.openPrefetch!.complete(); // refused, or timed out
+
+        await _until(() => engine.prefetchCalls.length == 2);
+        expect(engine.prefetchCalls, [1, 1]);
+      });
+
+      test('cancelling the session stops the read', () async {
+        final engine = packEngine();
+        final service = _service(engine);
+
+        final session = await service.startStreamingRequest(
+          request: _pack(fileIdx: 1),
+        );
+        await _until(() => engine.prefetchCalls.isNotEmpty);
+        await service.cancelSession(session.id);
+        expect(engine.cancelledPrefetches, 1);
+      });
+    });
 
     test('a stream queued behind other downloads is started now, and handed '
         'back to the queue when it ends', () async {

@@ -65,6 +65,10 @@ class _SessionTracking {
   /// This session took the torrent out of the engine's download queue, and
   /// puts it back when it ends. See [TorrentEngine.setForceStart].
   bool forcedStart = false;
+
+  /// The read pulling the head of the selected file forward, while one is
+  /// open. See [TorrentEngine.prefetchHead].
+  HeadPrefetch? headPrefetch;
 }
 
 /// Runs streaming sessions: adds the torrent, waits for its metadata, picks
@@ -266,7 +270,10 @@ class StreamingService {
 
     final tracking = _tracking.remove(sessionId);
     tracking?.loop?.dispose();
-    if (tracking != null) _releaseForceStart(sessionId, session, tracking);
+    if (tracking != null) {
+      _stopHeadPrefetch(tracking);
+      _releaseForceStart(sessionId, session, tracking);
+    }
 
     // Tear down the local HTTP proxy if one was started for this session.
     await _streamingServers.remove(sessionId)?.stop();
@@ -693,8 +700,10 @@ class StreamingService {
     );
 
     // Stop readiness monitoring. The player tracks the download edge while
-    // playback continues.
-    _tracking[sessionId]?.loop?.stop();
+    // playback continues, and its own read keeps the engine on this file.
+    final tracking = _tracking[sessionId];
+    tracking?.loop?.stop();
+    if (tracking != null) _stopHeadPrefetch(tracking);
   }
 
   /// Distinguishes concurrent proxies in the log: the session being watched
@@ -752,6 +761,8 @@ class StreamingService {
       await _promoteToReady(sessionId, torrent, fileList);
       return;
     }
+
+    _prefetchHead(tracking, torrent.hash, idx);
 
     if (!torrent.sequentialDownload && _engine.capabilities.pieceLevelControl) {
       AppLog.d(
@@ -870,6 +881,33 @@ class StreamingService {
     return ready;
   }
 
+  /// Keep a read open on the head of the selected file until it is down, for
+  /// an engine that only orders pieces for a reader. One that ended without
+  /// it — refused while initialising, timed out — is started again here on
+  /// the next poll.
+  void _prefetchHead(_SessionTracking tracking, String hash, int idx) {
+    if (tracking.headPrefetch != null) return;
+    final prefetch = _engine.prefetchHead(
+      hash,
+      idx,
+      bytes: LocalStreamingServer.prefixProbeBytes,
+    );
+    if (prefetch == null) return;
+    tracking.headPrefetch = prefetch;
+    unawaited(
+      prefetch.done.whenComplete(() {
+        if (identical(tracking.headPrefetch, prefetch)) {
+          tracking.headPrefetch = null;
+        }
+      }),
+    );
+  }
+
+  static void _stopHeadPrefetch(_SessionTracking tracking) {
+    tracking.headPrefetch?.cancel();
+    tracking.headPrefetch = null;
+  }
+
   void _fail(String sessionId, String message) {
     AppLog.w('[StreamingService] Session $sessionId failed: $message');
     _updateSession(
@@ -879,6 +917,7 @@ class StreamingService {
     final tracking = _tracking[sessionId];
     tracking?.loop?.stop();
     tracking?.buffer = null;
+    if (tracking != null) _stopHeadPrefetch(tracking);
     final session = _sessions[sessionId];
     if (tracking != null && session != null) {
       _releaseForceStart(sessionId, session, tracking);
@@ -951,6 +990,7 @@ class StreamingService {
   void dispose() {
     for (final tracking in _tracking.values) {
       tracking.loop?.dispose();
+      _stopHeadPrefetch(tracking);
     }
     _tracking.clear();
 

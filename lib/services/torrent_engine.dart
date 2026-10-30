@@ -66,6 +66,21 @@ class EngineCapabilities {
   });
 }
 
+/// A read started by [TorrentEngine.prefetchHead].
+class HeadPrefetch {
+  HeadPrefetch({required this.done, required void Function() cancel})
+    : _cancel = cancel;
+
+  /// Completes when the read ends, however it ends: the bytes arrived, the
+  /// engine refused or timed out, or [cancel] was called. Never errors.
+  final Future<void> done;
+
+  final void Function() _cancel;
+
+  /// Stop reading. Safe to call more than once, or after [done].
+  void cancel() => _cancel();
+}
+
 /// The torrent backend, as the rest of the app sees it.
 ///
 /// Extracted so the backend can be swapped without touching the ~98 call
@@ -202,6 +217,23 @@ abstract class TorrentEngine {
   /// open rather than serving zeros — i.e. to do natively what the proxy
   /// approximates.
   String? streamUrl(String hash, int fileIndex) => null;
+
+  /// Read the first [bytes] of [fileIndex] through [streamUrl] and throw them
+  /// away, so the engine fetches them ahead of everything else.
+  ///
+  /// rqbit puts a file's pieces first only while something reads its stream.
+  /// Until then it works through the torrent's files in name order — so in a
+  /// season pack still downloading in full, E04 waited behind E01–E03 while
+  /// the card said "Connecting…" at full speed, and the player, which waits
+  /// for the head, did not open until the episode had all but finished.
+  ///
+  /// Null when the engine needs no reader to order pieces — the default, and
+  /// qBittorrent's answer: [ensureInOrderDownload] steers it instead.
+  HeadPrefetch? prefetchHead(
+    String hash,
+    int fileIndex, {
+    required int bytes,
+  }) => null;
 
   /// Per-piece download state: 0 = missing, 1 = downloading, 2 = downloaded.
   ///
